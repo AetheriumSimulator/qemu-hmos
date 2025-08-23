@@ -25,37 +25,43 @@ struct Index {
     }
   }
 
-  private buildSidebarItem(label: string, icon: Resource, idx: number) {
-    Row() {
-      Image(icon).width(28).height(28).margin({ right: 12 })
-      Text(label).fontSize(16)
-        .fontWeight(this.currentIndex === idx ? FontWeight.Medium : FontWeight.Regular)
-        .fontColor(this.currentIndex === idx ? '#1a73e8' : '#1f1f1f')
+  @Builder
+  buildSidebarItem(label: string, icon: Resource, idx: number) {
+    // 紧凑的图标+下方文字，减少纵向间距，弱化对主题色依赖，自动适配深/浅色
+    Column() {
+      Image(icon)
+        .width(22)
+        .height(22)
+      Text(label)
+        .fontSize(10)
+        .maxLines(1)
+        .textAlign(TextAlign.Center)
+        .margin({ top: 2 })
     }
-    .height(60)
     .width('100%')
-    .padding({ left: 16, right: 12 })
-    .borderRadius(12)
-    .backgroundColor(this.currentIndex === idx ? '#E8F0FE' : 'transparent')
-    .margin({ bottom: 4 })
-    .alignItems(VerticalAlign.Center)
+    .height(44)
+    .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+    .borderRadius(10)
+    .backgroundColor(this.currentIndex === idx ? 'rgba(26,115,232,0.12)' : 'transparent')
+    .margin({ bottom: 2 })
+    .alignItems(HorizontalAlign.Center)
     .onClick(() => this.currentIndex = idx)
   }
 
   build() {
     if (this.isWide) {
-      // 回退到稳定的自定义侧边栏（图标+文字），保证显示正常
+      // 左窄栏（紧凑图标列），右内容区
       Row() {
-        // 左侧导航
+        // 左侧导航（紧凑）
         Column() {
           this.buildSidebarItem('虚拟机', $r('app.media.vm_tab'), 0)
           this.buildSidebarItem('应用',   $r('app.media.apps_tab'), 1)
           this.buildSidebarItem('我的',   $r('app.media.mine_tab'), 2)
         }
-        .width(240)
-        .padding({ top: 12, bottom: 12, left: 12, right: 12 })
-        .backgroundColor('#FFFFFF')
+        .width(72)
+        .padding({ top: 8, bottom: 8, left: 4, right: 4 })
         .height('100%')
+        .alignItems(HorizontalAlign.Center)
 
         // 右侧内容区
         Column() {
@@ -63,23 +69,23 @@ struct Index {
           if (this.currentIndex === 1) { AppsPage() }
           if (this.currentIndex === 2) { MinePage() }
         }
-        .width('1fr')
+        .layoutWeight(1)
         .height('100%')
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F7F8FA')
+      // 不强制背景色，跟随系统深/浅模式
     } else {
       // 窄屏：保留底部Tabs
       Tabs({ index: this.currentIndex, barPosition: BarPosition.End, controller: this.tabsController }) {
         TabContent() { VMsPage() }
-        .tabBar({ icon: $r('app.media.vm_tab') })
+        .tabBar({ icon: $r('app.media.vm_tab'), text: '虚拟机' })
 
         TabContent() { AppsPage() }
-        .tabBar({ icon: $r('app.media.apps_tab') })
+        .tabBar({ icon: $r('app.media.apps_tab'), text: '应用' })
 
         TabContent() { MinePage() }
-        .tabBar({ icon: $r('app.media.mine_tab') })
+        .tabBar({ icon: $r('app.media.mine_tab'), text: '我的' })
       }
       .onChange((index: number) => this.currentIndex = index)
       .width('100%')

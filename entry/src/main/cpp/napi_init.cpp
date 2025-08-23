@@ -56,6 +56,25 @@ static napi_value KvmSupported(napi_env env, napi_callback_info info)
     return out;
 }
 
+// --- QEMU 集成占位：start/stop ---
+static napi_value StartVm(napi_env env, napi_callback_info info)
+{
+    // 这里仅做占位，返回 true，后续替换为真正的启动逻辑
+    (void)info;
+    napi_value out;
+    napi_get_boolean(env, true, &out);
+    return out;
+}
+
+static napi_value StopVm(napi_env env, napi_callback_info info)
+{
+    // 这里仅做占位，返回 true
+    (void)info;
+    napi_value out;
+    napi_get_boolean(env, true, &out);
+    return out;
+}
+
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
@@ -63,6 +82,8 @@ static napi_value Init(napi_env env, napi_value exports)
         { "version", nullptr, GetVersion, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "enableJit", nullptr, EnableJit, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "kvmSupported", nullptr, KvmSupported, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "startVm", nullptr, StartVm, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "stopVm", nullptr, StopVm, nullptr, nullptr, nullptr, napi_default, nullptr },
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     return exports;
