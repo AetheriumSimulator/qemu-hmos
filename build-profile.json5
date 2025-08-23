@@ -1,0 +1,56 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/caidingding233/.ohos/config/default_qemu-hmos_gaCZMLaKqQc75ETGrgAKBQG1dQtAn79dtIG67TryiyI=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001A642F4078C3FC360B659F7286D30241E7DE74160EA090C4D4856DC1E4D09F20B19882E304E6BE",
+          "profile": "/Users/caidingding233/.ohos/config/default_qemu-hmos_gaCZMLaKqQc75ETGrgAKBQG1dQtAn79dtIG67TryiyI=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/caidingding233/.ohos/config/default_qemu-hmos_gaCZMLaKqQc75ETGrgAKBQG1dQtAn79dtIG67TryiyI=.p12",
+          "storePassword": "0000001ADD7611473041C04FA83BC6B8472244FE5F1E7D2F2B38EBFC111945B01B2DDD6D45D2A87C3696"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "5.1.0(18)",
+        "compatibleSdkVersion": "5.0.5(17)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}
