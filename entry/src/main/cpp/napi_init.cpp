@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
 
 #if defined(__has_include)
 #  if __has_include(<sys/prctl.h>)
@@ -29,17 +30,25 @@ static napi_value GetVersion(napi_env env, napi_callback_info info)
 
 static napi_value EnableJit(napi_env env, napi_callback_info info)
 {
+    (void)info; // unused
+    int err = 0;
     bool success = false;
 #if HAS_PRCTL
     int r = prctl(PRCTL_JIT_ENABLE, 1);
     success = (r == 0);
+    if (!success) {
+        err = errno;
+    }
 #else
-    (void)info; // unused
-    errno = ENOSYS;
-    success = false;
+    err = ENOSYS;
 #endif
+    if (!success) {
+        std::string code = std::to_string(err);
+        napi_throw_error(env, code.c_str(), strerror(err));
+        return nullptr;
+    }
     napi_value out;
-    napi_get_boolean(env, success, &out);
+    napi_get_boolean(env, true, &out);
     return out;
 }
 
@@ -47,12 +56,15 @@ static napi_value KvmSupported(napi_env env, napi_callback_info info)
 {
     (void)info; // unused
     int fd = open("/dev/kvm", O_RDWR);
-    bool ok = (fd >= 0);
-    if (fd >= 0) {
-        close(fd);
+    if (fd < 0) {
+        int err = errno;
+        std::string code = std::to_string(err);
+        napi_throw_error(env, code.c_str(), strerror(err));
+        return nullptr;
     }
+    close(fd);
     napi_value out;
-    napi_get_boolean(env, ok, &out);
+    napi_get_boolean(env, true, &out);
     return out;
 }
 
