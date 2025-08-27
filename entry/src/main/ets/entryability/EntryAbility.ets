@@ -1,6 +1,9 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { AppStorage } from '@kit.ArkUI';
+import { Configuration } from '@kit.AbilityKit';
+import ThemeManager, { ThemeMode } from '../common/ThemeManager';
 
 const DOMAIN = 0x0000;
 
