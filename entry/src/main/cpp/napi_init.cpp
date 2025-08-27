@@ -1,8 +1,12 @@
 #include "napi/native_api.h"
 #include <string>
+#include <vector>
+#include <thread>
+#include <atomic>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
 
 #if defined(__has_include)
 #  if __has_include(<sys/prctl.h>)
@@ -19,6 +23,42 @@
 #define PRCTL_JIT_ENABLE 0x6a6974 // magic from requirements, best-effort attempt
 #endif
 
+extern "C" int qemu_main(int argc, char **argv);
+extern "C" void qemu_system_shutdown_request(int reason);
+static constexpr int SHUTDOWN_CAUSE_HOST = 0;
+
+static std::thread g_qemuThread;
+static std::atomic<bool> g_qemuRunning{false};
+
+static std::vector<std::string> ParseArgs(napi_env env, napi_value config, bool &ok)
+{
+    napi_value argsArray;
+    ok = (napi_get_named_property(env, config, "args", &argsArray) == napi_ok);
+    if (!ok) {
+        return {};
+    }
+    bool isArray = false;
+    napi_is_array(env, argsArray, &isArray);
+    if (!isArray) {
+        ok = false;
+        return {};
+    }
+    uint32_t len = 0;
+    napi_get_array_length(env, argsArray, &len);
+    std::vector<std::string> out;
+    for (uint32_t i = 0; i < len; ++i) {
+        napi_value elem;
+        napi_get_element(env, argsArray, i, &elem);
+        size_t strLen = 0;
+        napi_get_value_string_utf8(env, elem, nullptr, 0, &strLen);
+        std::string s(strLen, '\0');
+        napi_get_value_string_utf8(env, elem, s.data(), s.size() + 1, &strLen);
+        s.resize(strLen);
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+
 static napi_value GetVersion(napi_env env, napi_callback_info info)
 {
     const char* ver = "qemu_hmos_stub_0.1";
@@ -29,17 +69,25 @@ static napi_value GetVersion(napi_env env, napi_callback_info info)
 
 static napi_value EnableJit(napi_env env, napi_callback_info info)
 {
+    (void)info; // unused
+    int err = 0;
     bool success = false;
 #if HAS_PRCTL
     int r = prctl(PRCTL_JIT_ENABLE, 1);
     success = (r == 0);
+    if (!success) {
+        err = errno;
+    }
 #else
-    (void)info; // unused
-    errno = ENOSYS;
-    success = false;
+    err = ENOSYS;
 #endif
+    if (!success) {
+        std::string code = std::to_string(err);
+        napi_throw_error(env, code.c_str(), strerror(err));
+        return nullptr;
+    }
     napi_value out;
-    napi_get_boolean(env, success, &out);
+    napi_get_boolean(env, true, &out);
     return out;
 }
 
@@ -47,29 +95,62 @@ static napi_value KvmSupported(napi_env env, napi_callback_info info)
 {
     (void)info; // unused
     int fd = open("/dev/kvm", O_RDWR);
-    bool ok = (fd >= 0);
-    if (fd >= 0) {
-        close(fd);
+    if (fd < 0) {
+        int err = errno;
+        std::string code = std::to_string(err);
+        napi_throw_error(env, code.c_str(), strerror(err));
+        return nullptr;
     }
+    close(fd);
     napi_value out;
-    napi_get_boolean(env, ok, &out);
+    napi_get_boolean(env, true, &out);
     return out;
 }
 
 // --- QEMU 集成占位：start/stop ---
 static napi_value StartVm(napi_env env, napi_callback_info info)
 {
-    // 这里仅做占位，返回 true，后续替换为真正的启动逻辑
-    (void)info;
-    napi_value out;
-    napi_get_boolean(env, true, &out);
-    return out;
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    napi_value result;
+
+    if (argc < 1 || g_qemuRunning.load()) {
+        napi_get_boolean(env, false, &result);
+        return result;
+    }
+
+    bool ok = false;
+    std::vector<std::string> args = ParseArgs(env, argv[0], ok);
+    if (!ok || args.empty()) {
+        napi_get_boolean(env, false, &result);
+        return result;
+    }
+
+    g_qemuRunning = true;
+    g_qemuThread = std::thread([args]() {
+        std::vector<char*> cargs;
+        for (const auto &s : args) {
+            cargs.push_back(const_cast<char*>(s.c_str()));
+        }
+        qemu_main(static_cast<int>(cargs.size()), cargs.data());
+        g_qemuRunning = false;
+    });
+
+    napi_get_boolean(env, true, &result);
+    return result;
 }
 
 static napi_value StopVm(napi_env env, napi_callback_info info)
 {
-    // 这里仅做占位，返回 true
     (void)info;
+    if (g_qemuRunning.load()) {
+        qemu_system_shutdown_request(SHUTDOWN_CAUSE_HOST);
+        if (g_qemuThread.joinable()) {
+            g_qemuThread.join();
+        }
+        g_qemuRunning = false;
+    }
     napi_value out;
     napi_get_boolean(env, true, &out);
     return out;

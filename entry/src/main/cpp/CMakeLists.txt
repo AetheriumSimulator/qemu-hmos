@@ -8,4 +8,5 @@ include_directories(${NATIVERENDER_ROOT_PATH}
 
 add_library(qemu_hmos SHARED napi_init.cpp)
 
-target_link_libraries(qemu_hmos PUBLIC libace_napi.z.so libhilog_ndk.z.so)
+find_package(Threads REQUIRED)
+target_link_libraries(qemu_hmos PUBLIC libace_napi.z.so libhilog_ndk.z.so Threads::Threads)
