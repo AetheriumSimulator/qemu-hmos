@@ -1,0 +1,3 @@
+/Users/caidingding233/projects/qemu-hmos/entry/src/main/cpp/qemu_test/CMakeFiles/qemu_link_test.dir
+/Users/caidingding233/projects/qemu-hmos/entry/src/main/cpp/qemu_test/CMakeFiles/edit_cache.dir
+/Users/caidingding233/projects/qemu-hmos/entry/src/main/cpp/qemu_test/CMakeFiles/rebuild_cache.dir

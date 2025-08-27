@@ -1,0 +1,29 @@
+{
+  "vm_configs": [
+    {
+      "name": "test_vm_1",
+      "machine_type": "virt",
+      "cpu_type": "cortex-a57",
+      "memory_mb": 256,
+      "kernel_path": null,
+      "initrd_path": null,
+      "cmdline": "console=ttyAMA0 root=/dev/ram0 rdinit=/sbin/init",
+      "description": "基础测试虚拟机配置"
+    },
+    {
+      "name": "test_vm_2",
+      "machine_type": "virt",
+      "cpu_type": "cortex-a53",
+      "memory_mb": 512,
+      "kernel_path": null,
+      "initrd_path": null,
+      "cmdline": "console=ttyAMA0 root=/dev/ram0 rdinit=/sbin/init quiet",
+      "description": "增强配置测试虚拟机"
+    }
+  ],
+  "notes": [
+    "这些配置用于测试 QEMU 虚拟机管理功能",
+    "kernel_path 和 initrd_path 为 null 时将使用 QEMU 内置的测试内核",
+    "实际部署时需要提供真实的内核镜像文件路径"
+  ]
+}

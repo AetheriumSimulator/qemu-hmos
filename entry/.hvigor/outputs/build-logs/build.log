@@ -1,0 +1,27 @@
+[2025-08-28T06:28:20.335] [DEBUG] debug-file - java daemon tryConnect failed Error: connect ECONNREFUSED 127.0.0.1:45050
+[2025-08-28T06:28:20.342] [DEBUG] debug-file - java daemon started at port 45050 pid 56169
+[2025-08-28T06:28:20.113] [DEBUG] debug-file - env: nodejsVersion=v18.20.1
+[2025-08-28T06:28:20.127] [DEBUG] debug-file - env: daemon=true
+[2025-08-28T06:28:20.114] [DEBUG] debug-file - env: hvigor-config.json5 content = {
+  properties: { 'hvigor.dependency.useNpm': true },
+  modelVersion: '',
+  dependencies: {}
+}
+[2025-08-28T06:29:52.295] [DEBUG] debug-file - java daemon tryConnect failed Error: connect ECONNREFUSED 127.0.0.1:45050
+[2025-08-28T06:29:52.299] [DEBUG] debug-file - java daemon started at port 45050 pid 56944
+[2025-08-28T06:29:52.070] [DEBUG] debug-file - env: nodejsVersion=v18.20.1
+[2025-08-28T06:29:52.084] [DEBUG] debug-file - env: daemon=true
+[2025-08-28T06:29:52.072] [DEBUG] debug-file - env: hvigor-config.json5 content = {
+  properties: { 'hvigor.dependency.useNpm': true },
+  modelVersion: '',
+  dependencies: {}
+}
+[2025-08-28T06:31:19.126] [DEBUG] debug-file - java daemon tryConnect failed Error: connect ECONNREFUSED 127.0.0.1:45050
+[2025-08-28T06:31:19.129] [DEBUG] debug-file - java daemon started at port 45050 pid 58758
+[2025-08-28T06:31:18.927] [DEBUG] debug-file - env: nodejsVersion=v18.20.1
+[2025-08-28T06:31:18.939] [DEBUG] debug-file - env: daemon=true
+[2025-08-28T06:31:18.928] [DEBUG] debug-file - env: hvigor-config.json5 content = {
+  properties: { 'hvigor.dependency.useNpm': true },
+  modelVersion: '',
+  dependencies: {}
+}

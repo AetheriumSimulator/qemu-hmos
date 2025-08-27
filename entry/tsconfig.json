@@ -1,0 +1,16 @@
+{
+  "extends": "@arkts/declarations/dist/tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@arkts/declarations"],
+    "lib": ["ESNext"],
+    "experimentalDecorators": true,
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "strictPropertyInitialization": false,
+    "paths": {
+      "*": ["./oh_modules/*"]
+    }
+  }
+}

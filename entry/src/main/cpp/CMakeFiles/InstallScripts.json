@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/caidingding233/projects/qemu-hmos/entry/src/main/cpp/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
