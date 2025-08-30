@@ -16,6 +16,7 @@ const PREFS_NAME: string = 'downloads';
 
 class DownloadManager {
   private tasks: Map<string, DownloadTaskInfo> = new Map();
+  private nextId: number = 0;
   private pref?: data_preferences.Preferences;
   private listeners: ((tasks: DownloadTaskInfo[]) => void)[] = [];
   private context: any;
@@ -28,7 +29,13 @@ class DownloadManager {
     this.pref = await data_preferences.getPreferences(this.context, PREFS_NAME);
     const raw = await this.pref.get('tasks', '[]');
     const list: DownloadTaskInfo[] = JSON.parse(raw as string);
-    list.forEach(t => this.tasks.set(t.id, t));
+    list.forEach(t => {
+      this.tasks.set(t.id, t);
+      const parsed = Number(t.id);
+      if (!Number.isNaN(parsed)) {
+        this.nextId = Math.max(this.nextId, parsed + 1);
+      }
+    });
     this.emit();
   }
 
@@ -54,7 +61,7 @@ class DownloadManager {
   }
 
   async enqueue(url: string, path: string) {
-    const id = `${Date.now()}`;
+    const id = `${this.nextId++}`;
     const task: DownloadTaskInfo = {
       id,
       url,
