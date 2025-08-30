@@ -4,7 +4,8 @@ import data_preferences from '@ohos.data.preferences';
 interface VmMeta {
   name: string;
   options: string;
-  running?: boolean;
+  handle?: number;
+  state?: 'running' | 'paused';
 }
 
 const PREFS_NAME: string = 'vms';
@@ -51,9 +52,10 @@ export struct VMsPage {
   private async start(vm: VmMeta) {
     this.loading = true;
     try {
-      const ok: boolean = qemu.startVm(vm.options);
-      if (ok) {
-        vm.running = true;
+      const handle: number = qemu.startVm(vm.options);
+      if (handle) {
+        vm.handle = handle;
+        vm.state = 'running';
         this.error = '';
       } else {
         this.error = '启动失败';
@@ -68,15 +70,66 @@ export struct VMsPage {
   private async stop(vm: VmMeta) {
     this.loading = true;
     try {
-      const ok: boolean = qemu.stopVm(vm.name);
+      const ok: boolean = vm.handle !== undefined && qemu.stopVm(vm.handle);
       if (ok) {
-        vm.running = false;
+        vm.state = undefined;
+        vm.handle = undefined;
         this.error = '';
       } else {
         this.error = '停止失败';
       }
     } catch (e) {
       this.error = `停止异常: ${JSON.stringify(e)}`;
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async pause(vm: VmMeta) {
+    this.loading = true;
+    try {
+      const ok: boolean = vm.handle !== undefined && qemu.pauseVm(vm.handle);
+      if (ok) {
+        vm.state = 'paused';
+        this.error = '';
+      } else {
+        this.error = '暂停失败';
+      }
+    } catch (e) {
+      this.error = `暂停异常: ${JSON.stringify(e)}`;
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async resume(vm: VmMeta) {
+    this.loading = true;
+    try {
+      const ok: boolean = vm.handle !== undefined && qemu.resumeVm(vm.handle);
+      if (ok) {
+        vm.state = 'running';
+        this.error = '';
+      } else {
+        this.error = '恢复失败';
+      }
+    } catch (e) {
+      this.error = `恢复异常: ${JSON.stringify(e)}`;
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async snapshot(vm: VmMeta) {
+    this.loading = true;
+    try {
+      const ok: boolean = vm.handle !== undefined && qemu.snapshotVm(vm.handle);
+      if (ok) {
+        this.error = '';
+      } else {
+        this.error = '快照失败';
+      }
+    } catch (e) {
+      this.error = `快照异常: ${JSON.stringify(e)}`;
     } finally {
       this.loading = false;
     }
@@ -106,15 +159,45 @@ export struct VMsPage {
         Row({ space: 8 }) {
           Text(vm.name)
             .fontSize(16)
-          Button(vm.running ? '停止' : '启动')
-            .type(ButtonType.Capsule)
-            .onClick(() => {
-              if (vm.running) {
+          if (vm.state === 'running') {
+            Button('暂停')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.pause(vm);
+              })
+            Button('快照')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.snapshot(vm);
+              })
+            Button('停止')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
                 this.stop(vm);
-              } else {
+              })
+          } else if (vm.state === 'paused') {
+            Button('恢复')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.resume(vm);
+              })
+            Button('快照')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.snapshot(vm);
+              })
+            Button('停止')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.stop(vm);
+              })
+          } else {
+            Button('启动')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
                 this.start(vm);
-              }
-            })
+              })
+          }
         }
         .margin({ bottom: 8 })
       }, (vm: VmMeta) => vm.name)
