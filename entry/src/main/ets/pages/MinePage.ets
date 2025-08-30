@@ -1,5 +1,12 @@
 import router from '@ohos.router'
 import ThemeManager, { AppTheme } from '../common/ThemeManager'
+import qemu from 'libqemu_hmos.so'
+
+interface Capability {
+  name: string
+  supported: boolean
+  tip?: string
+}
 
 @Entry
 @Component
@@ -7,16 +14,35 @@ export struct MinePage {
   @State message: string = 'Hello World'
   @State currentTheme: AppTheme = ThemeManager.getCurrentTheme()
   @State userName: string = '用户'
+  @State capabilities: Capability[] = []
   private themeChangeListener = (theme: AppTheme) => {
     this.currentTheme = theme
   }
 
   aboutToAppear(): void {
     ThemeManager.addThemeChangeListener(this.themeChangeListener)
+    this.detectCapabilities()
   }
 
   aboutToDisappear(): void {
     ThemeManager.removeThemeChangeListener(this.themeChangeListener)
+  }
+
+  private detectCapabilities() {
+    const caps: Capability[] = []
+    try {
+      qemu.enableJit()
+      caps.push({ name: 'JIT', supported: true })
+    } catch (e) {
+      caps.push({ name: 'JIT', supported: false, tip: 'JIT 不可用，可能影响性能' })
+    }
+    try {
+      qemu.kvmSupported()
+      caps.push({ name: 'KVM', supported: true })
+    } catch (e) {
+      caps.push({ name: 'KVM', supported: false, tip: '未检测到 KVM，虚拟机将退回软件加速' })
+    }
+    this.capabilities = caps
   }
 
   build() {
@@ -64,13 +90,41 @@ export struct MinePage {
 
         // 设备检测分组
         ListItemGroup({ header: '设备检测' }) {
+          ForEach(this.capabilities, (cap: Capability) => {
+            ListItem() {
+              Column() {
+                Row() {
+                  Text(cap.name)
+                    .fontSize(16)
+                    .fontColor(this.currentTheme.primaryTextColor)
+                    .layoutWeight(1)
+
+                  Text(cap.supported ? '支持' : '不支持')
+                    .fontSize(16)
+                    .fontColor(cap.supported ? this.currentTheme.secondaryTextColor : Color.Red)
+                }
+                .width('100%')
+
+                if (!cap.supported && cap.tip) {
+                  Text(cap.tip)
+                    .fontSize(14)
+                    .fontColor(Color.Red)
+                    .margin({ top: 4 })
+                }
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+            }
+            .backgroundColor(this.currentTheme.surfaceColor)
+          }, (cap: Capability) => cap.name)
+
           ListItem() {
             Row() {
               Text('运行性能测试')
                 .fontSize(16)
                 .fontColor(this.currentTheme.primaryTextColor)
                 .layoutWeight(1)
-              
+
               Image($r('app.media.ic_arrow_right'))
                 .width(16)
                 .height(16)
