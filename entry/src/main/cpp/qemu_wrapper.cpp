@@ -49,7 +49,14 @@ static std::string build_qemu_command(const qemu_vm_config_t* config) {
     if (config->cmdline) {
         cmd += " -append \"" + std::string(config->cmdline) + "\"";
     }
-    
+
+    if (config->shared_dir) {
+        std::string sock = "/tmp/virtiofsd.sock";
+        cmd += " -chardev socket,id=char0,path=" + sock;
+        cmd += " -device vhost-user-fs-pci,chardev=char0,tag=hostshare";
+        cmd += " -virtiofsd socket=" + sock + ",source=" + std::string(config->shared_dir) + ",tag=hostshare";
+    }
+
     return cmd;
 }
 
@@ -130,7 +137,10 @@ qemu_vm_handle_t qemu_vm_create(const qemu_vm_config_t* config) {
     if (config->cmdline) {
         instance->config.cmdline = strdup(config->cmdline);
     }
-    
+    if (config->shared_dir) {
+        instance->config.shared_dir = strdup(config->shared_dir);
+    }
+
     qemu_vm_handle_t handle = instance.get();
     g_vm_instances[handle] = std::move(instance);
     
@@ -325,7 +335,10 @@ void qemu_vm_destroy(qemu_vm_handle_t handle) {
     if (instance->config.cmdline) {
         free(const_cast<char*>(instance->config.cmdline));
     }
-    
+    if (instance->config.shared_dir) {
+        free(const_cast<char*>(instance->config.shared_dir));
+    }
+
     g_vm_instances.erase(it);
 }
 
