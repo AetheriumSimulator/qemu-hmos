@@ -1,10 +1,13 @@
 import qemu from 'libqemu_hmos.so';
 import data_preferences from '@ohos.data.preferences';
+import { picker } from '@kit.CoreFileKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 
 interface VmMeta {
   name: string;
   options: string;
   running?: boolean;
+  sharedDir?: string;
 }
 
 const PREFS_NAME: string = 'vms';
@@ -43,15 +46,38 @@ export struct VMsPage {
   }
 
   private async addVm() {
-    const vm: VmMeta = { name: `demo${Date.now()}`, options: '{"name":"demo"}' };
+    const vm: VmMeta = { name: `demo${Date.now()}`, options: '{"name":"demo"}', sharedDir: '' };
     this.vms.push(vm);
     await this.saveVms();
+  }
+
+  private async selectSharedDir(vm: VmMeta) {
+    try {
+      const documentSelectOptions = new picker.DocumentSelectOptions();
+      documentSelectOptions.maxSelectNumber = 1;
+      const documentViewPicker = new picker.DocumentViewPicker();
+      const result = await documentViewPicker.select(documentSelectOptions);
+      if (result && result.length > 0) {
+        vm.sharedDir = result[0];
+        await this.saveVms();
+      }
+    } catch (err) {
+      const error = err as BusinessError;
+      console.error('选择共享目录失败:', error);
+    }
   }
 
   private async start(vm: VmMeta) {
     this.loading = true;
     try {
-      const ok: boolean = qemu.startVm(vm.options);
+      const args: string[] = ['qemu-system-aarch64', '-machine', 'virt', '-cpu', 'cortex-a57', '-m', '512', '-nographic'];
+      if (vm.sharedDir && vm.sharedDir !== '') {
+        const sock = `/tmp/${vm.name}_vfs.sock`;
+        args.push('-chardev', `socket,id=char0,path=${sock}`);
+        args.push('-device', 'vhost-user-fs-pci,chardev=char0,tag=hostshare');
+        args.push('-virtiofsd', `socket=${sock},source=${vm.sharedDir},tag=hostshare`);
+      }
+      const ok: boolean = qemu.startVm(JSON.stringify({ args }));
       if (ok) {
         vm.running = true;
         this.error = '';
@@ -103,18 +129,30 @@ export struct VMsPage {
       }
 
       ForEach(this.vms, (vm: VmMeta) => {
-        Row({ space: 8 }) {
-          Text(vm.name)
-            .fontSize(16)
-          Button(vm.running ? '停止' : '启动')
-            .type(ButtonType.Capsule)
-            .onClick(() => {
-              if (vm.running) {
-                this.stop(vm);
-              } else {
-                this.start(vm);
-              }
-            })
+        Column() {
+          Row({ space: 8 }) {
+            Text(vm.name)
+              .fontSize(16)
+            Button('共享目录')
+              .type(ButtonType.Capsule)
+              .onClick(() => this.selectSharedDir(vm))
+            Button(vm.running ? '停止' : '启动')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                if (vm.running) {
+                  this.stop(vm);
+                } else {
+                  this.start(vm);
+                }
+              })
+          }
+          .margin({ bottom: 4 })
+
+          if (vm.sharedDir && vm.sharedDir !== '') {
+            Text(`共享: ${vm.sharedDir}`)
+              .fontSize(12)
+              .margin({ left: 8, bottom: 4 })
+          }
         }
         .margin({ bottom: 8 })
       }, (vm: VmMeta) => vm.name)
