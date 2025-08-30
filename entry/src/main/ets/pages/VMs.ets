@@ -1,5 +1,7 @@
 import qemu from 'libqemu_hmos.so';
 import data_preferences from '@ohos.data.preferences';
+import { picker } from '@kit.CoreFileKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 
 interface VmMeta {
   name: string;
@@ -44,9 +46,25 @@ export struct VMsPage {
   }
 
   private async addVm() {
-    const vm: VmMeta = { name: `demo${Date.now()}`, options: '{"name":"demo"}' };
+    const vm: VmMeta = { name: `demo${Date.now()}`, options: '{"name":"demo"}', sharedDir: '' };
     this.vms.push(vm);
     await this.saveVms();
+  }
+
+  private async selectSharedDir(vm: VmMeta) {
+    try {
+      const documentSelectOptions = new picker.DocumentSelectOptions();
+      documentSelectOptions.maxSelectNumber = 1;
+      const documentViewPicker = new picker.DocumentViewPicker();
+      const result = await documentViewPicker.select(documentSelectOptions);
+      if (result && result.length > 0) {
+        vm.sharedDir = result[0];
+        await this.saveVms();
+      }
+    } catch (err) {
+      const error = err as BusinessError;
+      console.error('选择共享目录失败:', error);
+    }
   }
 
   private async start(vm: VmMeta) {
@@ -198,6 +216,7 @@ export struct VMsPage {
                 this.start(vm);
               })
           }
+
         }
         .margin({ bottom: 8 })
       }, (vm: VmMeta) => vm.name)

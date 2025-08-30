@@ -23,6 +23,62 @@
 #define PRCTL_JIT_ENABLE 0x6a6974 // magic from requirements, best-effort attempt
 #endif
 
+extern "C" int qemu_main(int argc, char **argv);
+extern "C" void qemu_system_shutdown_request(int reason);
+static constexpr int SHUTDOWN_CAUSE_HOST = 0;
+
+static std::thread g_qemuThread;
+static std::atomic<bool> g_qemuRunning{false};
+
+static bool kvmSupported()
+{
+    int fd = open("/dev/kvm", O_RDWR);
+    if (fd < 0) {
+        return false;
+    }
+    close(fd);
+    return true;
+}
+
+static bool enableJit()
+{
+#if HAS_PRCTL
+    int r = prctl(PRCTL_JIT_ENABLE, 1);
+    return r == 0;
+#else
+    errno = ENOSYS;
+    return false;
+#endif
+}
+
+static std::vector<std::string> ParseArgs(napi_env env, napi_value config, bool &ok)
+{
+    napi_value argsArray;
+    ok = (napi_get_named_property(env, config, "args", &argsArray) == napi_ok);
+    if (!ok) {
+        return {};
+    }
+    bool isArray = false;
+    napi_is_array(env, argsArray, &isArray);
+    if (!isArray) {
+        ok = false;
+        return {};
+    }
+    uint32_t len = 0;
+    napi_get_array_length(env, argsArray, &len);
+    std::vector<std::string> out;
+    for (uint32_t i = 0; i < len; ++i) {
+        napi_value elem;
+        napi_get_element(env, argsArray, i, &elem);
+        size_t strLen = 0;
+        napi_get_value_string_utf8(env, elem, nullptr, 0, &strLen);
+        std::string s(strLen, '\0');
+        napi_get_value_string_utf8(env, elem, s.data(), s.size() + 1, &strLen);
+        s.resize(strLen);
+        out.push_back(std::move(s));
+    }
+    return out;
+}
 
 static napi_value GetVersion(napi_env env, napi_callback_info info)
 {
@@ -35,18 +91,8 @@ static napi_value GetVersion(napi_env env, napi_callback_info info)
 static napi_value EnableJit(napi_env env, napi_callback_info info)
 {
     (void)info; // unused
-    int err = 0;
-    bool success = false;
-#if HAS_PRCTL
-    int r = prctl(PRCTL_JIT_ENABLE, 1);
-    success = (r == 0);
-    if (!success) {
-        err = errno;
-    }
-#else
-    err = ENOSYS;
-#endif
-    if (!success) {
+    if (!enableJit()) {
+        int err = errno;
         std::string code = std::to_string(err);
         napi_throw_error(env, code.c_str(), strerror(err));
         return nullptr;
@@ -59,14 +105,12 @@ static napi_value EnableJit(napi_env env, napi_callback_info info)
 static napi_value KvmSupported(napi_env env, napi_callback_info info)
 {
     (void)info; // unused
-    int fd = open("/dev/kvm", O_RDWR);
-    if (fd < 0) {
+    if (!kvmSupported()) {
         int err = errno;
         std::string code = std::to_string(err);
         napi_throw_error(env, code.c_str(), strerror(err));
         return nullptr;
     }
-    close(fd);
     napi_value out;
     napi_get_boolean(env, true, &out);
     return out;
@@ -103,7 +147,6 @@ static napi_value StartVm(napi_env env, napi_callback_info info)
         return result;
     }
 
-    napi_create_int64(env, (int64_t)handle, &result);
     return result;
 }
 
