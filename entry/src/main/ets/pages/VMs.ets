@@ -1,7 +1,6 @@
 import qemu from 'libqemu_hmos.so';
 import data_preferences from '@ohos.data.preferences';
-import { picker } from '@kit.CoreFileKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { DownloadManager, DownloadTaskInfo } from '../managers/DownloadManager';
 
 interface VmMeta {
   name: string;
@@ -17,10 +16,13 @@ export struct VMsPage {
   @State vms: VmMeta[] = [];
   @State loading: boolean = false;
   @State error: string = '';
+  @State downloads: DownloadTaskInfo[] = [];
   private pref?: data_preferences.Preferences;
+  private dlManager?: DownloadManager;
 
   async aboutToAppear() {
     await this.loadVms();
+    await this.initDownloads();
   }
 
   private async loadVms() {
@@ -43,6 +45,21 @@ export struct VMsPage {
     }
     await this.pref.put('list', JSON.stringify(this.vms));
     await this.pref.flush();
+  }
+
+  private async initDownloads() {
+    this.dlManager = new DownloadManager(getContext(this));
+    await this.dlManager.init();
+    this.downloads = this.dlManager.getTasks();
+    this.dlManager.onUpdate((tasks: DownloadTaskInfo[]) => {
+      this.downloads = tasks;
+    });
+  }
+
+  private addDownload() {
+    const url = 'https://example.com/demo.bin';
+    const path = `/data/${Date.now()}.bin`;
+    this.dlManager?.enqueue(url, path);
   }
 
   private async addVm() {
@@ -225,6 +242,31 @@ export struct VMsPage {
         .type(ButtonType.Capsule)
         .onClick(() => {
           this.addVm();
+        })
+        .margin({ top: 12 })
+
+      if (this.downloads.length > 0) {
+        Text('下载队列')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .margin({ top: 24, bottom: 12 })
+
+        ForEach(this.downloads, (task: DownloadTaskInfo) => {
+          Column() {
+            Text(task.url)
+              .fontSize(14)
+            Text(`${(task.downloaded * 100 / task.total || 0).toFixed(1)}%  ` +
+                 `${(task.speed).toFixed(1)}B/s  ETA ${(task.eta).toFixed(1)}s`)
+              .fontSize(12)
+          }
+          .margin({ bottom: 8 })
+        }, (task: DownloadTaskInfo) => task.id)
+      }
+
+      Button('添加下载任务')
+        .type(ButtonType.Capsule)
+        .onClick(() => {
+          this.addDownload();
         })
         .margin({ top: 12 })
     }
