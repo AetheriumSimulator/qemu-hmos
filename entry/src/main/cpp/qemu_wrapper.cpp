@@ -313,7 +313,12 @@ void qemu_vm_destroy(qemu_vm_handle_t handle) {
     if (instance->state == QEMU_VM_RUNNING || instance->state == QEMU_VM_PAUSED) {
         qemu_vm_stop(handle);
     }
-    
+
+    // Ensure monitor thread has completed before destroying the instance
+    if (instance->monitor_thread.joinable()) {
+        instance->monitor_thread.join();
+    }
+
     // 释放配置字符串
     if (instance->config.machine_type) {
         free(const_cast<char*>(instance->config.machine_type));

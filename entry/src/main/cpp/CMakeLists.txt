@@ -6,7 +6,7 @@ set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${NATIVERENDER_ROOT_PATH}
                     ${NATIVERENDER_ROOT_PATH}/include)
 
-add_library(qemu_hmos SHARED napi_init.cpp)
+add_library(qemu_hmos SHARED napi_init.cpp qemu_wrapper.cpp)
 
 find_package(Threads REQUIRED)
 target_link_libraries(qemu_hmos PUBLIC libace_napi.z.so libhilog_ndk.z.so Threads::Threads)

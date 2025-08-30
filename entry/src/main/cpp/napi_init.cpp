@@ -1,12 +1,12 @@
+// NAPI bindings for QEMU wrapper
 #include "napi/native_api.h"
+#include "qemu_wrapper.h"
 #include <string>
-#include <vector>
-#include <thread>
-#include <atomic>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <stdint.h>
 
 #if defined(__has_include)
 #  if __has_include(<sys/prctl.h>)
@@ -116,86 +116,95 @@ static napi_value KvmSupported(napi_env env, napi_callback_info info)
     return out;
 }
 
-// --- QEMU 集成占位：start/stop ---
+// Helper to extract VM handle from JS number
+static qemu_vm_handle_t GetHandle(napi_env env, napi_value value)
+{
+    int64_t raw = 0;
+    napi_get_value_int64(env, value, &raw);
+    return reinterpret_cast<qemu_vm_handle_t>(raw);
+}
+
 static napi_value StartVm(napi_env env, napi_callback_info info)
 {
     size_t argc = 1;
     napi_value argv[1];
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+    // 默认配置，后续可根据 argv[0] 解析
+    qemu_vm_config_t cfg{};
+    cfg.machine_type = "virt";
+    cfg.cpu_type = "cortex-a57";
+    cfg.memory_mb = 256;
+    cfg.cmdline = "console=ttyAMA0";
+
+    qemu_vm_handle_t handle = qemu_vm_create(&cfg);
     napi_value result;
-
-    if (argc < 1 || g_qemuRunning.load()) {
-        napi_get_boolean(env, false, &result);
-        return result;
-    }
-
-    bool ok = false;
-    std::vector<std::string> args = ParseArgs(env, argv[0], ok);
-    if (!ok || args.empty()) {
-        napi_get_boolean(env, false, &result);
-        return result;
-    }
-
-    bool useKvm = false;
-    bool jitOk = false;
-    bool useTci = false;
-    bool pending = false;
-    napi_value tmp;
-
-    tmp = KvmSupported(env, nullptr);
-    napi_is_exception_pending(env, &pending);
-    if (!pending && tmp != nullptr) {
-        useKvm = true;
-    } else if (pending) {
-        napi_value exc;
-        napi_get_and_clear_last_exception(env, &exc);
-    }
-
-    tmp = EnableJit(env, nullptr);
-    napi_is_exception_pending(env, &pending);
-    if (!pending && tmp != nullptr) {
-        jitOk = true;
-    } else if (pending) {
-        napi_value exc;
-        napi_get_and_clear_last_exception(env, &exc);
-        useTci = true;
-    }
-
-    if (useKvm) {
-        args.push_back("-accel");
-        args.push_back("kvm");
-    } else if (jitOk) {
-        args.push_back("-accel");
-        args.push_back("tcg,thread=multi");
-    } else if (useTci) {
-        args.push_back("-accel");
-        args.push_back("tcg");
-    }
-
-    g_qemuRunning = true;
-    g_qemuThread = std::thread([args]() {
-        std::vector<char*> cargs;
-        for (const auto &s : args) {
-            cargs.push_back(const_cast<char*>(s.c_str()));
+    if (!handle || qemu_vm_start(handle) != 0) {
+        if (handle) {
+            qemu_vm_destroy(handle);
         }
-        qemu_main(static_cast<int>(cargs.size()), cargs.data());
-        g_qemuRunning = false;
-    });
+        napi_create_int64(env, 0, &result);
+        return result;
+    }
 
-    napi_get_boolean(env, true, &result);
     return result;
 }
 
 static napi_value StopVm(napi_env env, napi_callback_info info)
 {
-    (void)info;
-    if (g_qemuRunning.load()) {
-        qemu_system_shutdown_request(SHUTDOWN_CAUSE_HOST);
-        if (g_qemuThread.joinable()) {
-            g_qemuThread.join();
-        }
-        g_qemuRunning = false;
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+    napi_value out;
+    if (argc < 1) {
+        napi_get_boolean(env, false, &out);
+        return out;
     }
+
+    qemu_vm_handle_t handle = GetHandle(env, argv[0]);
+    int ret = qemu_vm_stop(handle);
+    qemu_vm_destroy(handle);
+    napi_get_boolean(env, ret == 0, &out);
+    return out;
+}
+
+static napi_value PauseVm(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    napi_value out;
+    if (argc < 1) {
+        napi_get_boolean(env, false, &out);
+        return out;
+    }
+    qemu_vm_handle_t handle = GetHandle(env, argv[0]);
+    int ret = qemu_vm_pause(handle);
+    napi_get_boolean(env, ret == 0, &out);
+    return out;
+}
+
+static napi_value ResumeVm(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    napi_value out;
+    if (argc < 1) {
+        napi_get_boolean(env, false, &out);
+        return out;
+    }
+    qemu_vm_handle_t handle = GetHandle(env, argv[0]);
+    int ret = qemu_vm_resume(handle);
+    napi_get_boolean(env, ret == 0, &out);
+    return out;
+}
+
+static napi_value SnapshotVm(napi_env env, napi_callback_info info)
+{
+    (void)env;
+    (void)info;
     napi_value out;
     napi_get_boolean(env, true, &out);
     return out;
@@ -210,6 +219,9 @@ static napi_value Init(napi_env env, napi_value exports)
         { "kvmSupported", nullptr, KvmSupported, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "startVm", nullptr, StartVm, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "stopVm", nullptr, StopVm, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "pauseVm", nullptr, PauseVm, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "resumeVm", nullptr, ResumeVm, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "snapshotVm", nullptr, SnapshotVm, nullptr, nullptr, nullptr, napi_default, nullptr },
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     return exports;
