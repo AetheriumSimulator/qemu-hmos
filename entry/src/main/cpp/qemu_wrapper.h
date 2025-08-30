@@ -21,6 +21,7 @@ typedef struct {
     const char* kernel_path;     // 内核镜像路径
     const char* initrd_path;     // initrd 路径（可选）
     const char* cmdline;         // 内核命令行参数
+    const char* shared_dir;      // 宿主共享目录（可选）
 } qemu_vm_config_t;
 
 // QEMU 虚拟机实例句柄

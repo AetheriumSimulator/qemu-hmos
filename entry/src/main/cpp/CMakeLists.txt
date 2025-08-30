@@ -6,12 +6,16 @@ set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${NATIVERENDER_ROOT_PATH}
                     ${NATIVERENDER_ROOT_PATH}/include)
 
+<<<<<<< HEAD
 # 包含 QEMU 静态库构建配置（如果存在）
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/qemu_static_build.cmake")
     include(qemu_static_build.cmake)
 endif()
 
 add_library(qemu_hmos SHARED napi_init.cpp)
+=======
+add_library(qemu_hmos SHARED napi_init.cpp qemu_wrapper.cpp)
+>>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
 
 # 链接 QEMU 静态库（如果存在）
 if(COMMAND link_qemu_static)

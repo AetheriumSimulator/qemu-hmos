@@ -8,6 +8,7 @@
       "kernel_path": null,
       "initrd_path": null,
       "cmdline": "console=ttyAMA0 root=/dev/ram0 rdinit=/sbin/init",
+      "shared_dir": "/tmp",
       "description": "基础测试虚拟机配置"
     },
     {

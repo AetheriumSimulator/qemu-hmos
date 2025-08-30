@@ -97,6 +97,7 @@ export struct VMsPage {
     }
   }
 
+<<<<<<< HEAD
   private async handleCreateVM(config: VMCreateConfig) {
     try {
       this.showCreateDialog = false;
@@ -159,10 +160,48 @@ export struct VMsPage {
       console.error('Failed to save VM config:', e);
       throw new Error(String(e));
     }
+=======
+  private async initDownloads() {
+    this.dlManager = new DownloadManager(getContext(this));
+    await this.dlManager.init();
+    this.downloads = this.dlManager.getTasks();
+    this.dlManager.onUpdate((tasks: DownloadTaskInfo[]) => {
+      this.downloads = tasks;
+    });
+  }
+
+  private addDownload() {
+    const url = 'https://example.com/demo.bin';
+    const path = `/data/${Date.now()}.bin`;
+    this.dlManager?.enqueue(url, path);
+  }
+
+  private async addVm() {
+    const vm: VmMeta = { name: `demo${Date.now()}`, options: '{"name":"demo"}', sharedDir: '' };
+    this.vms.push(vm);
+    await this.saveVms();
+>>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
+  }
+
+  private async selectSharedDir(vm: VmMeta) {
+    try {
+      const documentSelectOptions = new picker.DocumentSelectOptions();
+      documentSelectOptions.maxSelectNumber = 1;
+      const documentViewPicker = new picker.DocumentViewPicker();
+      const result = await documentViewPicker.select(documentSelectOptions);
+      if (result && result.length > 0) {
+        vm.sharedDir = result[0];
+        await this.saveVms();
+      }
+    } catch (err) {
+      const error = err as BusinessError;
+      console.error('选择共享目录失败:', error);
+    }
   }
 
   private async start(vm: VmMeta) {
     try {
+<<<<<<< HEAD
       vm.status = 'Creating';
       this.error = '';
       
@@ -196,6 +235,13 @@ export struct VMsPage {
         this.addVMLog(vm.id, `虚拟机启动成功！`);
         this.addVMLog(vm.id, `VNC端口: 5900, RDP端口: 3390`);
         this.error = `虚拟机 ${vm.name} 启动成功！`;
+=======
+      const handle: number = qemu.startVm(vm.options);
+      if (handle) {
+        vm.handle = handle;
+        vm.state = 'running';
+        this.error = '';
+>>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
       } else {
         vm.status = 'Failed';
         this.addVMLog(vm.id, `虚拟机启动失败，返回值: ${result}`);
@@ -232,6 +278,7 @@ export struct VMsPage {
 
   private async stop(vm: VmMeta) {
     try {
+<<<<<<< HEAD
       this.addVMLog(vm.id, `正在停止虚拟机 ${vm.name}...`);
       
       const result = await qemu.stopVm(vm.id);
@@ -239,6 +286,13 @@ export struct VMsPage {
         vm.status = 'Stopped';
         this.addVMLog(vm.id, `虚拟机已停止`);
         this.error = `虚拟机 ${vm.name} 已停止`;
+=======
+      const ok: boolean = vm.handle !== undefined && qemu.stopVm(vm.handle);
+      if (ok) {
+        vm.state = undefined;
+        vm.handle = undefined;
+        this.error = '';
+>>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
       } else {
         this.addVMLog(vm.id, `停止失败，返回值: ${result}`);
         this.error = `停止虚拟机失败，返回值: ${result}`;
@@ -255,6 +309,56 @@ export struct VMsPage {
   private showVMLog(vmId: string) {
     this.selectedVmId = vmId;
     this.showLogPanel = true;
+  }
+
+  private async pause(vm: VmMeta) {
+    this.loading = true;
+    try {
+      const ok: boolean = vm.handle !== undefined && qemu.pauseVm(vm.handle);
+      if (ok) {
+        vm.state = 'paused';
+        this.error = '';
+      } else {
+        this.error = '暂停失败';
+      }
+    } catch (e) {
+      this.error = `暂停异常: ${JSON.stringify(e)}`;
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async resume(vm: VmMeta) {
+    this.loading = true;
+    try {
+      const ok: boolean = vm.handle !== undefined && qemu.resumeVm(vm.handle);
+      if (ok) {
+        vm.state = 'running';
+        this.error = '';
+      } else {
+        this.error = '恢复失败';
+      }
+    } catch (e) {
+      this.error = `恢复异常: ${JSON.stringify(e)}`;
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async snapshot(vm: VmMeta) {
+    this.loading = true;
+    try {
+      const ok: boolean = vm.handle !== undefined && qemu.snapshotVm(vm.handle);
+      if (ok) {
+        this.error = '';
+      } else {
+        this.error = '快照失败';
+      }
+    } catch (e) {
+      this.error = `快照异常: ${JSON.stringify(e)}`;
+    } finally {
+      this.loading = false;
+    }
   }
 
   build() {
@@ -287,6 +391,7 @@ export struct VMsPage {
           .margin({ bottom: 10 });
       }
 
+<<<<<<< HEAD
       // 主内容区域
       if (this.showLogPanel && this.selectedVmId) {
         // 日志面板
@@ -310,6 +415,52 @@ export struct VMsPage {
           .backgroundColor('#FAFAFA')
           .borderRadius(8)
           .padding(8);
+=======
+      ForEach(this.vms, (vm: VmMeta) => {
+        Row({ space: 8 }) {
+          Text(vm.name)
+            .fontSize(16)
+          if (vm.state === 'running') {
+            Button('暂停')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.pause(vm);
+              })
+            Button('快照')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.snapshot(vm);
+              })
+            Button('停止')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.stop(vm);
+              })
+          } else if (vm.state === 'paused') {
+            Button('恢复')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.resume(vm);
+              })
+            Button('快照')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.snapshot(vm);
+              })
+            Button('停止')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.stop(vm);
+              })
+          } else {
+            Button('启动')
+              .type(ButtonType.Capsule)
+              .onClick(() => {
+                this.start(vm);
+              })
+          }
+
+>>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
         }
         .layoutWeight(1);
       } else {
@@ -329,6 +480,7 @@ export struct VMsPage {
                 .alignItems(HorizontalAlign.Start)
                 .layoutWeight(1);
 
+<<<<<<< HEAD
                 Column() {
                   if (vm.status === 'Stopped' || vm.status === 'Failed') {
                     Button('启动')
@@ -365,6 +517,39 @@ export struct VMsPage {
       }
       .width('100%')
       .margin({ top: 20 });
+=======
+      Button('新建虚拟机')
+        .type(ButtonType.Capsule)
+        .onClick(() => {
+          this.addVm();
+        })
+        .margin({ top: 12 })
+
+      if (this.downloads.length > 0) {
+        Text('下载队列')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .margin({ top: 24, bottom: 12 })
+
+        ForEach(this.downloads, (task: DownloadTaskInfo) => {
+          Column() {
+            Text(task.url)
+              .fontSize(14)
+            Text(`${(task.downloaded * 100 / task.total || 0).toFixed(1)}%  ` +
+                 `${(task.speed).toFixed(1)}B/s  ETA ${(task.eta).toFixed(1)}s`)
+              .fontSize(12)
+          }
+          .margin({ bottom: 8 })
+        }, (task: DownloadTaskInfo) => task.id)
+      }
+
+      Button('添加下载任务')
+        .type(ButtonType.Capsule)
+        .onClick(() => {
+          this.addDownload();
+        })
+        .margin({ top: 12 })
+>>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
     }
     .width('100%')
     .height('100%')
