@@ -153,30 +153,6 @@ napi_init.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/qemu_hmos.dir/build.make CMakeFiles/qemu_hmos.dir/napi_init.cpp.s
 .PHONY : napi_init.cpp.s
 
-qemu_wrapper.o: qemu_wrapper.cpp.o
-.PHONY : qemu_wrapper.o
-
-# target to build an object file
-qemu_wrapper.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/qemu_hmos.dir/build.make CMakeFiles/qemu_hmos.dir/qemu_wrapper.cpp.o
-.PHONY : qemu_wrapper.cpp.o
-
-qemu_wrapper.i: qemu_wrapper.cpp.i
-.PHONY : qemu_wrapper.i
-
-# target to preprocess a source file
-qemu_wrapper.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/qemu_hmos.dir/build.make CMakeFiles/qemu_hmos.dir/qemu_wrapper.cpp.i
-.PHONY : qemu_wrapper.cpp.i
-
-qemu_wrapper.s: qemu_wrapper.cpp.s
-.PHONY : qemu_wrapper.s
-
-# target to generate assembly for a file
-qemu_wrapper.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/qemu_hmos.dir/build.make CMakeFiles/qemu_hmos.dir/qemu_wrapper.cpp.s
-.PHONY : qemu_wrapper.cpp.s
-
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -189,9 +165,6 @@ help:
 	@echo "... napi_init.o"
 	@echo "... napi_init.i"
 	@echo "... napi_init.s"
-	@echo "... qemu_wrapper.o"
-	@echo "... qemu_wrapper.i"
-	@echo "... qemu_wrapper.s"
 .PHONY : help
 
 

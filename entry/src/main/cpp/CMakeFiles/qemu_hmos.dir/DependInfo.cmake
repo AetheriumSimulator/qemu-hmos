@@ -9,7 +9,6 @@ set(CMAKE_DEPENDS_LANGUAGES
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/Users/caidingding233/projects/qemu-hmos/entry/src/main/cpp/napi_init.cpp" "CMakeFiles/qemu_hmos.dir/napi_init.cpp.o" "gcc" "CMakeFiles/qemu_hmos.dir/napi_init.cpp.o.d"
-  "/Users/caidingding233/projects/qemu-hmos/entry/src/main/cpp/qemu_wrapper.cpp" "CMakeFiles/qemu_hmos.dir/qemu_wrapper.cpp.o" "gcc" "CMakeFiles/qemu_hmos.dir/qemu_wrapper.cpp.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

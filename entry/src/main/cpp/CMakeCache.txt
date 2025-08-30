@@ -220,7 +220,7 @@ qemu_hmos_BINARY_DIR:STATIC=/Users/caidingding233/projects/qemu-hmos/entry/src/m
 qemu_hmos_IS_TOP_LEVEL:STATIC=ON
 
 //Dependencies for the target
-qemu_hmos_LIB_DEPENDS:STATIC=general;libace_napi.z.so;general;libhilog_ndk.z.so;general;pthread;general;dl;general;m;general;z;
+qemu_hmos_LIB_DEPENDS:STATIC=general;pthread;general;dl;general;m;general;z;
 
 //Value Computed by CMake
 qemu_hmos_SOURCE_DIR:STATIC=/Users/caidingding233/projects/qemu-hmos/entry/src/main/cpp
@@ -302,6 +302,8 @@ CMAKE_GENERATOR_INSTANCE:INTERNAL=
 CMAKE_GENERATOR_PLATFORM:INTERNAL=
 //Name of generator toolset.
 CMAKE_GENERATOR_TOOLSET:INTERNAL=
+//Test CMAKE_HAVE_LIBC_PTHREAD
+CMAKE_HAVE_LIBC_PTHREAD:INTERNAL=1
 //Source directory with the top level CMakeLists.txt file for this
 // project
 CMAKE_HOME_DIRECTORY:INTERNAL=/Users/caidingding233/projects/qemu-hmos/entry/src/main/cpp
@@ -371,4 +373,6 @@ CMAKE_TAPI-ADVANCED:INTERNAL=1
 CMAKE_UNAME:INTERNAL=/usr/bin/uname
 //ADVANCED property for variable: CMAKE_VERBOSE_MAKEFILE
 CMAKE_VERBOSE_MAKEFILE-ADVANCED:INTERNAL=1
+//Details about finding Threads
+FIND_PACKAGE_MESSAGE_DETAILS_Threads:INTERNAL=[TRUE][v()]
 

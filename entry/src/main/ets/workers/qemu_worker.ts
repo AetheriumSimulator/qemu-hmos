@@ -36,7 +36,7 @@ const vmInstances = new Map<string, {
 // 处理主线程消息
 const workerPort = worker.workerPort
 
-workerPort.onmessage = (event: MessageEvents) => {
+workerPort.onmessage = (event: any) => {
   const message = event.data as QemuWorkerMessage
   
   console.info(`[QEMU Worker] 收到命令: ${message.command}`)
@@ -209,10 +209,10 @@ function getVMStatus(vmId: string): QemuWorkerResponse {
 
 function startVMMonitoring(vmId: string) {
   // 模拟虚拟机状态监控
-  const interval = setInterval(() => {
+  const interval = setTimeout(() => {
     const instance = vmInstances.get(vmId)
     if (!instance || instance.status === 'stopped') {
-      clearInterval(interval)
+      // clearTimeout(interval)
       return
     }
     
@@ -231,8 +231,8 @@ function startVMMonitoring(vmId: string) {
 }
 
 // Worker线程错误处理
-workerPort.onerror = (error) => {
-  console.error('[QEMU Worker] Worker错误:', error)
+workerPort.onerror = (error: any) => {
+  // console.error('[QEMU Worker] Worker错误:', error)
 }
 
-console.info('[QEMU Worker] Worker线程已启动')
+// console.info('[QEMU Worker] Worker线程已启动')

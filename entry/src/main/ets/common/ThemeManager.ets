@@ -3,8 +3,6 @@
  * 支持深色模式和浅色模式切换
  */
 
-import { AppStorage } from '@kit.ArkUI'
-
 export enum ThemeMode {
   LIGHT = 'light',
   DARK = 'dark',
@@ -136,34 +134,18 @@ class ThemeManager {
     this.notifyListeners()
   }
   
+  private systemColorMode: number = 0 // 0: 浅色, 1: 深色
+  
   private getSystemTheme(): AppTheme {
-    try {
-      // 通过AppStorage获取系统配置
-      const systemColorMode = AppStorage.get<number>('systemColorMode') || 0
-      // 0: 浅色模式, 1: 深色模式
-      return systemColorMode === 1 ? DarkTheme : LightTheme
-    } catch (error) {
-      console.error('获取系统主题失败:', error)
-      return LightTheme
-    }
+    // 0: 浅色模式, 1: 深色模式
+    return this.systemColorMode === 1 ? DarkTheme : LightTheme
   }
   
-  // 监听系统主题变化
-  initSystemThemeListener(): void {
+  // 更新系统主题状态（由EntryAbility调用）
+  updateSystemColorMode(isDark: boolean): void {
+    this.systemColorMode = isDark ? 1 : 0
     if (this.themeMode === ThemeMode.AUTO) {
-      // 监听系统配置变化
-      AppStorage.setOrCreate('systemColorMode', 0)
-      AppStorage.link('systemColorMode')
-      
-      // 当系统主题变化时更新主题
-      const callback = () => {
-        if (this.themeMode === ThemeMode.AUTO) {
-          this.updateTheme()
-        }
-      }
-      
-      // 这里可以添加系统配置变化监听
-      // 由于HarmonyOS的限制，需要在EntryAbility中监听配置变化
+      this.updateTheme()
     }
   }
   

@@ -1,8 +1,6 @@
 file(REMOVE_RECURSE
   "CMakeFiles/qemu_hmos.dir/napi_init.cpp.o"
   "CMakeFiles/qemu_hmos.dir/napi_init.cpp.o.d"
-  "CMakeFiles/qemu_hmos.dir/qemu_wrapper.cpp.o"
-  "CMakeFiles/qemu_hmos.dir/qemu_wrapper.cpp.o.d"
   "libqemu_hmos.dylib"
   "libqemu_hmos.pdb"
 )

@@ -48,9 +48,11 @@ export struct VMCreateDialog {
       const documentViewPicker = new picker.DocumentViewPicker();
       documentViewPicker.select(documentSelectOptions).then((documentSelectResult) => {
         if (documentSelectResult && documentSelectResult.length > 0) {
+          // 保存选择的ISO文件路径
           this.vmConfig.isoPath = documentSelectResult[0];
           this.isIsoSelected = true;
           this.updateCreateButtonState();
+          console.log('Selected ISO file:', this.vmConfig.isoPath);
         }
       }).catch((err: BusinessError) => {
         console.error('选择ISO文件失败:', err);

@@ -9,6 +9,7 @@
     "moduleResolution": "bundler",
     "strict": true,
     "strictPropertyInitialization": false,
+    "allowArbitraryExtensions": true,
     "paths": {
       "*": ["./oh_modules/*"]
     }
