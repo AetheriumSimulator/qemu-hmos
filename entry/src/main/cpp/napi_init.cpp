@@ -30,6 +30,27 @@ static constexpr int SHUTDOWN_CAUSE_HOST = 0;
 static std::thread g_qemuThread;
 static std::atomic<bool> g_qemuRunning{false};
 
+static bool kvmSupported()
+{
+    int fd = open("/dev/kvm", O_RDWR);
+    if (fd < 0) {
+        return false;
+    }
+    close(fd);
+    return true;
+}
+
+static bool enableJit()
+{
+#if HAS_PRCTL
+    int r = prctl(PRCTL_JIT_ENABLE, 1);
+    return r == 0;
+#else
+    errno = ENOSYS;
+    return false;
+#endif
+}
+
 static std::vector<std::string> ParseArgs(napi_env env, napi_value config, bool &ok)
 {
     napi_value argsArray;
@@ -70,18 +91,8 @@ static napi_value GetVersion(napi_env env, napi_callback_info info)
 static napi_value EnableJit(napi_env env, napi_callback_info info)
 {
     (void)info; // unused
-    int err = 0;
-    bool success = false;
-#if HAS_PRCTL
-    int r = prctl(PRCTL_JIT_ENABLE, 1);
-    success = (r == 0);
-    if (!success) {
-        err = errno;
-    }
-#else
-    err = ENOSYS;
-#endif
-    if (!success) {
+    if (!enableJit()) {
+        int err = errno;
         std::string code = std::to_string(err);
         napi_throw_error(env, code.c_str(), strerror(err));
         return nullptr;
@@ -94,14 +105,12 @@ static napi_value EnableJit(napi_env env, napi_callback_info info)
 static napi_value KvmSupported(napi_env env, napi_callback_info info)
 {
     (void)info; // unused
-    int fd = open("/dev/kvm", O_RDWR);
-    if (fd < 0) {
+    if (!kvmSupported()) {
         int err = errno;
         std::string code = std::to_string(err);
         napi_throw_error(env, code.c_str(), strerror(err));
         return nullptr;
     }
-    close(fd);
     napi_value out;
     napi_get_boolean(env, true, &out);
     return out;
@@ -125,6 +134,42 @@ static napi_value StartVm(napi_env env, napi_callback_info info)
     if (!ok || args.empty()) {
         napi_get_boolean(env, false, &result);
         return result;
+    }
+
+    bool useKvm = false;
+    bool jitOk = false;
+    bool useTci = false;
+    bool pending = false;
+    napi_value tmp;
+
+    tmp = KvmSupported(env, nullptr);
+    napi_is_exception_pending(env, &pending);
+    if (!pending && tmp != nullptr) {
+        useKvm = true;
+    } else if (pending) {
+        napi_value exc;
+        napi_get_and_clear_last_exception(env, &exc);
+    }
+
+    tmp = EnableJit(env, nullptr);
+    napi_is_exception_pending(env, &pending);
+    if (!pending && tmp != nullptr) {
+        jitOk = true;
+    } else if (pending) {
+        napi_value exc;
+        napi_get_and_clear_last_exception(env, &exc);
+        useTci = true;
+    }
+
+    if (useKvm) {
+        args.push_back("-accel");
+        args.push_back("kvm");
+    } else if (jitOk) {
+        args.push_back("-accel");
+        args.push_back("tcg,thread=multi");
+    } else if (useTci) {
+        args.push_back("-accel");
+        args.push_back("tcg");
     }
 
     g_qemuRunning = true;
