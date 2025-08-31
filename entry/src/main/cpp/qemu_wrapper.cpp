@@ -1,4 +1,5 @@
 #include "qemu_wrapper.h"
+#include "rdp_client.h"
 #include <string>
 #include <map>
 #include <mutex>
@@ -519,4 +520,241 @@ int qemu_get_vm_logs(const char* vm_name, char** logs, int* line_count) {
 int qemu_clear_vm_logs(const char* vm_name) {
     // 这里可以实现日志清理逻辑
     return 0;
+}
+
+// RDP客户端管理接口
+rdp_client_handle_t rdp_client_create(void) {
+    // 创建RDP客户端实例
+    auto* client = new RdpClient();
+    return static_cast<rdp_client_handle_t>(client);
+}
+
+int rdp_client_connect(rdp_client_handle_t handle, const rdp_connection_config_t* config) {
+    if (!handle || !config) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    
+    // 转换配置
+    RdpConnectionConfig rdp_config;
+    rdp_config.host = config->host ? config->host : "";
+    rdp_config.port = config->port;
+    rdp_config.username = config->username ? config->username : "";
+    rdp_config.password = config->password ? config->password : "";
+    rdp_config.domain = config->domain ? config->domain : "";
+    rdp_config.width = config->width;
+    rdp_config.height = config->height;
+    rdp_config.color_depth = config->color_depth;
+    rdp_config.enable_audio = config->enable_audio != 0;
+    rdp_config.enable_clipboard = config->enable_clipboard != 0;
+    rdp_config.enable_file_sharing = config->enable_file_sharing != 0;
+    rdp_config.shared_folder = config->shared_folder ? config->shared_folder : "";
+    
+    return client->connect(rdp_config) ? 0 : -1;
+}
+
+void rdp_client_disconnect(rdp_client_handle_t handle) {
+    if (handle) {
+        auto* client = static_cast<RdpClient*>(handle);
+        client->disconnect();
+    }
+}
+
+int rdp_client_is_connected(rdp_client_handle_t handle) {
+    if (!handle) {
+        return 0;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->is_connected() ? 1 : 0;
+}
+
+rdp_connection_state_t rdp_client_get_state(rdp_client_handle_t handle) {
+    if (!handle) {
+        return RDP_ERROR;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    auto state = client->get_connection_state();
+    
+    switch (state) {
+        case RdpConnectionState::DISCONNECTED:
+            return RDP_DISCONNECTED;
+        case RdpConnectionState::CONNECTING:
+            return RDP_CONNECTING;
+        case RdpConnectionState::CONNECTED:
+            return RDP_CONNECTED;
+        case RdpConnectionState::ERROR:
+        default:
+            return RDP_ERROR;
+    }
+}
+
+// RDP显示控制
+int rdp_client_set_resolution(rdp_client_handle_t handle, int width, int height) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->set_resolution(width, height) ? 0 : -1;
+}
+
+int rdp_client_set_color_depth(rdp_client_handle_t handle, int depth) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->set_color_depth(depth) ? 0 : -1;
+}
+
+int rdp_client_enable_fullscreen(rdp_client_handle_t handle, int enable) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->enable_fullscreen(enable != 0) ? 0 : -1;
+}
+
+// RDP输入控制
+int rdp_client_send_mouse_event(rdp_client_handle_t handle, int x, int y, int button, int pressed) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->send_mouse_event(x, y, button, pressed != 0) ? 0 : -1;
+}
+
+int rdp_client_send_keyboard_event(rdp_client_handle_t handle, int key, int pressed) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->send_keyboard_event(key, pressed != 0) ? 0 : -1;
+}
+
+int rdp_client_send_text_input(rdp_client_handle_t handle, const char* text) {
+    if (!handle || !text) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->send_text_input(text) ? 0 : -1;
+}
+
+// RDP剪贴板管理
+int rdp_client_enable_clipboard_sharing(rdp_client_handle_t handle, int enable) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->enable_clipboard_sharing(enable != 0) ? 0 : -1;
+}
+
+int rdp_client_get_clipboard_text(rdp_client_handle_t handle, char** text) {
+    if (!handle || !text) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    std::string clipboard_text = client->get_clipboard_text();
+    
+    if (clipboard_text.empty()) {
+        *text = nullptr;
+        return 0;
+    }
+    
+    *text = new char[clipboard_text.length() + 1];
+    strcpy(*text, clipboard_text.c_str());
+    
+    return 0;
+}
+
+int rdp_client_set_clipboard_text(rdp_client_handle_t handle, const char* text) {
+    if (!handle || !text) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->set_clipboard_text(text) ? 0 : -1;
+}
+
+// RDP文件共享
+int rdp_client_enable_file_sharing(rdp_client_handle_t handle, int enable) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->enable_file_sharing(enable != 0) ? 0 : -1;
+}
+
+int rdp_client_set_shared_folder(rdp_client_handle_t handle, const char* path) {
+    if (!handle || !path) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->set_shared_folder(path) ? 0 : -1;
+}
+
+int rdp_client_get_shared_folder(rdp_client_handle_t handle, char** path) {
+    if (!handle || !path) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    std::string shared_folder = client->get_shared_folder();
+    
+    if (shared_folder.empty()) {
+        *path = nullptr;
+        return 0;
+    }
+    
+    *path = new char[shared_folder.length() + 1];
+    strcpy(*path, shared_folder.c_str());
+    
+    return 0;
+}
+
+// RDP音频控制
+int rdp_client_enable_audio(rdp_client_handle_t handle, int enable) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->enable_audio(enable != 0) ? 0 : -1;
+}
+
+int rdp_client_set_audio_volume(rdp_client_handle_t handle, int volume) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->set_audio_volume(volume) ? 0 : -1;
+}
+
+int rdp_client_get_audio_volume(rdp_client_handle_t handle) {
+    if (!handle) {
+        return -1;
+    }
+    
+    auto* client = static_cast<RdpClient*>(handle);
+    return client->get_audio_volume();
+}
+
+// RDP客户端销毁
+void rdp_client_destroy(rdp_client_handle_t handle) {
+    if (handle) {
+        auto* client = static_cast<RdpClient*>(handle);
+        delete client;
+    }
 }

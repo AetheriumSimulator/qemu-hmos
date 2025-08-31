@@ -9,17 +9,17 @@
 > QEMU专指Quick Emulator模拟器 感谢QEMU的开发者帮助打造上游生态!
 ---
 
-## ✨ 特性（当前状态）
+## ✨ 特性
 
-- ✅ 在 MatePad / MateBook（HarmonyOS NEXT）上运行 **Windows 11 ARM**、**Linux ARM64**（来宾）
-- ✅ **离线可用**：QEMU 使用 `hostfwd` → 宿主 `127.0.0.1` 访问来宾（如 RDP 3390→3389）
-- ✅ 安装期 VNC 观察；日常通过 **内嵌 RDP 视图** 使用
-- ✅ **Apps 启动**：支持 *StartProgram*（点击鸿蒙侧图标 → 直接拉起指定 Windows 程序窗口）
-- ✅ **共享文件夹**：RDP 驱动器重定向（将 App 沙箱目录映射为来宾盘符，如 `Z:`）
-- 🟨 媒体控制透传（DVC + GSMTC → 鸿蒙 AVSession，WIP）
-- 🟨 快照/休眠/恢复（WIP）
-- 🟨 RemoteApp/RAIL 真·应用发布（WIP）
-- 🟨 virtiofs/9p/Samba 长挂载（WIP）
+-  在 MatePad / MateBook（HarmonyOS NEXT）上运行 **Windows 11 ARM**、**Linux ARM64**（来宾）
+-  **离线可用**：QEMU 使用 `hostfwd` → 宿主 `127.0.0.1` 访问来宾（如 RDP 3390→3389）
+-  安装期 VNC 观察；日常通过 **内嵌 RDP 视图** 使用
+-  **Apps 启动**：支持 *StartProgram*（点击鸿蒙侧图标 → 直接拉起指定 Windows 程序窗口）
+-  **共享文件夹**：RDP 驱动器重定向（将 App 沙箱目录映射为来宾盘符，如 `Z:`）
+-  媒体控制透传（DVC + GSMTC → 鸿蒙 AVSession，WIP）
+-  快照/休眠/恢复（WIP）
+-  RemoteApp/RAIL 真·应用发布（WIP）
+-  virtiofs/9p/Samba 长挂载（WIP）
 
 > KVM：大多数设备/容器**不会暴露** `/dev/kvm` 给第三方 App。项目在运行时探测：可用则 `-accel kvm`，否则自动使用 `-accel tcg,thread=multi`。
 

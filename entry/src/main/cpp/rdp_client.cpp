@@ -320,7 +320,9 @@ private:
 };
 
 // RdpClient实现
-RdpClient::RdpClient() : pImpl(std::make_unique<Impl>()) {}
+RdpClient::RdpClient() : state_(RDP_DISCONNECTED), config_{0, 0, 0, 0, 0, 0} {
+    pImpl = std::make_unique<Impl>();
+}
 
 RdpClient::~RdpClient() = default;
 

@@ -56,6 +56,9 @@ extern "C" {
     napi_status napi_get_named_property(napi_env env, napi_value object,
                                        const char* utf8name, napi_value* result);
     
+    napi_status napi_set_named_property(napi_env env, napi_value object,
+                                       const char* utf8name, napi_value value);
+    
     napi_status napi_get_value_string_utf8(napi_env env, napi_value value,
                                           char* buf, size_t bufsize, size_t* result);
     
@@ -65,6 +68,10 @@ extern "C" {
     
     napi_status napi_create_string_utf8(napi_env env, const char* str,
                                        size_t length, napi_value* result);
+    
+    napi_status napi_create_object(napi_env env, napi_value* result);
+    
+    napi_status napi_create_int32(napi_env env, int32_t value, napi_value* result);
     
     napi_status napi_get_boolean(napi_env env, bool value, napi_value* result);
     
