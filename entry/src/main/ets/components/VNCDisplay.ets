@@ -21,6 +21,17 @@ export enum VNCConnectionState {
 }
 
 /**
+ * VNC图像数据接口
+ */
+export interface VNCImageData {
+  width: number
+  height: number
+  data: ArrayBuffer
+  encoding: number
+  timestamp: number
+}
+
+/**
  * VNC连接管理类
  */
 export class VNCConnection {
@@ -29,19 +40,22 @@ export class VNCConnection {
   private host: string = ''
   private port: number = 0
   private onStateChanged?: (state: VNCConnectionState) => void
-  private onDataReceived?: (data: ArrayBuffer) => void
+  private onImageReceived?: (imageData: VNCImageData) => void
   private onError?: (error: string) => void
+  private isRunning: boolean = false
+  private vncProtocol: VNCProtocol
 
   constructor(callbacks?: {
     onStateChanged?: (state: VNCConnectionState) => void
-    onDataReceived?: (data: ArrayBuffer) => void
+    onImageReceived?: (imageData: VNCImageData) => void
     onError?: (error: string) => void
   }) {
     if (callbacks) {
       this.onStateChanged = callbacks.onStateChanged
-      this.onDataReceived = callbacks.onDataReceived
+      this.onImageReceived = callbacks.onImageReceived
       this.onError = callbacks.onError
     }
+    this.vncProtocol = new VNCProtocol()
   }
 
   /**
@@ -81,6 +95,9 @@ export class VNCConnection {
         timeout: 10000 // 10秒超时
       })
 
+      // 开始VNC协议握手
+      await this.vncProtocol.performHandshake(this.tcpSocket)
+
     } catch (error) {
       this.setState(VNCConnectionState.ERROR)
       const errorMsg = `Failed to connect to VNC server: ${error}`
@@ -93,47 +110,20 @@ export class VNCConnection {
    * 断开VNC连接
    */
   async disconnect(): Promise<void> {
+    this.isRunning = false
     if (this.tcpSocket) {
       try {
         await this.tcpSocket.close()
       } catch (error) {
         console.error('Error closing socket:', error)
       }
-      
-      // 移除事件监听
-      this.removeSocketEvents()
       this.tcpSocket = null
     }
-    
     this.setState(VNCConnectionState.DISCONNECTED)
   }
 
   /**
-   * 发送数据到VNC服务器
-   */
-  async sendData(data: ArrayBuffer): Promise<void> {
-    if (this.connectionState !== VNCConnectionState.CONNECTED || !this.tcpSocket) {
-      throw new Error('Not connected to VNC server')
-    }
-
-    try {
-      await this.tcpSocket.send({ data: data })
-    } catch (error) {
-      const errorMsg = `Failed to send data: ${error}`
-      this.onError?.(errorMsg)
-      throw new Error(errorMsg)
-    }
-  }
-
-  /**
-   * 获取当前连接状态
-   */
-  getState(): VNCConnectionState {
-    return this.connectionState
-  }
-
-  /**
-   * 设置连接状态并通知回调
+   * 设置连接状态
    */
   private setState(state: VNCConnectionState): void {
     this.connectionState = state
@@ -150,12 +140,12 @@ export class VNCConnection {
     this.tcpSocket.on('connect', () => {
       console.log('VNC Socket connected')
       this.setState(VNCConnectionState.CONNECTED)
+      this.startReceiving()
     })
 
-    // 接收数据事件
-    this.tcpSocket.on('message', (value) => {
-      console.log('VNC data received')
-      this.onDataReceived?.(value.message)
+    // 数据接收事件
+    this.tcpSocket.on('dataReceive', (data: ArrayBuffer) => {
+      this.handleVNCData(data)
     })
 
     // 连接关闭事件
@@ -165,226 +155,357 @@ export class VNCConnection {
     })
 
     // 错误事件
-    this.tcpSocket.on('error', (error) => {
+    this.tcpSocket.on('error', (error: BusinessError) => {
       console.error('VNC Socket error:', error)
       this.setState(VNCConnectionState.ERROR)
-      this.onError?.(`Socket error: ${error}`)
+      this.onError?.(`Socket error: ${error.message}`)
     })
   }
 
   /**
-   * 移除Socket事件监听
+   * 开始接收VNC数据
    */
-  private removeSocketEvents(): void {
-    if (!this.tcpSocket) return
-
-    this.tcpSocket.off('connect')
-    this.tcpSocket.off('message')
-    this.tcpSocket.off('close')
-    this.tcpSocket.off('error')
+  private startReceiving(): void {
+    this.isRunning = true
+    // 开始接收VNC协议数据
+    this.receiveVNCLoop()
   }
 
   /**
-   * 重新连接
+   * VNC数据接收循环
    */
-  async reconnect(): Promise<void> {
-    await this.disconnect()
-    await this.connect(this.host, this.port)
+  private async receiveVNCLoop(): Promise<void> {
+    while (this.isRunning && this.tcpSocket) {
+      try {
+        // 这里应该实现真正的VNC协议解析
+        // 由于VNC协议复杂，这里提供基础框架
+        await this.tcpSocket.receive()
+      } catch (error) {
+        console.error('Error receiving VNC data:', error)
+        break
+      }
+    }
+  }
+
+  /**
+   * 处理VNC数据
+   */
+  private handleVNCData(data: ArrayBuffer): void {
+    try {
+      // 解析VNC协议数据
+      const imageData = this.vncProtocol.parseImageData(data)
+      if (imageData) {
+        this.onImageReceived?.(imageData)
+      }
+    } catch (error) {
+      console.error('Error parsing VNC data:', error)
+    }
+  }
+
+  /**
+   * 发送鼠标事件
+   */
+  async sendMouseEvent(x: number, y: number, buttonMask: number): Promise<void> {
+    if (!this.tcpSocket || this.connectionState !== VNCConnectionState.CONNECTED) {
+      throw new Error('Not connected to VNC server')
+    }
+
+    try {
+      const mouseEvent = this.vncProtocol.createMouseEvent(x, y, buttonMask)
+      await this.tcpSocket.send(mouseEvent)
+    } catch (error) {
+      console.error('Error sending mouse event:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 发送键盘事件
+   */
+  async sendKeyEvent(keyCode: number, down: boolean): Promise<void> {
+    if (!this.tcpSocket || this.connectionState !== VNCConnectionState.CONNECTED) {
+      throw new Error('Not connected to VNC server')
+    }
+
+    try {
+      const keyEvent = this.vncProtocol.createKeyEvent(keyCode, down)
+      await this.tcpSocket.send(keyEvent)
+    } catch (error) {
+      console.error('Error sending key event:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 获取连接状态
+   */
+  getState(): VNCConnectionState {
+    return this.connectionState
   }
 }
 
+/**
+ * VNC协议处理类
+ */
+class VNCProtocol {
+  private serverInit: boolean = false
+  private clientInit: boolean = false
+
+  /**
+   * 执行VNC握手
+   */
+  async performHandshake(tcpSocket: socket.TCPSocket): Promise<void> {
+    // 1. 版本协商
+    const versionMsg = 'RFB 003.008\n'
+    await tcpSocket.send(new TextEncoder().encode(versionMsg))
+
+    // 2. 认证协商
+    // 这里应该实现真正的VNC认证协议
+    // 简化版本，跳过认证
+  }
+
+  /**
+   * 解析图像数据
+   */
+  parseImageData(data: ArrayBuffer): VNCImageData | null {
+    // 这里应该实现真正的VNC协议解析
+    // 包括帧缓冲更新、编码类型等
+    try {
+      const view = new DataView(data)
+      
+      // 简化的VNC图像数据解析
+      if (data.byteLength < 12) return null
+
+      const messageType = view.getUint8(0)
+      if (messageType !== 0) return null // 不是帧缓冲更新消息
+
+      const padding = view.getUint8(1)
+      const numberOfRectangles = view.getUint16(2, false)
+
+      if (numberOfRectangles === 0) return null
+
+      // 解析第一个矩形区域
+      const x = view.getUint16(4, false)
+      const y = view.getUint16(6, false)
+      const width = view.getUint16(8, false)
+      const height = view.getUint16(10, false)
+      const encoding = view.getInt32(12, false)
+
+      // 提取图像数据
+      const imageDataStart = 16
+      const imageData = data.slice(imageDataStart)
+
+      return {
+        width,
+        height,
+        data: imageData,
+        encoding,
+        timestamp: Date.now()
+      }
+    } catch (error) {
+      console.error('Error parsing VNC image data:', error)
+      return null
+    }
+  }
+
+  /**
+   * 创建鼠标事件
+   */
+  createMouseEvent(x: number, y: number, buttonMask: number): ArrayBuffer {
+    const buffer = new ArrayBuffer(6)
+    const view = new DataView(buffer)
+    
+    view.setUint8(0, 5) // 消息类型：指针事件
+    view.setUint8(1, buttonMask)
+    view.setUint16(2, x, false)
+    view.setUint16(4, y, false)
+    
+    return buffer
+  }
+
+  /**
+   * 创建键盘事件
+   */
+  createKeyEvent(keyCode: number, down: boolean): ArrayBuffer {
+    const buffer = new ArrayBuffer(8)
+    const view = new DataView(buffer)
+    
+    view.setUint8(0, 4) // 消息类型：键盘事件
+    view.setUint8(1, down ? 1 : 0)
+    view.setUint16(2, 0) // 填充
+    view.setUint32(4, keyCode, false)
+    
+    return buffer
+  }
+}
+
+/**
+ * VNC显示组件
+ */
 @Component
 export struct VNCDisplay {
-  @Prop vmId: string = ''
-  @Prop vncPort: number = 5900
-  @State canvasWidth: number = 800
-  @State canvasHeight: number = 600
-  @State isConnected: boolean = false
-  @State connectionStatus: string = '未连接'
+  @State connectionState: VNCConnectionState = VNCConnectionState.DISCONNECTED
+  @State imageData: VNCImageData | null = null
   @State errorMessage: string = ''
   
-  private vncConnection: VNCConnection | null = null
-  
-  aboutToAppear() {
-    this.initVNCConnection()
-  }
-  
-  aboutToDisappear() {
-    this.disconnect()
-  }
-  
-  private initVNCConnection() {
-    try {
-      this.vncConnection = new VNCConnection({
-        onStateChanged: (state: VNCConnectionState) => {
-          switch (state) {
-            case VNCConnectionState.CONNECTING:
-              this.connectionStatus = '连接中...'
-              break
-            case VNCConnectionState.CONNECTED:
-              this.connectionStatus = '已连接'
-              this.isConnected = true
-              this.errorMessage = ''
-              break
-            case VNCConnectionState.DISCONNECTED:
-              this.connectionStatus = '未连接'
-              this.isConnected = false
-              break
-            case VNCConnectionState.ERROR:
-              this.connectionStatus = '连接错误'
-              this.isConnected = false
-              break
-          }
-        },
-        onDataReceived: (data: ArrayBuffer) => {
-          this.handleVNCData(data)
-        },
-        onError: (error: string) => {
-          this.errorMessage = error
-        }
-      })
-      
-      // 自动连接
-      this.connect()
-    } catch (error) {
-      console.error('初始化VNC连接失败:', error)
-      this.errorMessage = `初始化失败: ${error}`
-    }
-  }
-  
-  private async connect() {
-    if (!this.vncConnection) {
-      return
-    }
+  private vncConnection: VNCConnection
+  private options: VNCDisplayOptions
 
+  constructor(options: VNCDisplayOptions) {
+    this.options = options
+    this.vncConnection = new VNCConnection({
+      onStateChanged: (state) => {
+        this.connectionState = state
+      },
+      onImageReceived: (imageData) => {
+        this.imageData = imageData
+      },
+      onError: (error) => {
+        this.errorMessage = error
+      }
+    })
+  }
+
+  aboutToAppear() {
+    this.connectToVNC()
+  }
+
+  aboutToDisappear() {
+    this.vncConnection.disconnect()
+  }
+
+  async connectToVNC() {
     try {
-      // 连接到本地VNC服务器
-      await this.vncConnection.connect('127.0.0.1', this.vncPort)
+      await this.vncConnection.connect('127.0.0.1', this.options.vncPort)
     } catch (error) {
-      console.error('VNC连接失败:', error)
       this.errorMessage = `连接失败: ${error}`
     }
   }
-  
-  private async disconnect() {
-    if (this.vncConnection) {
-      try {
-        await this.vncConnection.disconnect()
-      } catch (error) {
-        console.error('断开VNC连接失败:', error)
-      }
-    }
-  }
-  
-  private handleVNCData(data: ArrayBuffer) {
-    // TODO: 实现VNC协议数据处理和画面渲染
-    console.log('收到VNC数据:', data.byteLength, '字节')
-  }
-  
-  private async sendMouseEvent(x: number, y: number, buttonMask: number) {
-    if (this.vncConnection && this.isConnected) {
-      try {
-        // 创建VNC鼠标事件数据
-        const buffer = new ArrayBuffer(6)
-        const view = new DataView(buffer)
-        view.setUint8(0, 5) // PointerEvent message type
-        view.setUint8(1, buttonMask) // Button mask
-        view.setUint16(2, x, false) // X position (big-endian)
-        view.setUint16(4, y, false) // Y position (big-endian)
-        
-        await this.vncConnection.sendData(buffer)
-      } catch (error) {
-        console.error('发送鼠标事件失败:', error)
-      }
-    }
-  }
-  
-  // 重新连接
-  reconnect() {
-    this.disconnect()
-    setTimeout(() => {
-      this.initVNCConnection()
-    }, 1000)
-  }
-  
+
   build() {
     Column() {
       // 连接状态显示
       Row() {
-        Text(`状态: ${this.connectionStatus}`)
+        Text('VNC状态:')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .margin({ right: 8 })
+
+        Text(this.getStateText())
           .fontSize(14)
-          .fontColor(this.isConnected ? '#00FF00' : '#FF0000')
-        
-        Blank()
-        
-        if (!this.isConnected) {
-          Button('连接')
-            .fontSize(12)
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .onClick(() => {
-              this.connect()
-            })
-        }
-        
-        if (this.isConnected) {
-          Button('断开')
-            .fontSize(12)
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .onClick(() => {
-              this.disconnect()
-            })
-        }
+          .fontColor(this.getStateColor())
       }
-      .width('100%')
-      .padding(8)
-      
+      .padding(16)
+      .backgroundColor(Color.White)
+      .borderRadius(8)
+      .margin({ bottom: 16 })
+
+      // VNC画面显示区域
+      if (this.imageData) {
+        Canvas(this.imageData.width, this.imageData.height)
+          .backgroundColor('#000000')
+          .onReady(() => {
+            // 这里应该实现真正的图像渲染
+            // 将VNC图像数据绘制到Canvas上
+            this.renderVNCImage()
+          })
+          .width('100%')
+          .height('60%')
+          .borderRadius(8)
+          .margin({ bottom: 16 })
+      } else {
+        // 占位符
+        Column() {
+          Text('等待VNC画面...')
+            .fontSize(16)
+            .fontColor('#666666')
+          
+          if (this.connectionState === VNCConnectionState.CONNECTING) {
+            LoadingProgress()
+              .width(24)
+              .height(24)
+              .margin({ top: 16 })
+          }
+        }
+        .width('100%')
+        .height('60%')
+        .backgroundColor('#F5F5F5')
+        .borderRadius(8)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .margin({ bottom: 16 })
+      }
+
       // 错误信息显示
       if (this.errorMessage) {
         Text(this.errorMessage)
-          .fontSize(12)
-          .fontColor('#FF0000')
-          .padding(8)
+          .fontSize(14)
+          .fontColor('#F44336')
+          .padding(12)
+          .backgroundColor('#FFEBEE')
+          .borderRadius(8)
+          .width('100%')
+          .margin({ bottom: 16 })
       }
-      
-      // VNC显示区域
-      Stack() {
-        // 黑色背景表示VNC画面区域
-        Rect()
-          .width(this.canvasWidth)
-          .height(this.canvasHeight)
-          .fill('#000000')
-          .stroke('#808080')
-          .strokeWidth(1)
-        
-        // 显示虚拟机ID和端口信息
-        if (!this.isConnected) {
-          Column() {
-            Text(`虚拟机: ${this.vmId}`)
-              .fontSize(16)
-              .fontColor('#FFFFFF')
-            Text(`VNC端口: ${this.vncPort}`)
-              .fontSize(14)
-              .fontColor('#808080')
-              .margin({ top: 8 })
-          }
-        }
+
+      // 控制按钮
+      Row() {
+        Button('重新连接')
+          .width(120)
+          .height(40)
+          .backgroundColor('#007DFF')
+          .fontColor(Color.White)
+          .onClick(() => {
+            this.connectToVNC()
+          })
+          .enabled(this.connectionState === VNCConnectionState.DISCONNECTED)
+
+        Button('断开连接')
+          .width(120)
+          .height(40)
+          .backgroundColor('#F44336')
+          .fontColor(Color.White)
+          .margin({ left: 16 })
+          .onClick(() => {
+            this.vncConnection.disconnect()
+          })
+          .enabled(this.connectionState === VNCConnectionState.CONNECTED)
       }
-      .width(this.canvasWidth)
-      .height(this.canvasHeight)
-      .onTouch((event) => {
-        if (this.isConnected && event.touches && event.touches.length > 0) {
-          const touch = event.touches[0]
-          let buttonMask = 0
-          
-          if (event.type === 0) { // TouchType.Down
-            buttonMask = 1 // 左键按下
-          }
-          
-          this.sendMouseEvent(Math.floor(touch.x), Math.floor(touch.y), buttonMask)
-        }
-      })
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
     }
+    .padding(16)
+    .backgroundColor('#F5F7FA')
     .width('100%')
     .height('100%')
+  }
+
+  private getStateText(): string {
+    switch (this.connectionState) {
+      case VNCConnectionState.DISCONNECTED: return '未连接'
+      case VNCConnectionState.CONNECTING: return '连接中...'
+      case VNCConnectionState.CONNECTED: return '已连接'
+      case VNCConnectionState.ERROR: return '连接错误'
+      default: return '未知状态'
+    }
+  }
+
+  private getStateColor(): string {
+    switch (this.connectionState) {
+      case VNCConnectionState.CONNECTED: return '#00C853'
+      case VNCConnectionState.CONNECTING: return '#FF9800'
+      case VNCConnectionState.ERROR: return '#F44336'
+      default: return '#666666'
+    }
+  }
+
+  private renderVNCImage(): void {
+    // 这里应该实现真正的VNC图像渲染
+    // 将VNC图像数据转换为Canvas可绘制的格式
+    if (!this.imageData) return
+
+    // 简化的图像渲染示例
+    // 实际应该根据VNC编码类型进行解码
+    console.log('Rendering VNC image:', this.imageData.width, 'x', this.imageData.height)
   }
 }

@@ -1,1 +1,0 @@
-/usr/bin/c++  -arch arm64 -dynamiclib -Wl,-headerpad_max_install_names -o libqemu_hmos.dylib -install_name @rpath/libqemu_hmos.dylib CMakeFiles/qemu_hmos.dir/napi_init.cpp.o  -lpthread -ldl -lm -lz

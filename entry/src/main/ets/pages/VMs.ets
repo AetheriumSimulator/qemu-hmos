@@ -1,363 +1,197 @@
-import qemu from 'libqemu_hmos.so';
+import { qemu } from '../cpp/types/libqemu_hmos/Index';
 import { VMCreateDialog } from '../components/VMCreateDialog';
-import { BusinessError } from '@kit.BasicServicesKit';
-import { common } from '@kit.AbilityKit';
+import { CustomDialogController } from '@kit.ArkUI';
 
-interface QemuConfig {
-  vmId: string;
+// 导出VMCreateConfig接口供其他组件使用
+export interface VMCreateConfig {
   name: string;
+  osType: string;
   isoPath: string;
-  diskSizeGB: number;
-  memoryMB: number;
-  cpuCount: number;
-  accel: string;
-  display: string;
-  nographic: boolean;
-  vmDir: string;
-  logPath: string;
-}
-
-interface TestConfig {
-  vmId: string;
-  name: string;
+  diskSize: number;
   memory: number;
-  cpu: number;
-  accel: string;
-  display: string;
-  nographic: boolean;
-  vmDir: string;
-  logPath: string;
+  cpuCount: number;
 }
 
 interface VmMeta {
   id: string;
   name: string;
+  osType: string;
   isoPath: string;
   diskSizeGB: number;
   memoryMB: number;
   cpuCount: number;
-  status: 'Creating' | 'Running' | 'Stopped' | 'Failed';
+  status: 'creating' | 'preparing' | 'running' | 'stopping' | 'stopped' | 'failed';
   createdAt: number;
 }
 
-interface VMCreateConfig {
-  name: string;
-  osType: string;
-  isoPath: string;
-  diskSize: number; // GB
-  memory: number; // MB
-}
-
+@Entry
 @Component
-export struct VMsPage {
+struct VMsPage {
   @State vms: VmMeta[] = [];
+  @State showCreateDialog: boolean = false;
   @State loading: boolean = false;
   @State error: string = '';
-  @State showCreateDialog: boolean = false;
-  @State vmLogs: Map<string, string[]> = new Map();
-  @State selectedVmId: string = '';
-  @State showLogPanel: boolean = false;
   
   private createDialogController: CustomDialogController = new CustomDialogController({
     builder: VMCreateDialog({
-      onConfirm: (config: VMCreateConfig): void => { this.handleCreateVM(config); },
-      onCancel: (): void => { this.showCreateDialog = false; }
+      onConfirm: (config: VMCreateConfig) => this.handleCreateVM(config),
+      onCancel: () => this.showCreateDialog = false
     }),
     autoCancel: true,
     alignment: DialogAlignment.Center,
     customStyle: true
   });
 
-  async aboutToAppear() {
-    await this.loadVms();
+  aboutToAppear() {
+    this.loadVms();
   }
 
-  async loadVms() {
-    this.loading = true;
+  private async loadVms() {
     try {
-      // 简化版本：使用AppStorage
-      const savedVmsJson = AppStorage.get<string>('vmsList') || '[]';
-      this.vms = JSON.parse(savedVmsJson) as VmMeta[];
-      this.error = '';
+      const savedVms = await AppStorage.Get<string>('vms');
+      if (savedVms) {
+        this.vms = JSON.parse(savedVms);
+      }
     } catch (e) {
-      console.error('Load VMs failed:', e);
-      this.error = 'Failed to load virtual machines';
-      this.vms = [];
-    } finally {
-      this.loading = false;
+      console.error('Failed to load VMs:', e);
     }
   }
 
   private async saveVms() {
     try {
-      const vmsJson = JSON.stringify(this.vms);
-      AppStorage.setOrCreate('vmsList', vmsJson);
-    } catch (err) {
-      console.error('Failed to save VMs:', err);
+      await AppStorage.Set<string>('vms', JSON.stringify(this.vms));
+    } catch (e) {
+      console.error('Failed to save VMs:', e);
     }
   }
 
-<<<<<<< HEAD
   private async handleCreateVM(config: VMCreateConfig) {
     try {
-      this.showCreateDialog = false;
+      this.loading = true;
+      this.error = '';
       
-      // 生成唯一ID
-      const vmId = `vm_${Date.now()}`;
-      
-      // 创建VM目录结构
-      const vmDir = `/data/storage/el2/base/haps/entry/files/vm/${vmId}`;
-      await this.createVMDirectory(vmDir);
-      
-      // 创建VM配置
-      const newVm: VmMeta = {
-        id: vmId,
+      const vmConfig: {
+        name: string;
+        isoPath: string;
+        diskSizeGB: number;
+        memoryMB: number;
+        cpuCount: number;
+      } = {
         name: config.name,
         isoPath: config.isoPath,
         diskSizeGB: config.diskSize,
         memoryMB: config.memory,
-        cpuCount: 2, // 默认2核
-        status: 'Creating',
-        createdAt: Date.now()
+        cpuCount: config.cpuCount
       };
       
-      // 保存VM配置到文件
-      await this.saveVMConfig(vmDir, newVm);
-      
-      // 添加到列表
-      this.vms.push(newVm);
-      await this.saveVms();
-      
-      // 初始化日志
-      this.vmLogs.set(vmId, [`[${new Date().toLocaleTimeString()}] 虚拟机 ${config.name} 创建成功`]);
-      
-      this.error = `虚拟机 ${config.name} 创建成功，点击启动按钮开始运行`;
-      
+      const success = qemu.startVm(vmConfig);
+      if (success) {
+        const newVm: VmMeta = {
+          id: Date.now().toString(),
+          name: config.name,
+          osType: config.osType,
+          isoPath: config.isoPath,
+          diskSizeGB: config.diskSize,
+          memoryMB: config.memory,
+          cpuCount: config.cpuCount,
+          status: 'creating',
+          createdAt: Date.now()
+        };
+        this.vms.push(newVm);
+        await this.saveVms();
+        this.showCreateDialog = false;
+        this.startVMStatusMonitoring(newVm.name);
+      } else {
+        this.error = 'Failed to start VM';
+      }
     } catch (e) {
       console.error('Create VM failed:', e);
-      this.error = `创建虚拟机失败: ${e}`;
+      this.error = `Failed to create VM: ${e}`;
+    } finally {
+      this.loading = false;
     }
   }
-  
-  private async createVMDirectory(vmDir: string) {
-    try {
-      // 这里应该使用文件系统API创建目录
-      // 由于ArkTS限制，我们先记录日志
-      console.log(`Creating VM directory: ${vmDir}`);
-    } catch (e) {
-      console.error('Failed to create VM directory:', e);
-      throw new Error(String(e));
-    }
-  }
-  
-  private async saveVMConfig(vmDir: string, vm: VmMeta) {
-    try {
-      const configPath = `${vmDir}/config.json`;
-      const configData = JSON.stringify(vm, null, 2);
-      console.log(`Saving VM config to: ${configPath}`);
-      console.log(`Config data: ${configData}`);
-    } catch (e) {
-      console.error('Failed to save VM config:', e);
-      throw new Error(String(e));
-    }
-=======
-  private async initDownloads() {
-    this.dlManager = new DownloadManager(getContext(this));
-    await this.dlManager.init();
-    this.downloads = this.dlManager.getTasks();
-    this.dlManager.onUpdate((tasks: DownloadTaskInfo[]) => {
-      this.downloads = tasks;
-    });
-  }
 
-  private addDownload() {
-    const url = 'https://example.com/demo.bin';
-    const path = `/data/${Date.now()}.bin`;
-    this.dlManager?.enqueue(url, path);
-  }
-
-  private async addVm() {
-    const vm: VmMeta = { name: `demo${Date.now()}`, options: '{"name":"demo"}', sharedDir: '' };
-    this.vms.push(vm);
-    await this.saveVms();
->>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
-  }
-
-  private async selectSharedDir(vm: VmMeta) {
-    try {
-      const documentSelectOptions = new picker.DocumentSelectOptions();
-      documentSelectOptions.maxSelectNumber = 1;
-      const documentViewPicker = new picker.DocumentViewPicker();
-      const result = await documentViewPicker.select(documentSelectOptions);
-      if (result && result.length > 0) {
-        vm.sharedDir = result[0];
-        await this.saveVms();
+  private startVMStatusMonitoring(vmName: string) {
+    // 启动状态监控
+    const monitorInterval = setInterval(() => {
+      try {
+        const status = qemu.getVmStatus(vmName);
+        const vmIndex = this.vms.findIndex((vm: VmMeta) => vm.name === vmName);
+        if (vmIndex !== -1) {
+          this.vms[vmIndex].status = status as VmMeta['status'];
+          this.saveVms();
+        }
+        
+        // 如果VM已停止，停止监控
+        if (status === 'stopped' || status === 'failed') {
+          clearInterval(monitorInterval);
+        }
+      } catch (e) {
+        console.error('Status monitoring failed:', e);
+        clearInterval(monitorInterval);
       }
-    } catch (err) {
-      const error = err as BusinessError;
-      console.error('选择共享目录失败:', error);
-    }
+    }, 2000);
   }
 
-  private async start(vm: VmMeta) {
+  private startVM(vm: VmMeta) {
     try {
-<<<<<<< HEAD
-      vm.status = 'Creating';
-      this.error = '';
-      
-      // 添加启动日志
-      this.addVMLog(vm.id, `开始启动虚拟机 ${vm.name}...`);
-      
-      // 构建QEMU配置
-      const qemuConfig: QemuConfig = {
-        vmId: vm.id,
-        name: vm.name,
-        isoPath: vm.isoPath,
-        diskSizeGB: vm.diskSizeGB,
-        memoryMB: vm.memoryMB,
-        cpuCount: vm.cpuCount,
-        // 最小启动配置 - TCG + 无图形
-        accel: 'tcg',
-        display: 'none',
-        nographic: true,
-        // 沙盒路径
-        vmDir: `/data/storage/el2/base/haps/entry/files/vm/${vm.id}`,
-        logPath: `/data/storage/el2/base/haps/entry/files/vm/${vm.id}/logs/qemu.log`
-      };
-      
-      this.addVMLog(vm.id, `QEMU配置: ${JSON.stringify(qemuConfig, null, 2)}`);
-      
-      console.log('Starting VM with config:', JSON.stringify(qemuConfig));
-      const result = await qemu.startVm(JSON.stringify(qemuConfig));
-      
-      if (result === true) {
-        vm.status = 'Running';
-        this.addVMLog(vm.id, `虚拟机启动成功！`);
-        this.addVMLog(vm.id, `VNC端口: 5900, RDP端口: 3390`);
-        this.error = `虚拟机 ${vm.name} 启动成功！`;
-=======
-      const handle: number = qemu.startVm(vm.options);
-      if (handle) {
-        vm.handle = handle;
-        vm.state = 'running';
-        this.error = '';
->>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
-      } else {
-        vm.status = 'Failed';
-        this.addVMLog(vm.id, `虚拟机启动失败，返回值: ${result}`);
-        this.error = `虚拟机 ${vm.name} 启动失败，返回值: ${result}`;
+      const vmConfig: { name: string } = { name: vm.name };
+      const success = qemu.startVm(vmConfig);
+      if (success) {
+        vm.status = 'running';
+        this.saveVms();
+        this.startVMStatusMonitoring(vm.name);
       }
     } catch (e) {
       console.error('Start VM failed:', e);
-      vm.status = 'Failed';
-      this.addVMLog(vm.id, `启动异常: ${e}`);
-      this.error = `启动虚拟机失败: ${e}`;
+      this.error = `Failed to start VM: ${e}`;
     }
-    
-    await this.saveVms();
-  }
-  
-  private addVMLog(vmId: string, message: string) {
-    const timestamp = new Date().toLocaleTimeString();
-    const logMessage = `[${timestamp}] ${message}`;
-    
-    if (!this.vmLogs.has(vmId)) {
-      this.vmLogs.set(vmId, []);
-    }
-    
-    const logs = this.vmLogs.get(vmId)!;
-    logs.push(logMessage);
-    
-    // 保持最新100条日志
-    if (logs.length > 100) {
-      logs.splice(0, logs.length - 100);
-    }
-    
-    console.log(`VM ${vmId}: ${logMessage}`);
   }
 
-  private async stop(vm: VmMeta) {
+  private stopVM(vm: VmMeta) {
     try {
-<<<<<<< HEAD
-      this.addVMLog(vm.id, `正在停止虚拟机 ${vm.name}...`);
-      
-      const result = await qemu.stopVm(vm.id);
-      if (result === true) {
-        vm.status = 'Stopped';
-        this.addVMLog(vm.id, `虚拟机已停止`);
-        this.error = `虚拟机 ${vm.name} 已停止`;
-=======
-      const ok: boolean = vm.handle !== undefined && qemu.stopVm(vm.handle);
-      if (ok) {
-        vm.state = undefined;
-        vm.handle = undefined;
-        this.error = '';
->>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
-      } else {
-        this.addVMLog(vm.id, `停止失败，返回值: ${result}`);
-        this.error = `停止虚拟机失败，返回值: ${result}`;
+      const success = qemu.stopVm(vm.name);
+      if (success) {
+        vm.status = 'stopping';
+        this.saveVms();
       }
     } catch (e) {
       console.error('Stop VM failed:', e);
-      this.addVMLog(vm.id, `停止异常: ${e}`);
-      this.error = `停止虚拟机失败: ${e}`;
-    }
-    
-    await this.saveVms();
-  }
-  
-  private showVMLog(vmId: string) {
-    this.selectedVmId = vmId;
-    this.showLogPanel = true;
-  }
-
-  private async pause(vm: VmMeta) {
-    this.loading = true;
-    try {
-      const ok: boolean = vm.handle !== undefined && qemu.pauseVm(vm.handle);
-      if (ok) {
-        vm.state = 'paused';
-        this.error = '';
-      } else {
-        this.error = '暂停失败';
-      }
-    } catch (e) {
-      this.error = `暂停异常: ${JSON.stringify(e)}`;
-    } finally {
-      this.loading = false;
+      this.error = `Failed to stop VM: ${e}`;
     }
   }
 
-  private async resume(vm: VmMeta) {
-    this.loading = true;
+  private showVMLogs(vm: VmMeta) {
     try {
-      const ok: boolean = vm.handle !== undefined && qemu.resumeVm(vm.handle);
-      if (ok) {
-        vm.state = 'running';
-        this.error = '';
-      } else {
-        this.error = '恢复失败';
-      }
+      const logs = qemu.getVmLogs(vm.name);
+      console.log(`VM ${vm.name} logs:`, logs);
+      // 这里可以显示日志对话框
     } catch (e) {
-      this.error = `恢复异常: ${JSON.stringify(e)}`;
-    } finally {
-      this.loading = false;
+      console.error('Get VM logs failed:', e);
     }
   }
 
-  private async snapshot(vm: VmMeta) {
-    this.loading = true;
-    try {
-      const ok: boolean = vm.handle !== undefined && qemu.snapshotVm(vm.handle);
-      if (ok) {
-        this.error = '';
-      } else {
-        this.error = '快照失败';
-      }
-    } catch (e) {
-      this.error = `快照异常: ${JSON.stringify(e)}`;
-    } finally {
-      this.loading = false;
+  private getStatusColor(status: VmMeta['status']): string {
+    switch (status) {
+      case 'running': return '#4CAF50';
+      case 'creating': case 'preparing': return '#FF9800';
+      case 'stopping': return '#FF5722';
+      case 'stopped': return '#9E9E9E';
+      case 'failed': return '#F44336';
+      default: return '#9E9E9E';
+    }
+  }
+
+  private getStatusText(status: VmMeta['status']): string {
+    switch (status) {
+      case 'running': return '运行中';
+      case 'creating': return '创建中';
+      case 'preparing': return '准备中';
+      case 'stopping': return '停止中';
+      case 'stopped': return '已停止';
+      case 'failed': return '失败';
+      default: return '未知';
     }
   }
 
@@ -367,254 +201,87 @@ export struct VMsPage {
       Row() {
         Text('虚拟机管理')
           .fontSize(24)
-          .layoutWeight(1);
-        
-        if (this.showLogPanel) {
-          Button('关闭日志')
-            .onClick(() => {
-              this.showLogPanel = false;
-              this.selectedVmId = '';
-            });
-        }
-      }
-      .width('100%')
-      .margin({ bottom: 20 });
-
-      if (this.loading) {
-        Text('加载中...')
-          .fontSize(16);
-      }
-
-      if (this.error) {
-        Text(this.error)
-          .fontSize(16)
-          .margin({ bottom: 10 });
-      }
-
-<<<<<<< HEAD
-      // 主内容区域
-      if (this.showLogPanel && this.selectedVmId) {
-        // 日志面板
-        Column() {
-          Text(`虚拟机日志 - ${this.getVMName(this.selectedVmId)}`)
-            .fontSize(18)
-            .margin({ bottom: 10 });
-          
-          Scroll() {
-            Column() {
-              ForEach(this.vmLogs.get(this.selectedVmId) || [], (log: string, index: number) => {
-                Text(log)
-                  .fontSize(12)
-                  .width('100%')
-                  .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-                  .backgroundColor(index % 2 === 0 ? '#F5F5F5' : '#FFFFFF');
-              }, (log: string, index: number) => `${this.selectedVmId}_${index}`);
-            }
-          }
-          .layoutWeight(1)
-          .backgroundColor('#FAFAFA')
-          .borderRadius(8)
-          .padding(8);
-=======
-      ForEach(this.vms, (vm: VmMeta) => {
-        Row({ space: 8 }) {
-          Text(vm.name)
-            .fontSize(16)
-          if (vm.state === 'running') {
-            Button('暂停')
-              .type(ButtonType.Capsule)
-              .onClick(() => {
-                this.pause(vm);
-              })
-            Button('快照')
-              .type(ButtonType.Capsule)
-              .onClick(() => {
-                this.snapshot(vm);
-              })
-            Button('停止')
-              .type(ButtonType.Capsule)
-              .onClick(() => {
-                this.stop(vm);
-              })
-          } else if (vm.state === 'paused') {
-            Button('恢复')
-              .type(ButtonType.Capsule)
-              .onClick(() => {
-                this.resume(vm);
-              })
-            Button('快照')
-              .type(ButtonType.Capsule)
-              .onClick(() => {
-                this.snapshot(vm);
-              })
-            Button('停止')
-              .type(ButtonType.Capsule)
-              .onClick(() => {
-                this.stop(vm);
-              })
-          } else {
-            Button('启动')
-              .type(ButtonType.Capsule)
-              .onClick(() => {
-                this.start(vm);
-              })
-          }
-
->>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
-        }
-        .layoutWeight(1);
-      } else {
-        // 虚拟机列表
-        List() {
-          ForEach(this.vms, (vm: VmMeta) => {
-            ListItem() {
-              Row() {
-                Column() {
-                  Text(vm.name)
-                    .fontSize(18);
-                  Text(`状态: ${vm.status}`)
-                    .fontSize(14);
-                  Text(`内存: ${vm.memoryMB}MB | CPU: ${vm.cpuCount}核 | 磁盘: ${vm.diskSizeGB}GB`)
-                    .fontSize(12);
-                }
-                .alignItems(HorizontalAlign.Start)
-                .layoutWeight(1);
-
-<<<<<<< HEAD
-                Column() {
-                  if (vm.status === 'Stopped' || vm.status === 'Failed') {
-                    Button('启动')
-                      .onClick(() => this.start(vm));
-                  }
-                  if (vm.status === 'Running') {
-                    Button('停止')
-                      .onClick(() => this.stop(vm));
-                  }
-                  Button('查看日志')
-                    .fontSize(12)
-                    .onClick(() => this.showVMLog(vm.id));
-                }
-              }
-              .width('100%')
-              .padding(10);
-            }
-          }, (vm: VmMeta) => vm.id);
-        }
-        .layoutWeight(1);
-      }
-
-      Row() {
-        Button('测试NAPI')
-          .onClick(() => {
-            this.testNAPIConnection();
-          })
-          .margin({ right: 10 })
-        
-        Button('新建虚拟机')
+          .fontWeight(FontWeight.Bold)
+        Blank()
+        Button('创建VM')
           .onClick(() => {
             this.createDialogController.open();
           })
       }
       .width('100%')
-      .margin({ top: 20 });
-=======
-      Button('新建虚拟机')
-        .type(ButtonType.Capsule)
-        .onClick(() => {
-          this.addVm();
-        })
-        .margin({ top: 12 })
+      .padding(16)
+      .backgroundColor(Color.White)
+      .borderRadius(8)
+      .margin({ bottom: 16 })
 
-      if (this.downloads.length > 0) {
-        Text('下载队列')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .margin({ top: 24, bottom: 12 })
-
-        ForEach(this.downloads, (task: DownloadTaskInfo) => {
-          Column() {
-            Text(task.url)
-              .fontSize(14)
-            Text(`${(task.downloaded * 100 / task.total || 0).toFixed(1)}%  ` +
-                 `${(task.speed).toFixed(1)}B/s  ETA ${(task.eta).toFixed(1)}s`)
-              .fontSize(12)
-          }
-          .margin({ bottom: 8 })
-        }, (task: DownloadTaskInfo) => task.id)
+      // 错误提示
+      if (this.error) {
+        Text(this.error)
+          .fontSize(14)
+          .color(Color.Red)
+          .padding(8)
+          .backgroundColor(Color.Red + '20')
+          .borderRadius(4)
+          .margin({ bottom: 16 })
       }
 
-      Button('添加下载任务')
-        .type(ButtonType.Capsule)
-        .onClick(() => {
-          this.addDownload();
+      // VM列表
+      List() {
+        ForEach(this.vms, (vm: VmMeta) => {
+          ListItem() {
+            Column() {
+              Row() {
+                Text(vm.name)
+                  .fontSize(18)
+                  .fontWeight(FontWeight.Medium)
+                Blank()
+                Text(this.getStatusText(vm.status))
+                  .fontSize(14)
+                  .fontColor(this.getStatusColor(vm.status))
+              }
+              .width('100%')
+              .margin({ bottom: 8 })
+
+              Row() {
+                Text(`OS: ${vm.osType}`)
+                  .fontSize(14)
+                  .color(Color.Grey)
+                Blank()
+                Text(`${vm.cpuCount}核 ${vm.memoryMB}MB ${vm.diskSizeGB}GB`)
+                  .fontSize(14)
+                  .color(Color.Grey)
+              }
+              .width('100%')
+              .margin({ bottom: 8 })
+
+              Row() {
+                Button('启动')
+                  .onClick(() => this.startVM(vm))
+                  .enabled(vm.status === 'stopped' || vm.status === 'failed')
+                  .margin({ right: 8 })
+                Button('停止')
+                  .onClick(() => this.stopVM(vm))
+                  .enabled(vm.status === 'running')
+                  .margin({ right: 8 })
+                Button('日志')
+                  .onClick(() => this.showVMLogs(vm))
+                  .margin({ right: 8 })
+              }
+              .width('100%')
+            }
+            .padding(16)
+            .backgroundColor(Color.White)
+            .borderRadius(8)
+            .margin({ bottom: 8 })
+          }
         })
-        .margin({ top: 12 })
->>>>>>> f44720f2f3c409526b12b20f5d0584266f573579
+      }
+      .width('100%')
+      .layoutWeight(1)
     }
     .width('100%')
     .height('100%')
-    .padding(20);
-  }
-  
-  private getVMName(vmId: string): string {
-    const vm = this.vms.find(v => v.id === vmId);
-    return vm ? vm.name : 'Unknown VM';
-  }
-
-  private testNAPIConnection() {
-    this.addVMLog('test', '开始测试NAPI连接...');
-    
-    try {
-      // 测试版本信息
-      const version = qemu.version;
-      this.addVMLog('test', `QEMU版本: ${version}`);
-      
-      // 测试JIT支持
-      const jitEnabled = qemu.enableJit;
-      this.addVMLog('test', `JIT支持: ${jitEnabled}`);
-      
-      // 测试KVM支持
-      const kvmSupported = qemu.kvmSupported;
-      this.addVMLog('test', `KVM支持: ${kvmSupported}`);
-      
-      // 测试启动VM（使用最小配置）
-      const testConfig: TestConfig = {
-        vmId: 'test-vm',
-        name: 'Test VM',
-        memory: 512,
-        cpu: 1,
-        accel: 'tcg',
-        display: 'none',
-        nographic: true,
-        vmDir: '/data/storage/el2/base/haps/entry/files/vm/test-vm',
-        logPath: '/data/storage/el2/base/haps/entry/files/vm/test-vm/qemu.log'
-      };
-      
-      const configJson = JSON.stringify(testConfig);
-      this.addVMLog('test', `启动配置: ${configJson}`);
-      
-      const startResult = qemu.startVm(configJson);
-      this.addVMLog('test', `启动结果: ${startResult}`);
-      
-      if (startResult === true) {
-        this.addVMLog('test', 'NAPI调用成功！虚拟机启动中...');
-        
-        // 等待2秒后停止测试VM
-        setTimeout(() => {
-          const stopResult = qemu.stopVm('test-vm');
-          this.addVMLog('test', `停止结果: ${stopResult}`);
-          this.addVMLog('test', 'NAPI测试完成');
-        }, 2000);
-      } else {
-        this.addVMLog('test', 'NAPI调用失败');
-      }
-      
-    } catch (error) {
-      this.addVMLog('test', `NAPI测试出错: ${error}`);
-    }
-    
-    // 显示日志面板
-    this.selectedVmId = 'test';
-    this.showLogPanel = true;
+    .padding(16)
+    .backgroundColor('#F5F5F5')
   }
 }

@@ -8,6 +8,10 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <sys/stat.h>
+#include <fstream>
+#include <sstream>
+#include <vector>
 
 // QEMU 虚拟机实例结构
 struct QemuVmInstance {
@@ -16,6 +20,8 @@ struct QemuVmInstance {
     pid_t qemu_pid;
     std::thread monitor_thread;
     bool should_stop;
+    std::string log_file;
+    std::vector<std::string> snapshots;
     
     QemuVmInstance() : state(QEMU_VM_STOPPED), qemu_pid(-1), should_stop(false) {
         memset(&config, 0, sizeof(config));
@@ -32,31 +38,79 @@ static std::string build_qemu_command(const qemu_vm_config_t* config) {
     std::string cmd = "qemu-system-aarch64";
     
     // 基本配置
+    cmd += " -name " + std::string(config->name ? config->name : "vm");
     cmd += " -machine " + std::string(config->machine_type ? config->machine_type : "virt");
     cmd += " -cpu " + std::string(config->cpu_type ? config->cpu_type : "cortex-a57");
-    cmd += " -m " + std::to_string(config->memory_mb > 0 ? config->memory_mb : 512);
+    cmd += " -m " + std::to_string(config->memory_mb > 0 ? config->memory_mb : 6144); // 默认6GB
+    cmd += " -smp " + std::to_string(config->cpu_count > 0 ? config->cpu_count : 4);   // 默认4核
     
-    // 无图形界面模式
-    cmd += " -nographic -serial stdio";
+    // 加速模式
+    if (config->accel_mode) {
+        if (strcmp(config->accel_mode, "kvm") == 0) {
+            cmd += " -accel kvm";
+        } else if (strcmp(config->accel_mode, "hvf") == 0) {
+            cmd += " -accel hvf";
+        } else {
+            cmd += " -accel tcg,thread=multi";
+        }
+    } else {
+        cmd += " -accel tcg,thread=multi";
+    }
     
-    // 内核和 initrd
-    if (config->kernel_path) {
-        cmd += " -kernel " + std::string(config->kernel_path);
+    // 硬盘
+    if (config->disk_path) {
+        cmd += " -drive file=" + std::string(config->disk_path) + ",format=qcow2,if=virtio";
     }
-    if (config->initrd_path) {
-        cmd += " -initrd " + std::string(config->initrd_path);
+    
+    // ISO镜像
+    if (config->iso_path) {
+        cmd += " -cdrom " + std::string(config->iso_path);
     }
-    if (config->cmdline) {
-        cmd += " -append \"" + std::string(config->cmdline) + "\"";
+    
+    // EFI固件
+    if (config->efi_firmware) {
+        cmd += " -drive file=" + std::string(config->efi_firmware) + ",if=pflash,format=raw,unit=0,readonly=on";
+        cmd += " -drive file=" + std::string(config->efi_firmware) + ",if=pflash,format=raw,unit=1,readonly=off";
     }
-
+    
+    // 网络
+    if (config->network_mode && strcmp(config->network_mode, "none") != 0) {
+        if (strcmp(config->network_mode, "user") == 0) {
+            cmd += " -netdev user,id=net0";
+            if (config->rdp_port > 0) {
+                cmd += ",hostfwd=tcp:127.0.0.1:" + std::to_string(config->rdp_port) + "-:3389";
+            }
+        } else if (strcmp(config->network_mode, "bridge") == 0) {
+            cmd += " -netdev bridge,id=net0";
+        }
+        cmd += " -device virtio-net-pci,netdev=net0";
+    }
+    
+    // 显示模式
+    if (config->display_mode) {
+        if (strcmp(config->display_mode, "vnc") == 0) {
+            cmd += " -vnc :" + std::to_string(config->vnc_port > 0 ? config->vnc_port : 0);
+        } else if (strcmp(config->display_mode, "sdl") == 0) {
+            cmd += " -display sdl";
+        } else if (strcmp(config->display_mode, "gtk") == 0) {
+            cmd += " -display gtk";
+        } else if (strcmp(config->display_mode, "none") == 0) {
+            cmd += " -nographic";
+        }
+    } else {
+        cmd += " -nographic";
+    }
+    
+    // 共享目录
     if (config->shared_dir) {
-        std::string sock = "/tmp/virtiofsd.sock";
-        cmd += " -chardev socket,id=char0,path=" + sock;
-        cmd += " -device vhost-user-fs-pci,chardev=char0,tag=hostshare";
-        cmd += " -virtiofsd socket=" + sock + ",source=" + std::string(config->shared_dir) + ",tag=hostshare";
+        cmd += " -virtfs local,path=" + std::string(config->shared_dir) + ",mount_tag=shared,security_model=mapped";
     }
-
+    
+    // 其他优化
+    cmd += " -enable-kvm";
+    cmd += " -rtc base=utc";
+    cmd += " -serial stdio";
+    
     return cmd;
 }
 
@@ -89,9 +143,7 @@ int qemu_init(void) {
         return 0; // 已初始化
     }
     
-    // 这里可以添加 QEMU 库的初始化代码
-    // 目前使用外部 qemu-system-aarch64 进程
-    
+    // 检测系统能力
     g_qemu_initialized = true;
     return 0;
 }
@@ -122,23 +174,35 @@ qemu_vm_handle_t qemu_vm_create(const qemu_vm_config_t* config) {
     
     // 复制配置
     instance->config = *config;
+    if (config->name) {
+        instance->config.name = strdup(config->name);
+    }
     if (config->machine_type) {
         instance->config.machine_type = strdup(config->machine_type);
     }
     if (config->cpu_type) {
         instance->config.cpu_type = strdup(config->cpu_type);
     }
-    if (config->kernel_path) {
-        instance->config.kernel_path = strdup(config->kernel_path);
+    if (config->disk_path) {
+        instance->config.disk_path = strdup(config->disk_path);
     }
-    if (config->initrd_path) {
-        instance->config.initrd_path = strdup(config->initrd_path);
+    if (config->iso_path) {
+        instance->config.iso_path = strdup(config->iso_path);
     }
-    if (config->cmdline) {
-        instance->config.cmdline = strdup(config->cmdline);
+    if (config->efi_firmware) {
+        instance->config.efi_firmware = strdup(config->efi_firmware);
     }
     if (config->shared_dir) {
         instance->config.shared_dir = strdup(config->shared_dir);
+    }
+    if (config->network_mode) {
+        instance->config.network_mode = strdup(config->network_mode);
+    }
+    if (config->accel_mode) {
+        instance->config.accel_mode = strdup(config->accel_mode);
+    }
+    if (config->display_mode) {
+        instance->config.display_mode = strdup(config->display_mode);
     }
 
     qemu_vm_handle_t handle = instance.get();
@@ -314,34 +378,145 @@ void qemu_vm_destroy(qemu_vm_handle_t handle) {
         qemu_vm_stop(handle);
     }
 
-    // Ensure monitor thread has completed before destroying the instance
+    // 等待监控线程结束
     if (instance->monitor_thread.joinable()) {
         instance->monitor_thread.join();
     }
 
     // 释放配置字符串
+    if (instance->config.name) {
+        free(const_cast<char*>(instance->config.name));
+    }
     if (instance->config.machine_type) {
         free(const_cast<char*>(instance->config.machine_type));
     }
     if (instance->config.cpu_type) {
         free(const_cast<char*>(instance->config.cpu_type));
     }
-    if (instance->config.kernel_path) {
-        free(const_cast<char*>(instance->config.kernel_path));
+    if (instance->config.disk_path) {
+        free(const_cast<char*>(instance->config.disk_path));
     }
-    if (instance->config.initrd_path) {
-        free(const_cast<char*>(instance->config.initrd_path));
+    if (instance->config.iso_path) {
+        free(const_cast<char*>(instance->config.iso_path));
     }
-    if (instance->config.cmdline) {
-        free(const_cast<char*>(instance->config.cmdline));
+    if (instance->config.efi_firmware) {
+        free(const_cast<char*>(instance->config.efi_firmware));
     }
     if (instance->config.shared_dir) {
         free(const_cast<char*>(instance->config.shared_dir));
+    }
+    if (instance->config.network_mode) {
+        free(const_cast<char*>(instance->config.network_mode));
+    }
+    if (instance->config.accel_mode) {
+        free(const_cast<char*>(instance->config.accel_mode));
+    }
+    if (instance->config.display_mode) {
+        free(const_cast<char*>(instance->config.display_mode));
     }
 
     g_vm_instances.erase(it);
 }
 
+// 硬盘管理
+int qemu_create_disk(const char* path, int size_gb, const char* format) {
+    if (!path || size_gb <= 0) {
+        return -1;
+    }
+    
+    std::string format_str = format ? format : "qcow2";
+    std::string cmd = "qemu-img create -f " + format_str + " " + path + " " + std::to_string(size_gb) + "G";
+    
+    return system(cmd.c_str());
+}
+
+int qemu_resize_disk(const char* path, int new_size_gb) {
+    if (!path || new_size_gb <= 0) {
+        return -1;
+    }
+    
+    std::string cmd = "qemu-img resize " + std::string(path) + " " + std::to_string(new_size_gb) + "G";
+    
+    return system(cmd.c_str());
+}
+
+// 网络管理
+int qemu_setup_network(const char* vm_name, const char* mode, int host_port, int guest_port) {
+    // 这里可以实现网络配置逻辑
+    return 0;
+}
+
+int qemu_forward_port(const char* vm_name, int host_port, int guest_port) {
+    // 这里可以实现端口转发逻辑
+    return 0;
+}
+
+// 显示管理
+int qemu_start_vnc_server(const char* vm_name, int port) {
+    // 这里可以实现VNC服务器启动逻辑
+    return 0;
+}
+
+int qemu_start_rdp_server(const char* vm_name, int port) {
+    // 这里可以实现RDP服务器启动逻辑
+    return 0;
+}
+
+// 快照管理
+int qemu_create_snapshot(const char* vm_name, const char* snapshot_name) {
+    // 这里可以实现快照创建逻辑
+    return 0;
+}
+
+int qemu_restore_snapshot(const char* vm_name, const char* snapshot_name) {
+    // 这里可以实现快照恢复逻辑
+    return 0;
+}
+
+int qemu_list_snapshots(const char* vm_name, char** snapshot_list, int* count) {
+    // 这里可以实现快照列表获取逻辑
+    return 0;
+}
+
+// 文件共享
+int qemu_mount_shared_dir(const char* vm_name, const char* host_path, const char* guest_path) {
+    // 这里可以实现目录挂载逻辑
+    return 0;
+}
+
+// 获取 QEMU 版本信息
 const char* qemu_get_version(void) {
     return "QEMU HarmonyOS Wrapper 1.0.0";
+}
+
+// 检测系统能力
+int qemu_detect_kvm_support(void) {
+    // 检测KVM支持
+    std::ifstream kvm_file("/dev/kvm");
+    return kvm_file.good() ? 1 : 0;
+}
+
+int qemu_detect_hvf_support(void) {
+    // 检测HVF支持（macOS）
+    #ifdef __APPLE__
+    return 1;
+    #else
+    return 0;
+    #endif
+}
+
+int qemu_detect_tcg_support(void) {
+    // TCG总是支持的
+    return 1;
+}
+
+// 日志管理
+int qemu_get_vm_logs(const char* vm_name, char** logs, int* line_count) {
+    // 这里可以实现日志获取逻辑
+    return 0;
+}
+
+int qemu_clear_vm_logs(const char* vm_name) {
+    // 这里可以实现日志清理逻辑
+    return 0;
 }

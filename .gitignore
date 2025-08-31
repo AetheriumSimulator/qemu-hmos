@@ -11,3 +11,6 @@
 **/.test
 /.appanalyzer
 .DS_Store
+/QEMU_HARMONYOS_INTEGRATION.md
+.trae/
+.claude/
