@@ -1,4 +1,11 @@
 import hilog from '@ohos.hilog';
+import common from '@ohos.app.ability.common'
+import { FirmwareManager } from '../utils/FirmwareManager'
+import router from '@ohos.router'
+import qemu from 'libqemu_hmos.so'
+import picker from '@ohos.file.picker'
+import fs from '@ohos.file.fs'
+import { VmStore, type VMMetaPersist } from '../managers/VmStore'
 
 // QEMU配置接口
 interface VMConfig {
@@ -13,51 +20,7 @@ interface VMConfig {
 }
 
 // QEMU API接口
-interface QemuAPI {
-  version(): string;
-  enableJit(): boolean;
-  kvmSupported(): boolean;
-  startVm(config: VMConfig): boolean;
-  stopVm(name: string): boolean;
-  getVmLogs(name: string, startLine?: number): string[];
-  getVmStatus(name: string): string;
-}
-
-// 模拟QEMU API实现类，用于开发阶段
-class MockQemu implements QemuAPI {
-  version(): string {
-    return 'QEMU 8.0.0 (模拟版本)';
-  }
-  
-  enableJit(): boolean {
-    return true;
-  }
-  
-  kvmSupported(): boolean {
-    return false;
-  }
-  
-  startVm(config: VMConfig): boolean {
-    console.log('启动VM:', config);
-    return true;
-  }
-  
-  stopVm(name: string): boolean {
-    console.log('停止VM:', name);
-    return true;
-  }
-  
-  getVmLogs(name: string, startLine: number = 0): string[] {
-    return [`VM ${name} 的日志记录`];
-  }
-  
-  getVmStatus(name: string): string {
-    return 'stopped';
-  }
-}
-
-// 创建qemu实例
-const qemu: QemuAPI = new MockQemu();
+// 使用真实 NAPI 模块
 
 // QEMU配置类
 class QemuConfig {
@@ -66,6 +29,7 @@ class QemuConfig {
   diskSizeGB: number = 64;
   memoryMB: number = 6144;
   cpuCount: number = 4;
+  isoPath?: string;
 }
 
 // VM元数据类
@@ -90,12 +54,46 @@ struct Index {
   @State newVMDiskSize: number = 64;
   @State newVMMemory: number = 6144;
   @State newVMCPU: number = 4;
+  @State newVMISOPath: string = '';
   @State isLoading: boolean = false;
   @State errorMessage: string = '';
+  @State showStartModeDialog: boolean = false;
+  @State startTargetVM: VMMeta | null = null;
+
+  private store?: VmStore;
 
   aboutToAppear() {
+    // 初始化持久化并加载
+    this.initStoreAndLoad();
+    // 触发一次系统能力检测
     this.testQemuFunctions();
-    this.loadSampleVMs();
+  }
+
+  private async initStoreAndLoad() {
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext
+      this.store = new VmStore(ctx)
+      const list = await this.store.loadAll()
+      this.vms = list.map((p: VMMetaPersist) => {
+        const m = new VMMeta()
+        m.id = p.id
+        m.name = p.name
+        m.osType = p.osType
+        m.createdAt = p.createdAt
+        m.status = (p.status as any) ?? 'stopped'
+        m.config = Object.assign(new QemuConfig(), {
+          name: p.config.name,
+          osType: p.config.osType,
+          diskSizeGB: p.config.diskSizeGB,
+          memoryMB: p.config.memoryMB,
+          cpuCount: p.config.cpuCount,
+          isoPath: p.config.isoPath || ''
+        })
+        return m
+      })
+    } catch (e) {
+      console.error('加载VM列表失败: ' + (e as Error).message)
+    }
   }
 
   // 测试QEMU NAPI功能
@@ -127,39 +125,7 @@ struct Index {
     }
   }
 
-  // 加载示例VM数据
-  loadSampleVMs() {
-    this.vms = [
-      {
-        id: '1',
-        name: 'Windows 11 开发环境',
-        osType: 'Windows',
-        status: 'stopped',
-        createdAt: Date.now() - 86400000, // 1天前
-        config: {
-          name: 'Windows 11 开发环境',
-          osType: 'Windows',
-          diskSizeGB: 128,
-          memoryMB: 8192,
-          cpuCount: 4
-        }
-      },
-      {
-        id: '2',
-        name: 'Ubuntu 22.04 服务器',
-        osType: 'Linux',
-        status: 'stopped',
-        createdAt: Date.now() - 172800000, // 2天前
-        config: {
-          name: 'Ubuntu 22.04 服务器',
-          osType: 'Linux',
-          diskSizeGB: 64,
-          memoryMB: 4096,
-          cpuCount: 2
-        }
-      }
-    ];
-  }
+  // 占位数据移除：保持空列表，用户通过“创建”按钮添加
 
   // 创建新VM
   async createVM() {
@@ -176,23 +142,35 @@ struct Index {
       newVM.id = Date.now().toString();
       newVM.name = this.newVMName.trim();
       newVM.osType = this.newVMOS;
-      newVM.status = 'creating';
+      // 仅创建元数据记录，置为 stopped，避免卡在 "创建中"
+      newVM.status = 'stopped';
       newVM.config = {
         name: this.newVMName.trim(),
         osType: this.newVMOS,
         diskSizeGB: this.newVMDiskSize,
         memoryMB: this.newVMMemory,
-        cpuCount: this.newVMCPU
+        cpuCount: this.newVMCPU,
+        isoPath: this.newVMISOPath
       };
 
       this.vms.push(newVM);
-      
-      // 模拟创建过程
-      setTimeout(() => {
-        newVM.status = 'stopped';
-        this.showCreateDialog = false;
-        this.resetCreateForm();
-      }, 2000);
+      // 若指定了 ISO，尝试复制到沙箱
+      if ((newVM.config as any).isoPath) {
+        const copied = await this.ensureIsoInSandbox((newVM.config as any).isoPath as unknown as string)
+        if (copied.ok) {
+          (newVM.config as any).isoPath = copied.path
+        } else {
+          this.errorMessage = '无法复制 ISO，请手动使用 hdc 推送到 files/isos/ 后重试'
+        }
+      }
+      // 持久化保存
+      await this.saveAllVMs();
+      // 关闭弹窗并复位表单
+      this.showCreateDialog = false;
+      this.resetCreateForm();
+
+      // 创建后立即以安装模式启动（VNC）
+      await this.doStartVM(newVM, 'install')
 
       hilog.info(0x0000, 'VM_CREATE', '创建VM: %{public}s', newVM.name);
     } catch (error) {
@@ -206,42 +184,61 @@ struct Index {
 
   // 启动VM
   async startVM(vm: VMMeta) {
+    // 弹出模式选择（安装期VNC / 已安装RDP）
+    this.startTargetVM = vm
+    this.showStartModeDialog = true
+  }
+
+  private async doStartVM(vm: VMMeta, mode: 'install' | 'normal') {
     try {
       this.isLoading = true;
       this.errorMessage = '';
-      
       vm.status = 'starting';
       hilog.info(0x0000, 'VM_START', '启动VM: %{public}s', vm.name);
 
-      // 调用真正的NAPI启动VM
+      // 确保 UEFI 固件就绪
+      const ok = await FirmwareManager.ensureUefi(getContext(this))
+      if (!ok) {
+        this.errorMessage = '缺少 UEFI 固件：请将 edk2-aarch64-code.fd 放到 rawfile 或使用 hdc 推送到 files 目录'
+        vm.status = 'failed'
+        this.isLoading = false
+        await this.saveAllVMs();
+        return
+      }
+
+      // 启动 VM
       const success: boolean = qemu.startVm({
         name: vm.name,
+        isoPath: (vm.config as any).isoPath || '',
         diskSizeGB: vm.config.diskSizeGB,
         memoryMB: vm.config.memoryMB,
         cpuCount: vm.config.cpuCount,
         accel: qemu.kvmSupported() ? 'kvm' : 'tcg',
-        display: 'vnc',
+        display: mode === 'install' ? 'vnc=:1,websocket=on' : 'vnc=:1',
         nographic: false
-      });
+      })
 
       if (success) {
-        // 模拟启动过程
-        setTimeout(() => {
-          vm.status = 'running';
-          hilog.info(0x0000, 'VM_START', 'VM启动成功: %{public}s', vm.name);
-        }, 1000);
+        if (mode === 'install') {
+          router.pushUrl({ url: 'pages/VNCViewer', params: { vmInfo: { name: vm.name, vncPort: 5901 } } })
+        } else {
+          router.pushUrl({ url: 'pages/RDPViewer', params: { vmId: vm.name, vmName: vm.name, rdpHost: '127.0.0.1', rdpPort: 3390 } })
+        }
+        vm.status = 'running'
+        hilog.info(0x0000, 'VM_START', 'VM启动成功: %{public}s', vm.name)
       } else {
-        vm.status = 'failed';
-        this.errorMessage = 'VM启动失败';
-        hilog.error(0x0000, 'VM_START', 'VM启动失败: %{public}s', vm.name);
+        vm.status = 'failed'
+        this.errorMessage = 'VM启动失败'
       }
     } catch (error) {
-      vm.status = 'failed';
-      const errorMsg: string = error instanceof Error ? error.message : String(error);
-      this.errorMessage = `启动失败: ${errorMsg}`;
-      hilog.error(0x0000, 'VM_START', 'VM启动异常: %{public}s', errorMsg);
+      vm.status = 'failed'
+      const errorMsg: string = error instanceof Error ? error.message : String(error)
+      this.errorMessage = `启动失败: ${errorMsg}`
     } finally {
-      this.isLoading = false;
+      this.isLoading = false
+      this.showStartModeDialog = false
+      this.startTargetVM = null
+      await this.saveAllVMs()
     }
   }
 
@@ -262,6 +259,7 @@ struct Index {
         setTimeout(() => {
           vm.status = 'stopped';
           hilog.info(0x0000, 'VM_STOP', 'VM停止成功: %{public}s', vm.name);
+          this.saveAllVMs();
         }, 1000);
       } else {
         this.errorMessage = 'VM停止失败';
@@ -273,6 +271,62 @@ struct Index {
       hilog.error(0x0000, 'VM_STOP', 'VM停止异常: %{public}s', errorMsg);
     } finally {
       this.isLoading = false;
+      await this.saveAllVMs();
+    }
+  }
+
+  private async saveAllVMs() {
+    if (!this.store) return
+    const list: VMMetaPersist[] = this.vms.map(vm => ({
+      id: vm.id,
+      name: vm.name,
+      osType: vm.osType,
+      status: (vm.status as any),
+      createdAt: vm.createdAt,
+      config: {
+        name: vm.config.name,
+        osType: vm.config.osType,
+        diskSizeGB: vm.config.diskSizeGB,
+        memoryMB: vm.config.memoryMB,
+        cpuCount: vm.config.cpuCount,
+        isoPath: (vm.config as any).isoPath || ''
+      }
+    }))
+    await this.store.saveAll(list)
+  }
+
+  // 将选中的 ISO 复制到应用沙箱目录 files/isos/
+  private async ensureIsoInSandbox(srcPath: string): Promise<{ ok: boolean, path: string }> {
+    try {
+      const sandboxRoot = '/data/storage/el2/base/haps/entry/files'
+      if (srcPath.startsWith(sandboxRoot)) {
+        return { ok: true, path: srcPath }
+      }
+      const name = srcPath.split('?')[0].split('/').pop() || 'image.iso'
+      const dstDir = sandboxRoot + '/isos'
+      const dstPath = dstDir + '/' + name
+      try { await fs.mkdir(dstDir) } catch (_e) { /* 目录可能已存在 */ }
+      // 逐块复制
+      const src = await fs.open(srcPath, fs.OpenMode.READ_ONLY)
+      const dst = await fs.open(dstPath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY)
+      const chunkSize = 1024 * 1024
+      const buf = new ArrayBuffer(chunkSize)
+      // @ts-ignore
+      const u8 = new Uint8Array(buf)
+      while (true) {
+        // @ts-ignore 读取可变长度
+        const n: number = await (fs as any).read(src.fd, u8)
+        if (!n || n <= 0) break
+        // @ts-ignore 支持写入 Uint8Array 的前 n 字节
+        await fs.write(dst.fd, u8.subarray(0, n))
+        if (n < chunkSize) break
+      }
+      await fs.close(src)
+      await fs.close(dst)
+      return { ok: true, path: dstPath }
+    } catch (e) {
+      console.error('复制 ISO 失败: ' + (e as Error).message)
+      return { ok: false, path: '' }
     }
   }
 
@@ -283,6 +337,7 @@ struct Index {
     this.newVMDiskSize = 64;
     this.newVMMemory = 6144;
     this.newVMCPU = 4;
+    this.newVMISOPath = '';
   }
 
   // 获取状态颜色
@@ -802,6 +857,33 @@ struct Index {
             .width('100%')
             .margin({ bottom: 20 });
 
+            // ISO 路径（可选）
+            Row() {
+              Text('ISO路径')
+                .fontSize(14)
+                .fontColor('#666666')
+                .width(80);
+
+              TextInput({ placeholder: '如 /data/.../files/isos/win11.iso', text: this.newVMISOPath })
+                .onChange((v: string) => { this.newVMISOPath = v })
+                .layoutWeight(1)
+
+              Button('选择')
+                .onClick(async () => {
+                  try {
+                    const dp = new picker.DocumentViewPicker()
+                    const uris = await dp.select({ maxSelectNumber: 1, fileSuffixFilters: ['iso','ISO'] })
+                    if (uris && uris.length > 0) {
+                      const u = uris[0]
+                      this.newVMISOPath = u.startsWith('file://') ? u.substring(7) : u
+                    }
+                  } catch (e) {}
+                })
+                .margin({ left: 8 })
+            }
+            .width('100%')
+            .margin({ bottom: 20 })
+
             Row() {
               Text('磁盘大小')
                 .fontSize(14)
@@ -912,5 +994,43 @@ struct Index {
     }
     .width('100%')
     .height('100%');
+
+    // 启动模式选择弹窗（覆盖层）
+    if (this.showStartModeDialog && this.startTargetVM) {
+      Column() {
+        Text('选择启动模式')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .margin({ bottom: 12 })
+        Text('安装阶段使用 VNC 观察安装；系统装好后使用 RDP。')
+          .fontSize(12)
+          .fontColor('#666666')
+          .margin({ bottom: 12 })
+        Row() {
+          Button('安装期 (VNC)')
+            .width('48%')
+            .onClick(() => this.doStartVM(this.startTargetVM!, 'install'))
+          Button('已安装 (RDP)')
+            .width('48%')
+            .backgroundColor('#007DFF')
+            .fontColor(Color.White)
+            .onClick(() => this.doStartVM(this.startTargetVM!, 'normal'))
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.SpaceBetween)
+        Button('取消')
+          .width('100%')
+          .backgroundColor('#F1F3F5')
+          .fontColor('#333333')
+          .margin({ top: 12 })
+          .onClick(() => { this.showStartModeDialog = false; this.startTargetVM = null })
+      }
+      .padding(16)
+      .backgroundColor(Color.White)
+      .borderRadius(12)
+      .width('90%')
+      .shadow({ radius: 10, color: '#00000020' })
+      .position({ x: '5%', y: '30%' })
+    }
   }
 }
