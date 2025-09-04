@@ -1,191 +1,122 @@
-import { VNCDisplay, VNCDisplayOptions } from '../components/VNCDisplay'
 import router from '@ohos.router'
+import common from '@ohos.app.ability.common'
+import webview from '@ohos.web.webview'
+import fs from '@ohos.file.fs'
 
-interface VMInfo {
-  id: string
-  name: string
-  vncPort: number
-}
+// 简易的 noVNC 加载器：从 rawfile/novnc/ 读取 novnc.min.js 并嵌入到 WebView
+// 若未放置该文件，则显示提示文案。
+
+interface VMInfoParam { name?: string; vncPort?: number }
+interface VncRouteParams { vmInfo?: VMInfoParam }
 
 @Entry
 @Component
 struct VNCViewer {
-  @State vmInfo: VMInfo | null = null
-  @State isFullscreen: boolean = false
-  @State showControls: boolean = true
-  @State vncOptions: VNCDisplayOptions = {
-    host: '127.0.0.1',
-    port: 5900,
-    onConnected: () => {
-      console.info('VNC连接成功')
-    },
-    onDisconnected: () => {
-      console.info('VNC连接断开')
-    },
-    onError: (error: string) => {
-      console.error('VNC连接错误:', error)
-    }
-  }
-  
+  @State vmName: string = ''
+  @State vncPort: number = 5901
+  private webCtrl: webview.WebviewController = new webview.WebviewController()
+
   aboutToAppear() {
-    // 获取路由参数
-    const params = router.getParams() as Record<string, Object>
-    if (params && params['vmInfo']) {
-      this.vmInfo = params['vmInfo'] as VMInfo
-      // 更新VNC连接参数
-      this.vncOptions = {
-        ...this.vncOptions,
-        port: this.vmInfo.vncPort || 5900
+    const params = router.getParams()
+    if (params && typeof params === 'object') {
+      const p = params as VncRouteParams
+      if (p.vmInfo) {
+        if (typeof p.vmInfo.name === 'string') this.vmName = p.vmInfo.name
+        if (typeof p.vmInfo.vncPort === 'number') this.vncPort = p.vmInfo.vncPort
       }
     }
+    this.loadNoVnc()
   }
-  
-  // 返回虚拟机列表
-  private goBack() {
-    router.back()
+
+  private goBack() { router.back() }
+
+  private async loadNoVnc() {
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext
+      const rm = ctx.resourceManager
+      let novncJs = ''
+      let novncEsm = ''
+      try {
+        const jsBytes = await rm.getRawFileContent('novnc/novnc.min.js')
+        novncJs = new TextDecoder('utf-8').decode(jsBytes)
+      } catch (_) {
+        novncJs = ''
+      }
+      if (!novncJs) {
+        try {
+          const esmBytes = await rm.getRawFileContent('novnc/novnc.esm.js')
+          novncEsm = new TextDecoder('utf-8').decode(esmBytes)
+        } catch (_e) {
+          novncEsm = ''
+        }
+      }
+
+      const escEsm = novncEsm ? JSON.stringify(novncEsm) : ''
+      const html = `<!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <style>html,body,#root{height:100%;margin:0;padding:0;background:#000;color:#fff;font-family:system-ui,-apple-system}#toolbar{position:fixed;top:8px;left:8px;right:8px;display:flex;gap:8px;align-items:center}#screen{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center}canvas{max-width:100%;max-height:100%;}</style>
+      </head>
+      <body>
+        <div id="toolbar">
+          <span>noVNC</span>
+          <span id="status">Connecting ws://127.0.0.1:${this.vncPort}</span>
+        </div>
+        <div id="screen"><canvas id="vncCanvas"></canvas></div>
+        ${novncJs ? `<script>${novncJs}</script>` : ''}
+        <script>
+        (async function(){
+          try{
+            if(!window.RFB && ${escEsm ? 'true' : 'false'}){
+              const code = ${escEsm || "''"};
+              const url = URL.createObjectURL(new Blob([code], {type:'text/javascript'}));
+              const mod = await import(url);
+              window.RFB = mod && mod.default ? mod.default : undefined;
+            }
+            var RFB = window.RFB;
+            if(!RFB){
+              document.getElementById('status').innerText = '缺少 noVNC 资源，请将 novnc.min.js 或 novnc.esm.js 放到 rawfile/novnc/ 目录';
+              return;
+            }
+            var target = document.getElementById('vncCanvas');
+            var rfb = new RFB(target, 'ws://127.0.0.1:${this.vncPort}');
+            rfb.viewOnly = false; rfb.scaleViewport = true; rfb.background = '#000';
+            rfb.addEventListener('connect', function(){ document.getElementById('status').innerText='已连接';});
+            rfb.addEventListener('disconnect', function(){ document.getElementById('status').innerText='已断开';});
+          }catch(e){ document.getElementById('status').innerText='加载失败: '+e; }
+        })();
+        </script>
+      </body>
+      </html>`
+
+      // 优先使用 loadData（无需额外文件路径）
+      // @ts-ignore
+      if (typeof this.webCtrl.loadData === 'function') {
+        // @ts-ignore
+        this.webCtrl.loadData(html, 'text/html', 'utf-8')
+      } else if (typeof (this.webCtrl as any).loadDataWithBaseUrl === 'function') {
+        (this.webCtrl as any).loadDataWithBaseUrl('about:blank', html, 'text/html', 'utf-8', '')
+      }
+    } catch (e) {
+      // ignore
+    }
   }
-  
-  // 切换全屏模式
-  private toggleFullscreen() {
-    this.isFullscreen = !this.isFullscreen
-  }
-  
-  // 切换控制栏显示
-  private toggleControls() {
-    this.showControls = !this.showControls
-  }
-  
+
   build() {
     Column() {
-      // 顶部控制栏
-      if (this.showControls && !this.isFullscreen) {
-        Row() {
-          // 返回按钮
-          Text('← 返回')
-            .fontSize(16)
-            .padding(10)
-            .onClick(() => {
-              this.goBack()
-            })
-          
-          Blank()
-          
-          // 虚拟机名称
-          Text(this.vmInfo?.name || '虚拟机显示')
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-          
-          Blank()
-          
-          // 全屏按钮
-          Text('全屏')
-            .fontSize(16)
-            .padding(10)
-            .onClick(() => {
-              this.toggleFullscreen()
-            })
-        }
-        .width('100%')
-        .height(50)
-        .backgroundColor('#f8f8f8')
-        .border({ width: { bottom: 1 }, color: '#e0e0e0' })
-      }
-      
-      // VNC显示区域
-      Stack() {
-        VNCDisplay({ options: this.vncOptions })
-        
-        // 全屏模式下的控制按钮
-        if (this.isFullscreen) {
-          Row() {
-            Text('退出全屏')
-              .fontSize(14)
-              .fontColor('#ffffff')
-              .padding(8)
-              .backgroundColor('rgba(0,0,0,0.7)')
-              .borderRadius(4)
-              .onClick(() => {
-                this.toggleFullscreen()
-              })
-          }
-          .position({ x: 10, y: 10 })
-        }
-        
-        // 控制栏切换按钮（非全屏模式）
-        if (!this.isFullscreen) {
-          Text(this.showControls ? '隐藏控制' : '显示控制')
-            .fontSize(12)
-            .fontColor('#ffffff')
-            .padding(6)
-            .backgroundColor('rgba(0,0,0,0.5)')
-            .borderRadius(3)
-            .position({ x: 10, y: '90%' })
-            .onClick(() => {
-              this.toggleControls()
-            })
-        }
-      }
-      .layoutWeight(1)
-      
-      // 底部控制栏
-      if (this.showControls && !this.isFullscreen) {
-        Row() {
-          Text('Ctrl')
-            .fontSize(14)
-            .padding(8)
-            .margin(4)
-            .backgroundColor('#e0e0e0')
-            .borderRadius(4)
-            .onClick(() => {
-              // 发送Ctrl键
-              console.info('发送Ctrl键')
-            })
-          
-          Text('Alt')
-            .fontSize(14)
-            .padding(8)
-            .margin(4)
-            .backgroundColor('#e0e0e0')
-            .borderRadius(4)
-            .onClick(() => {
-              // 发送Alt键
-              console.info('发送Alt键')
-            })
-          
-          Text('Tab')
-            .fontSize(14)
-            .padding(8)
-            .margin(4)
-            .backgroundColor('#e0e0e0')
-            .borderRadius(4)
-            .onClick(() => {
-              // 发送Tab键
-              console.info('发送Tab键')
-            })
-          
-          Blank()
-          
-          Text('重连')
-            .fontSize(14)
-            .padding(8)
-            .margin(4)
-            .backgroundColor('#007AFF')
-            .fontColor('#ffffff')
-            .borderRadius(4)
-            .onClick(() => {
-              // 重新连接VNC
-              console.info('重新连接VNC')
-            })
-        }
-        .width('100%')
-        .height(60)
-        .backgroundColor('#f8f8f8')
-        .border({ width: { top: 1 }, color: '#e0e0e0' })
-        .padding({ left: 10, right: 10 })
-      }
+      Row() {
+        Button('返回').onClick(() => this.goBack())
+        Text(this.vmName).fontSize(16).fontWeight(FontWeight.Medium).margin({ left: 8 })
+      }.width('100%').padding(12)
+
+      Web({ src: '' })
+        .controller(this.webCtrl)
+        .javaScriptAccess(true)
+        .layoutWeight(1)
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#000000')
   }
 }

@@ -14,3 +14,7 @@
 /QEMU_HARMONYOS_INTEGRATION.md
 .trae/
 .claude/
+AGENTS.md
+/tools
+third_party/novnc/
+third_party/novnc_bundle/
