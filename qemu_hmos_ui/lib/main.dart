@@ -1,5 +1,5 @@
 ﻿import 'package:flutter/material.dart';
-import 'screens/vm_list_screen.dart';
+import 'screens/main_navigation.dart';
 
 void main() {
   runApp(const QemuHmosApp());
@@ -22,7 +22,7 @@ class QemuHmosApp extends StatelessWidget {
         useMaterial3: true,
         brightness: Brightness.dark,
       ),
-      home: const VmListScreen(),
+      home: const MainNavigation(),
       debugShowCheckedModeBanner: false,
     );
   }

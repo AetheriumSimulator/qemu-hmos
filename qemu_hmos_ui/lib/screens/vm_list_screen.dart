@@ -82,19 +82,30 @@ class _VmListScreenState extends State<VmListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('QEMU虚拟机管理'),
-        backgroundColor: Colors.blue,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? _buildErrorView()
-              : _buildContentView(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _startTestVm,
-        child: const Icon(Icons.play_arrow),
-        tooltip: '启动测试虚拟机',
+      backgroundColor: Colors.grey[100],
+      body: SafeArea(
+        child: Stack(
+          children: [
+            // 主内容
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMessage != null
+                    ? _buildErrorView()
+                    : _buildContentView(),
+            
+            // 右下角悬浮按钮
+            Positioned(
+              right: 20,
+              bottom: 120, // 避让胶囊导航栏
+              child: FloatingActionButton.extended(
+                onPressed: _startTestVm,
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('启动虚拟机'),
+                tooltip: '启动测试虚拟机',
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -133,18 +144,46 @@ class _VmListScreenState extends State<VmListScreen> {
 
   /// 构建内容视图
   Widget _buildContentView() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildInfoCard(),
-          const SizedBox(height: 16),
-          _buildCapabilitiesCard(),
-          const SizedBox(height: 16),
-          _buildQuickActionsCard(),
-        ],
-      ),
+    return CustomScrollView(
+      slivers: [
+        // 标题栏
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '虚拟机',
+                  style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'QEMU $_qemuVersion',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.grey[600],
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        
+        // 内容卡片
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate([
+              _buildCapabilitiesCard(),
+              const SizedBox(height: 16),
+              _buildQuickActionsCard(),
+              const SizedBox(height: 100), // 底部留白避让胶囊导航栏
+            ]),
+          ),
+        ),
+      ],
     );
   }
 
