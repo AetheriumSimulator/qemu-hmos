@@ -1,8 +1,0 @@
-{
-  "src": [
-    "pages/Index",
-    "pages/VNCViewer",
-    "pages/VNCNativeViewer",
-    "pages/RDPViewer"
-  ]
-}

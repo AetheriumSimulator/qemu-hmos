@@ -1,6 +1,0 @@
-{
-  "name": "libqemu_hmos.so",
-  "types": "./Index.d.ts",
-  "version": "0.1.0",
-  "description": "QEMU for HarmonyOS Next (placeholder NAPI interface)"
-}

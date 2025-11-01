@@ -1,1 +1,0 @@
-/usr/bin/c++  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/qemu_link_test.dir/test_qemu_link.cpp.o -o qemu_link_test  -lpthread -ldl -lm -lz -lpthread -ldl -lm -lz

@@ -61,12 +61,16 @@ class _VmListScreenState extends State<VmListScreen> {
     );
 
     try {
-      final result = await _qemuService.startVm(config);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('虚拟机启动成功: $result')),
-        );
+      final success = await _qemuService.startVm(config);
+      if (!mounted) {
+        return;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? '虚拟机启动成功' : '虚拟机未能成功启动'),
+          backgroundColor: success ? null : Colors.orange,
+        ),
+      );
     } on QemuException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
