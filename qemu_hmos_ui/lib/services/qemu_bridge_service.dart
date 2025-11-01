@@ -35,12 +35,12 @@ class QemuBridgeService {
   /// 启动虚拟机
   /// 
   /// [config] 虚拟机配置参数
-  /// 返回: 虚拟机启动结果消息
+  /// 返回: true 表示成功启动
   /// 异常: QemuException 当启动失败时
-  Future<String> startVm(VmConfig config) async {
+  Future<bool> startVm(VmConfig config) async {
     try {
-      final String result = await _channel.invokeMethod('startVm', config.toMap());
-      return result;
+      final bool? result = await _channel.invokeMethod<bool>('startVm', config.toMap());
+      return result ?? false;
     } on PlatformException catch (e) {
       throw QemuException('启动虚拟机失败: ${e.message}', e.code);
     }
