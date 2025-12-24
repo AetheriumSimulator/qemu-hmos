@@ -6,7 +6,10 @@
     "mainElement": "EntryAbility",
     "deviceTypes": [
       "tablet",
-      "2in1"
+      "2in1",
+      "tv",
+      "phone",
+      "car"
     ],
     "deliveryWithInstall": true,
     "installationFree": false,
