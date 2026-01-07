@@ -77,19 +77,24 @@ cd "${BUILD_DIR}"
 # ========== Apply local QEMU patches (idempotent) ==========
 # We keep QEMU as an upstream submodule; HarmonyOS-specific fixes are applied as patches at build time.
 # This avoids needing to push to upstream qemu/qemu while keeping the repo PR-friendly.
-QEMU_PATCH_1="${REPO_ROOT}/patches/qemu/0001-ohos-builtin-minimal-tpm2.patch"
-if [[ -f "${QEMU_PATCH_1}" ]]; then
-  log "Applying QEMU patch: ${QEMU_PATCH_1}"
-  if git -C "${QEMU_SRC}" apply --reverse --check "${QEMU_PATCH_1}" >/dev/null 2>&1; then
-    log "✅ Patch already applied, skip"
+QEMU_PATCHES=(
+  "${REPO_ROOT}/patches/qemu/0001-ohos-builtin-minimal-tpm2.patch"
+  "${REPO_ROOT}/patches/qemu/0002-ohos-ohaudio-audiodev.patch"
+)
+for p in "${QEMU_PATCHES[@]}"; do
+  if [[ -f "${p}" ]]; then
+    log "Applying QEMU patch: ${p}"
+    if git -C "${QEMU_SRC}" apply --reverse --check "${p}" >/dev/null 2>&1; then
+      log "✅ Patch already applied, skip"
+    else
+      git -C "${QEMU_SRC}" apply --whitespace=nowarn "${p}"
+      log "✅ Patch applied"
+      log "Note: QEMU submodule working tree is now dirty. To clean: git -C third_party/qemu reset --hard"
+    fi
   else
-    git -C "${QEMU_SRC}" apply --whitespace=nowarn "${QEMU_PATCH_1}"
-    log "✅ Patch applied"
-    log "Note: QEMU submodule working tree is now dirty. To clean: git -C third_party/qemu reset --hard"
+    log "⚠️  QEMU patch not found (skip): ${p}"
   fi
-else
-  log "⚠️  QEMU patch not found (skip): ${QEMU_PATCH_1}"
-fi
+done
 
 # 创建 Python 虚拟环境（如果不存在）
 if [[ ! -d "pyvenv" ]]; then
