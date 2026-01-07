@@ -118,6 +118,14 @@
         }
       },
       {
+        "name": "ohos.permission.MICROPHONE",
+        "reason": "$string:permission_microphone_reason",
+        "usedScene": {
+          "when": "inuse",
+          "abilities": ["EntryAbility"]
+        }
+      },
+      {
         "name": "ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY",
         "reason": "$string:permission_write_media_reason",
         "usedScene": {

@@ -45,6 +45,10 @@
       "value": "你不允许怎么改这个东西啊"
     },
     {
+      "name": "permission_microphone_reason",
+      "value": "需要麦克风权限，用于虚拟机麦克风透传（客体系统录音/语音/会议）"
+    },
+    {
       "name": "file_access_reason",
       "value": "你不允许的话怎么去查看文件啊"
     },

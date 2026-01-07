@@ -1,0 +1,493 @@
+diff --git a/audio/aether_soundkit_hmos.c b/audio/aether_soundkit_hmos.c
+new file mode 100644
+index 0000000000..e0ac44929e
+--- /dev/null
++++ b/audio/aether_soundkit_hmos.c
+@@ -0,0 +1,450 @@
++/*
++ * QEMU audio backend for HarmonyOS (OHAudio / AudioKit)
++ *
++ * This backend enables guest audio playback + microphone capture on HarmonyOS
++ * by bridging QEMU's audio PCM callbacks to OHAudio's callback-driven streams.
++ *
++ * Driver name: aether-soundkit-hmos
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/module.h"
++#include "qemu/thread.h"
++#include "audio.h"
++
++#define AUDIO_CAP "aether-soundkit-hmos"
++#include "audio_int.h"
++
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++#include <ohaudio/native_audiocapturer.h>
++#include <ohaudio/native_audiorenderer.h>
++#include <ohaudio/native_audiostreambuilder.h>
++#endif
++
++typedef struct AetherRingBuffer {
++    uint8_t *buf;
++    size_t size;
++    size_t rpos;
++    size_t wpos;
++    size_t used;
++} AetherRingBuffer;
++
++static void aether_ring_init(AetherRingBuffer *rb, size_t size)
++{
++    rb->buf = g_malloc0(size);
++    rb->size = size;
++    rb->rpos = 0;
++    rb->wpos = 0;
++    rb->used = 0;
++}
++
++static void aether_ring_fini(AetherRingBuffer *rb)
++{
++    g_free(rb->buf);
++    rb->buf = NULL;
++    rb->size = 0;
++    rb->rpos = rb->wpos = rb->used = 0;
++}
++
++static size_t aether_ring_write_overwrite(AetherRingBuffer *rb, const uint8_t *src, size_t len)
++{
++    if (!rb->buf || rb->size == 0 || len == 0) {
++        return 0;
++    }
++
++    /* If a single write is larger than the ring, keep the tail only. */
++    if (len >= rb->size) {
++        src += (len - rb->size);
++        len = rb->size;
++        rb->rpos = rb->wpos = rb->used = 0;
++    }
++
++    /* Make room by dropping the oldest data. */
++    const size_t need = rb->used + len;
++    if (need > rb->size) {
++        const size_t drop = need - rb->size;
++        rb->rpos = (rb->rpos + drop) % rb->size;
++        rb->used -= drop;
++    }
++
++    size_t first = MIN(len, rb->size - rb->wpos);
++    memcpy(rb->buf + rb->wpos, src, first);
++    if (len > first) {
++        memcpy(rb->buf, src + first, len - first);
++    }
++    rb->wpos = (rb->wpos + len) % rb->size;
++    rb->used += len;
++    return len;
++}
++
++static size_t aether_ring_read(AetherRingBuffer *rb, uint8_t *dst, size_t len)
++{
++    if (!rb->buf || rb->size == 0 || len == 0) {
++        return 0;
++    }
++    size_t to_read = MIN(len, rb->used);
++    size_t first = MIN(to_read, rb->size - rb->rpos);
++    memcpy(dst, rb->buf + rb->rpos, first);
++    if (to_read > first) {
++        memcpy(dst + first, rb->buf, to_read - first);
++    }
++    rb->rpos = (rb->rpos + to_read) % rb->size;
++    rb->used -= to_read;
++    return to_read;
++}
++
++typedef struct AetherVoiceOut {
++    HWVoiceOut hw;
++    QemuMutex mutex;
++    AetherRingBuffer rb;
++    bool enabled;
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++    OH_AudioRenderer *renderer;
++#endif
++} AetherVoiceOut;
++
++typedef struct AetherVoiceIn {
++    HWVoiceIn hw;
++    QemuMutex mutex;
++    AetherRingBuffer rb;
++    bool enabled;
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++    OH_AudioCapturer *capturer;
++#endif
++} AetherVoiceIn;
++
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++static OH_AudioStream_SampleFormat aether_to_oh_sample_format(AudioFormat fmt, bool *ok)
++{
++    *ok = true;
++    switch (fmt) {
++    case AUDIO_FORMAT_U8:
++        return AUDIOSTREAM_SAMPLE_U8;
++    case AUDIO_FORMAT_S16:
++        return AUDIOSTREAM_SAMPLE_S16LE;
++    case AUDIO_FORMAT_S32:
++        return AUDIOSTREAM_SAMPLE_S32LE;
++    case AUDIO_FORMAT_F32:
++        return AUDIOSTREAM_SAMPLE_F32LE;
++    default:
++        *ok = false;
++        return AUDIOSTREAM_SAMPLE_S16LE;
++    }
++}
++
++static OH_AudioData_Callback_Result aether_renderer_on_write(OH_AudioRenderer *renderer, void *userData,
++                                                            void *audioData, int32_t audioDataSize)
++{
++    AetherVoiceOut *ao = (AetherVoiceOut *)userData;
++    (void)renderer;
++    if (!ao || !audioData || audioDataSize <= 0) {
++        return AUDIO_DATA_CALLBACK_RESULT_VALID;
++    }
++
++    /* Default to silence, then overwrite with available ring data. */
++    memset(audioData, 0, (size_t)audioDataSize);
++
++    qemu_mutex_lock(&ao->mutex);
++    (void)aether_ring_read(&ao->rb, (uint8_t *)audioData, (size_t)audioDataSize);
++    qemu_mutex_unlock(&ao->mutex);
++
++    return AUDIO_DATA_CALLBACK_RESULT_VALID;
++}
++
++static void aether_capturer_on_read(OH_AudioCapturer *capturer, void *userData,
++                                   void *audioData, int32_t audioDataSize)
++{
++    AetherVoiceIn *ai = (AetherVoiceIn *)userData;
++    (void)capturer;
++    if (!ai || !audioData || audioDataSize <= 0) {
++        return;
++    }
++
++    qemu_mutex_lock(&ai->mutex);
++    (void)aether_ring_write_overwrite(&ai->rb, (const uint8_t *)audioData, (size_t)audioDataSize);
++    qemu_mutex_unlock(&ai->mutex);
++}
++
++static void aether_try_start_renderer(AetherVoiceOut *ao, const audsettings *as)
++{
++    OH_AudioStreamBuilder *builder = NULL;
++    OH_AudioRenderer *renderer = NULL;
++
++    if (ao->renderer) {
++        return;
++    }
++
++    OH_AudioStream_Result r = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_RENDERER);
++    if (r != AUDIOSTREAM_SUCCESS || !builder) {
++        dolog("OHAudio: failed to create renderer builder (rc=%d)\n", (int)r);
++        return;
++    }
++
++    (void)OH_AudioStreamBuilder_SetSamplingRate(builder, as->freq);
++    (void)OH_AudioStreamBuilder_SetChannelCount(builder, as->nchannels);
++
++    bool fmt_ok = false;
++    OH_AudioStream_SampleFormat sf = aether_to_oh_sample_format(as->fmt, &fmt_ok);
++    if (!fmt_ok) {
++        dolog("OHAudio: unsupported sample format %d, will output silence\n", (int)as->fmt);
++    } else {
++        (void)OH_AudioStreamBuilder_SetSampleFormat(builder, sf);
++    }
++    (void)OH_AudioStreamBuilder_SetEncodingType(builder, AUDIOSTREAM_ENCODING_TYPE_RAW);
++    (void)OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_NORMAL);
++    (void)OH_AudioStreamBuilder_SetRendererInfo(builder, AUDIOSTREAM_USAGE_MUSIC);
++    (void)OH_AudioStreamBuilder_SetRendererWriteDataCallback(builder, aether_renderer_on_write, ao);
++
++    r = OH_AudioStreamBuilder_GenerateRenderer(builder, &renderer);
++    (void)OH_AudioStreamBuilder_Destroy(builder);
++    if (r != AUDIOSTREAM_SUCCESS || !renderer) {
++        dolog("OHAudio: failed to generate renderer (rc=%d)\n", (int)r);
++        return;
++    }
++
++    ao->renderer = renderer;
++    (void)OH_AudioRenderer_Start(ao->renderer);
++}
++
++static void aether_try_start_capturer(AetherVoiceIn *ai, const audsettings *as)
++{
++    OH_AudioStreamBuilder *builder = NULL;
++    OH_AudioCapturer *capturer = NULL;
++
++    if (ai->capturer) {
++        return;
++    }
++
++    OH_AudioStream_Result r = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_CAPTURER);
++    if (r != AUDIOSTREAM_SUCCESS || !builder) {
++        dolog("OHAudio: failed to create capturer builder (rc=%d)\n", (int)r);
++        return;
++    }
++
++    (void)OH_AudioStreamBuilder_SetSamplingRate(builder, as->freq);
++    (void)OH_AudioStreamBuilder_SetChannelCount(builder, as->nchannels);
++
++    bool fmt_ok = false;
++    OH_AudioStream_SampleFormat sf = aether_to_oh_sample_format(as->fmt, &fmt_ok);
++    if (!fmt_ok) {
++        dolog("OHAudio: unsupported capture sample format %d, will capture silence\n", (int)as->fmt);
++    } else {
++        (void)OH_AudioStreamBuilder_SetSampleFormat(builder, sf);
++    }
++    (void)OH_AudioStreamBuilder_SetEncodingType(builder, AUDIOSTREAM_ENCODING_TYPE_RAW);
++    (void)OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_NORMAL);
++    (void)OH_AudioStreamBuilder_SetCapturerInfo(builder, AUDIOSTREAM_SOURCE_TYPE_MIC);
++    (void)OH_AudioStreamBuilder_SetCapturerReadDataCallback(builder, aether_capturer_on_read, ai);
++
++    r = OH_AudioStreamBuilder_GenerateCapturer(builder, &capturer);
++    (void)OH_AudioStreamBuilder_Destroy(builder);
++    if (r != AUDIOSTREAM_SUCCESS || !capturer) {
++        dolog("OHAudio: failed to generate capturer (rc=%d)\n", (int)r);
++        return;
++    }
++
++    ai->capturer = capturer;
++    (void)OH_AudioCapturer_Start(ai->capturer);
++}
++#endif
++
++static int aether_init_out(HWVoiceOut *hw, audsettings *as, void *drv_opaque)
++{
++    AetherVoiceOut *ao = (AetherVoiceOut *)hw;
++    (void)drv_opaque;
++
++    audio_pcm_init_info(&hw->info, as);
++    hw->samples = 1024;
++
++    qemu_mutex_init(&ao->mutex);
++    ao->enabled = true;
++
++    /* ~500ms ring buffer */
++    const size_t ring_bytes = MAX((size_t)8192, (size_t)as->freq * (size_t)hw->info.bytes_per_frame / 2);
++    aether_ring_init(&ao->rb, ring_bytes);
++
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++    ao->renderer = NULL;
++    if (as->endianness != 0) {
++        dolog("OHAudio: big-endian audio not supported, will output silence\n");
++        return 0;
++    }
++    aether_try_start_renderer(ao, as);
++#endif
++
++    return 0;
++}
++
++static void aether_fini_out(HWVoiceOut *hw)
++{
++    AetherVoiceOut *ao = (AetherVoiceOut *)hw;
++
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++    if (ao->renderer) {
++        (void)OH_AudioRenderer_Stop(ao->renderer);
++        (void)OH_AudioRenderer_Release(ao->renderer);
++        ao->renderer = NULL;
++    }
++#endif
++    aether_ring_fini(&ao->rb);
++    qemu_mutex_destroy(&ao->mutex);
++}
++
++static size_t aether_write(HWVoiceOut *hw, void *buf, size_t len)
++{
++    AetherVoiceOut *ao = (AetherVoiceOut *)hw;
++    if (!ao->enabled || !buf || len == 0) {
++        return len;
++    }
++
++    qemu_mutex_lock(&ao->mutex);
++    (void)aether_ring_write_overwrite(&ao->rb, (const uint8_t *)buf, len);
++    qemu_mutex_unlock(&ao->mutex);
++    return len;
++}
++
++static void aether_enable_out(HWVoiceOut *hw, bool enable)
++{
++    AetherVoiceOut *ao = (AetherVoiceOut *)hw;
++    ao->enabled = enable;
++
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++    if (!ao->renderer) {
++        return;
++    }
++    if (enable) {
++        (void)OH_AudioRenderer_Start(ao->renderer);
++    } else {
++        (void)OH_AudioRenderer_Pause(ao->renderer);
++    }
++#endif
++}
++
++static int aether_init_in(HWVoiceIn *hw, audsettings *as, void *drv_opaque)
++{
++    AetherVoiceIn *ai = (AetherVoiceIn *)hw;
++    (void)drv_opaque;
++
++    audio_pcm_init_info(&hw->info, as);
++    hw->samples = 1024;
++
++    qemu_mutex_init(&ai->mutex);
++    ai->enabled = true;
++
++    /* ~500ms ring buffer */
++    const size_t ring_bytes = MAX((size_t)8192, (size_t)as->freq * (size_t)hw->info.bytes_per_frame / 2);
++    aether_ring_init(&ai->rb, ring_bytes);
++
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++    ai->capturer = NULL;
++    if (as->endianness != 0) {
++        dolog("OHAudio: big-endian capture not supported, will capture silence\n");
++        return 0;
++    }
++    aether_try_start_capturer(ai, as);
++#endif
++
++    return 0;
++}
++
++static void aether_fini_in(HWVoiceIn *hw)
++{
++    AetherVoiceIn *ai = (AetherVoiceIn *)hw;
++
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++    if (ai->capturer) {
++        (void)OH_AudioCapturer_Stop(ai->capturer);
++        (void)OH_AudioCapturer_Release(ai->capturer);
++        ai->capturer = NULL;
++    }
++#endif
++    aether_ring_fini(&ai->rb);
++    qemu_mutex_destroy(&ai->mutex);
++}
++
++static size_t aether_read(HWVoiceIn *hw, void *buf, size_t size)
++{
++    AetherVoiceIn *ai = (AetherVoiceIn *)hw;
++    if (!buf || size == 0) {
++        return 0;
++    }
++
++    if (!ai->enabled) {
++        audio_pcm_info_clear_buf(&hw->info, buf, size / hw->info.bytes_per_frame);
++        return size;
++    }
++
++    qemu_mutex_lock(&ai->mutex);
++    const size_t got = aether_ring_read(&ai->rb, (uint8_t *)buf, size);
++    qemu_mutex_unlock(&ai->mutex);
++
++    if (got < size) {
++        memset((uint8_t *)buf + got, 0, size - got);
++    }
++    return size;
++}
++
++static void aether_enable_in(HWVoiceIn *hw, bool enable)
++{
++    AetherVoiceIn *ai = (AetherVoiceIn *)hw;
++    ai->enabled = enable;
++
++#if defined(__OHOS__) || defined(__HARMONYOS__)
++    if (!ai->capturer) {
++        return;
++    }
++    if (enable) {
++        (void)OH_AudioCapturer_Start(ai->capturer);
++    } else {
++        (void)OH_AudioCapturer_Pause(ai->capturer);
++    }
++#endif
++}
++
++static void *aether_audio_init(Audiodev *dev, Error **errp)
++{
++    (void)errp;
++    assert(dev->driver == AUDIODEV_DRIVER_AETHER_SOUNDKIT_HMOS);
++    return dev;
++}
++
++static void aether_audio_fini(void *opaque)
++{
++    (void)opaque;
++}
++
++static struct audio_pcm_ops aether_pcm_ops = {
++    .init_out = aether_init_out,
++    .fini_out = aether_fini_out,
++    .write = aether_write,
++    .buffer_get_free = audio_generic_buffer_get_free,
++    .run_buffer_out = audio_generic_run_buffer_out,
++    .enable_out = aether_enable_out,
++
++    .init_in = aether_init_in,
++    .fini_in = aether_fini_in,
++    .read = aether_read,
++    .run_buffer_in = audio_generic_run_buffer_in,
++    .enable_in = aether_enable_in,
++};
++
++static struct audio_driver aether_audio_driver = {
++    .name = "aether-soundkit-hmos",
++    .descr = "HarmonyOS OHAudio backend (AudioKit)",
++    .init = aether_audio_init,
++    .fini = aether_audio_fini,
++    .pcm_ops = &aether_pcm_ops,
++    .max_voices_out = 1,
++    .max_voices_in = 1,
++    .voice_size_out = sizeof(AetherVoiceOut),
++    .voice_size_in = sizeof(AetherVoiceIn),
++};
++
++static void register_audio_aether_soundkit_hmos(void)
++{
++    audio_driver_register(&aether_audio_driver);
++}
++
++type_init(register_audio_aether_soundkit_hmos);
++
++
+diff --git a/audio/meson.build b/audio/meson.build
+index b2dca2c640..47d50eb0c3 100644
+--- a/audio/meson.build
++++ b/audio/meson.build
+@@ -8,6 +8,12 @@ system_ss.add(files(
+ # deprecated since v10.2, to be removed
+ system_ss.add(files('audio-hmp-cmds.c', 'wavcapture.c'))
+ 
++ohaudio = cc.find_library('ohaudio', required: false)
++have_ohaudio = ohaudio.found() and cc.has_header('ohaudio/native_audiostreambuilder.h')
++if have_ohaudio
++  system_ss.add(ohaudio, files('aether_soundkit_hmos.c'))
++endif
++
+ system_ss.add(when: coreaudio, if_true: files('coreaudio.m'))
+ system_ss.add(when: dsound, if_true: files('dsoundaudio.c', 'audio_win_int.c'))
+ 
+diff --git a/qapi/audio.json b/qapi/audio.json
+index 2df87b9710..e540bf4ff3 100644
+--- a/qapi/audio.json
++++ b/qapi/audio.json
+@@ -484,6 +484,7 @@
+             { 'name': 'sdl', 'if': 'CONFIG_AUDIO_SDL' },
+             { 'name': 'sndio', 'if': 'CONFIG_AUDIO_SNDIO' },
+             { 'name': 'spice', 'if': 'CONFIG_SPICE' },
++            'aether-soundkit-hmos',
+             'wav' ] }
+ 
+ ##
+@@ -530,6 +531,7 @@
+                    'if': 'CONFIG_AUDIO_SNDIO' },
+     'spice':     { 'type': 'AudiodevGenericOptions',
+                    'if': 'CONFIG_SPICE' },
++    'aether-soundkit-hmos': 'AudiodevGenericOptions',
+     'wav':       'AudiodevWavOptions' } }
+ 
+ ##

@@ -2811,6 +2811,14 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
     // 注意：sb16, es1370, gus, adlib, cs4231a 是 ISA 设备，只存在于 x86 架构
     // 在 ARM64 (qemu-system-aarch64) 上使用会导致崩溃
     if (!config.audioDevice.empty() && config.audioDevice != "none") {
+        // 使用自定义 HarmonyOS 音频后端（OHAudio/AudioKit），让 VNC 也能听到声音，并支持麦克风回传。
+        const std::string audiodevId = "snd0";
+        args.push_back("-audiodev");
+        args.push_back("aether-soundkit-hmos,id=" + audiodevId +
+                       ",out.frequency=48000,out.channels=2,out.format=s16" +
+                       ",in.frequency=48000,in.channels=1,in.format=s16");
+        HilogPrint("QEMU: [HW] Audio backend = aether-soundkit-hmos (audiodev id=" + audiodevId + ")");
+
         std::string audioDev = config.audioDevice;
         
         // ISA 设备黑名单（x86-only，在 ARM64 会崩溃）
@@ -2826,17 +2834,17 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
             args.push_back("-device");
             args.push_back("intel-hda");
             args.push_back("-device");
-            args.push_back("hda-duplex");
+            args.push_back("hda-duplex,audiodev=" + audiodevId);
             HilogPrint("QEMU: [HW] Audio device = HDA (intel-hda + hda-duplex)");
         } else if (audioDev == "ich9-intel-hda" || audioDev == "ich9-hda") {
             args.push_back("-device");
             args.push_back("ich9-intel-hda");
             args.push_back("-device");
-            args.push_back("hda-duplex");
+            args.push_back("hda-duplex,audiodev=" + audiodevId);
             HilogPrint("QEMU: [HW] Audio device = ICH9 HDA (ich9-intel-hda + hda-duplex)");
         } else if (audioDev == "ac97") {
             args.push_back("-device");
-            args.push_back("AC97");
+            args.push_back("AC97,audiodev=" + audiodevId);
             HilogPrint("QEMU: [HW] Audio device = AC97");
         } else if (audioDev == "sb16" || audioDev == "es1370") {
             // 如果是 x86 架构，允许使用 ISA 设备
@@ -3302,7 +3310,18 @@ static int QemuCoreMainOrStub(int argc, char** argv)
         
         // ============ 设置 QEMU 环境变量 ============
         // 这些环境变量可能有助于 QEMU 正常初始化
-        setenv("QEMU_AUDIO_DRV", "none", 1);  // 禁用音频
+        // 默认禁用旧式音频后端（避免 OHOS 上误选 OSS/SDL 等导致启动失败）。
+        // 当命令行包含 -audiodev 时，说明我们显式启用了音频后端（如 aether-soundkit-hmos），此时不要强制禁音。
+        bool hasAudiodev = false;
+        for (int i = 0; i < argc; i++) {
+            if (std::string(argv[i]) == "-audiodev") {
+                hasAudiodev = true;
+                break;
+            }
+        }
+        if (!hasAudiodev) {
+            setenv("QEMU_AUDIO_DRV", "none", 1);  // 禁用音频（无 audiodev 时）
+        }
         setenv("DISPLAY", "", 1);  // 无显示环境
         
         OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, "QEMU_INIT", 
