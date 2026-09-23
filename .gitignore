@@ -180,3 +180,6 @@ entry/src/main/cpp/qemu_test/CMakeCache.txt
 entry/src/main/cpp/qemu_test/Makefile
 entry/src/main/cpp/qemu_test/cmake_install.cmake
 source-hygiene-*.json
+
+# Historical accidental command-output file
+/git

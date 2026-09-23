@@ -41,7 +41,12 @@ on:
         default: ''
 
 jobs:
+  publication-review:
+    uses: ./.github/workflows/binary-publication-gate.yml
+
   build-hap-package:
+    needs: publication-review
+    if: needs.publication-review.outputs.allowed == 'true'
     runs-on: self-hosted
     timeout-minutes: 30
     
@@ -207,28 +212,4 @@ jobs:
         path: artifacts/hap/
         retention-days: 30
         
-    - name: Create release
-      if: github.ref == 'refs/heads/main'
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: hap-${{ github.sha }}
-        release_name: HarmonyOS HAP Package ${{ github.sha }}
-        body: |
-          HarmonyOS HAP Package Build
-          
-          **Build Information:**
-          - Commit: ${{ github.sha }}
-          - Branch: ${{ github.ref_name }}
-          - Build Date: $(date)
-          
-          **Included Components:**
-          - QEMU SO Libraries
-          - UEFI Firmware
-          - HarmonyOS Application Package
-          
-          **Installation:**
-          Use `hdc install -r entry-default-unsigned.hap` to install on HarmonyOS device.
-        draft: false
-        prerelease: false
+    # Public releases require a version-bound corresponding-source review.

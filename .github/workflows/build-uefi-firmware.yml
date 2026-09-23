@@ -15,7 +15,12 @@ on:
   workflow_call:
 
 jobs:
+  publication-review:
+    uses: ./.github/workflows/binary-publication-gate.yml
+
   build-uefi-firmware:
+    needs: publication-review
+    if: needs.publication-review.outputs.allowed == 'true'
     runs-on: self-hosted
     timeout-minutes: 45
     

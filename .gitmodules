@@ -1,23 +1,3 @@
 [submodule "third_party/qemu"]
 	path = third_party/qemu
 	url = https://github.com/qemu/qemu.git
-
-[submodule "third_party/freerdp"]
-	path = third_party/freerdp
-	url = https://github.com/FreeRDP/FreeRDP.git
-
-[submodule "third_party/deps/glib/src"]
-	path = third_party/deps/glib/src
-	url = https://gitlab.gnome.org/GNOME/glib.git
-
-[submodule "third_party/deps/openssl/src"]
-	path = third_party/deps/openssl/src
-	url = https://github.com/openssl/openssl.git
-
-[submodule "third_party/deps/pcre2/src"]
-	path = third_party/deps/pcre2/src
-	url = https://github.com/PCRE2Project/pcre2.git
-
-[submodule "third_party/deps/pixman/src"]
-	path = third_party/deps/pixman/src
-	url = https://gitlab.freedesktop.org/pixman/pixman.git

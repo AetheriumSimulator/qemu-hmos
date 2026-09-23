@@ -22,3 +22,7 @@ jobs:
         run: python -m unittest discover -s tools -p 'test_public_source.py' -v
       - name: Check the exact published source tree
         run: python tools/check_public_source.py
+      - name: Test source identity and release boundaries
+        run: python -m unittest discover -s tools -p 'test_source_inventory.py' -v
+      - name: Verify recorded source identities
+        run: python tools/check_source_inventory.py
