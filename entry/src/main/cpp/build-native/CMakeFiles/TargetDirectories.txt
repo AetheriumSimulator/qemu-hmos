@@ -1,8 +1,0 @@
-/mnt/e/projects/qemu-hmos/entry/src/main/cpp/build-native/CMakeFiles/qemu_hmos.dir
-/mnt/e/projects/qemu-hmos/entry/src/main/cpp/build-native/CMakeFiles/copy_slirp.dir
-/mnt/e/projects/qemu-hmos/entry/src/main/cpp/build-native/CMakeFiles/copy_intl.dir
-/mnt/e/projects/qemu-hmos/entry/src/main/cpp/build-native/CMakeFiles/copy_qemu_full.dir
-/mnt/e/projects/qemu-hmos/entry/src/main/cpp/build-native/CMakeFiles/debug_info.dir
-/mnt/e/projects/qemu-hmos/entry/src/main/cpp/build-native/CMakeFiles/verify_build.dir
-/mnt/e/projects/qemu-hmos/entry/src/main/cpp/build-native/CMakeFiles/edit_cache.dir
-/mnt/e/projects/qemu-hmos/entry/src/main/cpp/build-native/CMakeFiles/rebuild_cache.dir

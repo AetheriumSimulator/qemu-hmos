@@ -1,3 +1,0 @@
-#!/bin/sh
-export PKG_CONFIG_LIBDIR="/mnt/e/projects/qemu-hmos/third_party/deps/install-ohos/lib/pkgconfig:/mnt/e/HMOS_SDK/linux/native/sysroot/usr/lib/pkgconfig"
-exec pkg-config "$@"

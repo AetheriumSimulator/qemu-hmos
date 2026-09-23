@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/caidingding233/projects/qemu-hmos/third_party/deps/pixman/build-ohos/meson-private/cmake_gtk+-3.0/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

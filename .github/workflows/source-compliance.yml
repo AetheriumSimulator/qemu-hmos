@@ -1,0 +1,24 @@
+name: Public source checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-hygiene:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test index and credential boundaries
+        run: python -m unittest discover -s tools -p 'test_public_source.py' -v
+      - name: Check the exact published source tree
+        run: python tools/check_public_source.py
