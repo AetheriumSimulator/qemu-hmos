@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/caidingding233/projects/qemu-hmos/third_party/deps/glib/build-ohos/meson-private/cmake_ZLIB/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

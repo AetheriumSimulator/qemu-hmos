@@ -4,7 +4,12 @@ on:
   workflow_dispatch:
 
 jobs:
+  publication-review:
+    uses: ./.github/workflows/binary-publication-gate.yml
+
   build-linux-tools:
+    needs: publication-review
+    if: needs.publication-review.outputs.allowed == 'true'
     runs-on: ubuntu-24.04
     steps:
     - name: Checkout code
@@ -31,6 +36,8 @@ jobs:
           *.rpm
 
   build-windows-tools:
+    needs: publication-review
+    if: needs.publication-review.outputs.allowed == 'true'
     runs-on: ubuntu-24.04
     steps:
     - name: Checkout code
@@ -57,6 +64,8 @@ jobs:
           *.msi
 
   build-macos-tools:
+    needs: publication-review
+    if: needs.publication-review.outputs.allowed == 'true'
     runs-on: macos-latest
     steps:
     - name: Checkout code

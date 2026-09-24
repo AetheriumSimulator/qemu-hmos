@@ -1,5 +1,0 @@
-set(CMAKE_SYSTEM_NAME "Linux")
-set(CMAKE_SYSTEM_PROCESSOR "aarch64")
-set(CMAKE_SIZEOF_VOID_P "8")
-set(CMAKE_SYSROOT "/Users/caidingding233/Library/OpenHarmony/Sdk/18/native/sysroot")
-set(CMAKE_C_COMPILER "/Users/caidingding233/Library/OpenHarmony/Sdk/18/native/llvm/bin/aarch64-unknown-linux-ohos-clang")

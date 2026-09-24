@@ -1,6 +1,0 @@
-{
-  "/Users/caidingding233/projects/qemu-hmos/third_party/deps/pixman/build-ohos/pixman/libpixman-1.a": "/Users/caidingding233/projects/qemu-hmos/third_party/deps/install-ohos/lib/libpixman-1.a",
-  "/Users/caidingding233/projects/qemu-hmos/third_party/deps/pixman/build-ohos/pixman/pixman-version.h": "/Users/caidingding233/projects/qemu-hmos/third_party/deps/install-ohos/include/pixman-1/pixman-version.h",
-  "/Users/caidingding233/projects/qemu-hmos/third_party/deps/pixman/build-ohos/meson-private/pixman-1.pc": "/Users/caidingding233/projects/qemu-hmos/third_party/deps/install-ohos/lib/pkgconfig/pixman-1.pc",
-  "/Users/caidingding233/projects/qemu-hmos/third_party/deps/pixman/src/pixman/pixman.h": "/Users/caidingding233/projects/qemu-hmos/third_party/deps/install-ohos/include/pixman-1/pixman.h"
-}

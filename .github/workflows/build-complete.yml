@@ -6,11 +6,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  publication-review:
+    uses: ./.github/workflows/binary-publication-gate.yml
+
   build-so-libraries:
+    needs: publication-review
+    if: needs.publication-review.outputs.allowed == 'true'
     uses: ./.github/workflows/build-qemu-so.yml
     secrets: inherit
     
   build-uefi-firmware:
+    needs: publication-review
+    if: needs.publication-review.outputs.allowed == 'true'
     uses: ./.github/workflows/build-uefi-firmware.yml
     secrets: inherit
     

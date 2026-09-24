@@ -1,0 +1,6 @@
+# Port manifests hash the LF source bytes published by Git.
+ports/** text eol=lf
+# A unified diff uses a single-space prefix for empty context lines.
+ports/**/*.patch -whitespace
+# Preserve imported upstream source bytes instead of silently reformatting.
+ports/qemu-11.1/overlay/os-posix.c whitespace=-blank-at-eol
