@@ -26,3 +26,39 @@ jobs:
         run: python -m unittest discover -s tools -p 'test_source_inventory.py' -v
       - name: Verify recorded source identities
         run: python tools/check_source_inventory.py
+      - name: Test port reconstruction and staged evidence
+        run: python -m unittest discover -s tools -p 'test_port_sources.py' -v
+      - name: Check indexed port source evidence
+        run: python tools/verify_port_sources.py
+
+  port-source-replay:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Obtain immutable QEMU upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: qemu/qemu
+          ref: 84f07211cc5b4fc6a371559bf8a5de4fb068e648
+          path: .source-cache/qemu
+          submodules: false
+          persist-credentials: false
+      - name: Obtain immutable LibVNC upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: LibVNC/libvncserver
+          ref: 42494999e6492aaab9c1db785ecd293ef10b3aed
+          path: .source-cache/libvnc
+          submodules: false
+          persist-credentials: false
+      - name: Reconstruct the recorded QEMU trees and verify LibVNC identity
+        run: >-
+          python tools/verify_port_sources.py
+          --qemu-repo .source-cache/qemu
+          --libvnc-repo .source-cache/libvnc

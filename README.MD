@@ -2,6 +2,10 @@
 
 > **源码维护状态**：本次更新移除了预编译库、固件、构建缓存和本机签名配置，并加入源码检查。二进制发布暂缓；GPL 链接边界与完整对应源码尚未验收。参见 [分发状态](docs/OPEN_SOURCE_STATUS.md) 和 [源码构建说明](docs/PUBLIC_SOURCE.md)。
 
+较新 Aether 的 [QEMU 11.1 手机核心源码](ports/qemu-11.1/README.md)及
+[LibVNC 来源和构建材料](ports/libvnc/README.md)现单独提供，可检查并还原固定源码树。
+它们尚未与已分发 HAP 完成对应验证，也不代表手机重复启动或 GPL 隔离已经通过。
+
 ## 让鸿蒙也能离线跑 Windows / Linux —— 一个“鸿蒙版 UTM”的实验项目
 
 > [!CAUTION]
@@ -148,4 +152,3 @@ QEMU 的 `Makefile` 不在根目录，并且通常需要先 `./configure`（或�
 - 新系统 / 来宾镜像模板支持  
 - 音频/输入/显示链路的兼容性完善  
 - 文档 / 教程 / 示例镜像（合法合规）  
-

@@ -39,9 +39,17 @@ and the [GPL version 2 text](../LICENSE) describe the relevant upstream terms.
 
 `compliance/source-inventory.json` records QEMU
 `9c23f2a7b0b45277693a14074b1aaa827eecdb92` (VERSION 10.1.93) and the existing patch
-queue. It does not represent the QEMU 11.1.0 integration or phone-specific core used
-by newer Aether builds. Publishing this tree is not evidence that those binaries'
-corresponding source has been supplied.
+queue. The separate [QEMU 11.1 port source](../ports/qemu-11.1/README.md) now
+publishes the downstream base patch and phone development overlay, with exact
+tree reconstruction from a public upstream commit. It does not replace the
+root application's older QEMU submodule. The export includes reviewed source
+and two portability fixes to the phone recipe; it is not a complete source
+archive matched to an already distributed Aether HAP.
+
+The separate [LibVNC evidence](../ports/libvnc/README.md) includes the pinned
+upstream revision/tree, full license, retained lock and current build recipe.
+The current recipe hash differs from the retained lock. That discrepancy is
+explicit; the old archive hashes cannot certify this recipe's output.
 
 Several vendored trees, the LibVNC build recipe, firmware and other downloaded
 dependencies still lack complete version/patch/rebuild provenance. The initial
@@ -61,10 +69,15 @@ python -m unittest discover -s tools -p 'test_public_source.py' -v
 python -m unittest discover -s tools -p 'test_source_inventory.py' -v
 python tools/check_public_source.py
 python tools/check_source_inventory.py
+python -m unittest discover -s tools -p 'test_port_sources.py' -v
+python tools/verify_port_sources.py
 ```
 
 These commands validate source hygiene and recorded identities. No full HAP,
 device or clean native rebuild was performed for this maintenance update.
+The source workflow additionally obtains the immutable upstream QEMU and
+LibVNC commits and replays the QEMU port into a disposable Git index. An exact
+source-tree match is source evidence, not binary or device acceptance.
 
 `python tools/check_source_inventory.py --require-binary-release` deliberately
 fails with the remaining blockers. Changing a manifest flag to `ready` cannot

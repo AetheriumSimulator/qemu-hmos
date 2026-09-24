@@ -8,7 +8,7 @@
       "LibVNC static linkage and same-process QEMU integration require combined-distribution license review.",
       "Several vendored snapshots and downloaded dependencies lack exact upstream revision/patch provenance.",
       "Firmware source/build provenance is incomplete; removed binaries must not be replaced by arbitrary downloads.",
-      "This QEMU 10.1.93 source tree does not cover Aether QEMU 11.1.0 or its phone-specific core.",
+      "The root QEMU 10.1.93 application and supplementary 11.1 development port have not been matched to distributed Aether binaries.",
       "The retained PCRE2 COPYING references a missing LICENCE file; header notices are retained but do not replace a complete upstream license inventory."
     ]
   },

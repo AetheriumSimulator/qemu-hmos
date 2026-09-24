@@ -183,3 +183,6 @@ source-hygiene-*.json
 
 # Historical accidental command-output file
 /git
+# Immutable upstream clones used only for source-reconstruction checks.
+.source-cache/
+!ports/qemu-11.1/overlay/qemu_hmos_phone.map

@@ -1,0 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+QEMU_HMOS_PHONE_1 {
+    global:
+        qemu_hmos_phone_marker;
+        qemu_hmos_phone_run;
+        qemu_hmos_core_marker;
+    local:
+        *;
+};

@@ -1,0 +1,1409 @@
+diff --git a/audio/audio.c b/audio/audio.c
+index 6f10ee470ee48cb610e3796d1c575df44724fc77..4f59d44786dbf81d23e854d21433939ede9adb2e 100644
+--- a/audio/audio.c
++++ b/audio/audio.c
+@@ -186,6 +186,9 @@ static void audio_create_pdos(Audiodev *dev)
+         break
+ 
+         CASE(NONE, none, );
++#ifdef CONFIG_AUDIO_OHOS_OHAUDIO
++        CASE(OHOS_OHAUDIO, ohos_ohaudio, );
++#endif
+ #ifdef CONFIG_AUDIO_ALSA
+         CASE(ALSA, alsa, Alsa);
+ #endif
+@@ -271,6 +274,10 @@ static AudiodevPerDirectionOptions *audio_get_pdo_out(Audiodev *dev)
+     switch (dev->driver) {
+     case AUDIODEV_DRIVER_NONE:
+         return dev->u.none.out;
++#ifdef CONFIG_AUDIO_OHOS_OHAUDIO
++    case AUDIODEV_DRIVER_OHOS_OHAUDIO:
++        return dev->u.ohos_ohaudio.out;
++#endif
+ #ifdef CONFIG_AUDIO_ALSA
+     case AUDIODEV_DRIVER_ALSA:
+         return qapi_AudiodevAlsaPerDirectionOptions_base(dev->u.alsa.out);
+@@ -330,6 +337,10 @@ static AudiodevPerDirectionOptions *audio_get_pdo_in(Audiodev *dev)
+     switch (dev->driver) {
+     case AUDIODEV_DRIVER_NONE:
+         return dev->u.none.in;
++#ifdef CONFIG_AUDIO_OHOS_OHAUDIO
++    case AUDIODEV_DRIVER_OHOS_OHAUDIO:
++        return dev->u.ohos_ohaudio.in;
++#endif
+ #ifdef CONFIG_AUDIO_ALSA
+     case AUDIODEV_DRIVER_ALSA:
+         return qapi_AudiodevAlsaPerDirectionOptions_base(dev->u.alsa.in);
+diff --git a/audio/audio_template.h b/audio/audio_template.h
+index 398a7273739b7bee4277a8cdaa9d283c1a43e534..89048a3fdfc8396fbba29fe1d4c63c4adb53ed95 100644
+--- a/audio/audio_template.h
++++ b/audio/audio_template.h
+@@ -341,6 +341,10 @@ AudiodevPerDirectionOptions *glue(audio_get_pdo_, TYPE)(Audiodev *dev)
+     switch (dev->driver) {
+     case AUDIODEV_DRIVER_NONE:
+         return dev->u.none.TYPE;
++#ifdef CONFIG_AUDIO_OHOS_OHAUDIO
++    case AUDIODEV_DRIVER_OHOS_OHAUDIO:
++        return dev->u.ohos_ohaudio.TYPE;
++#endif
+ #ifdef CONFIG_AUDIO_ALSA
+     case AUDIODEV_DRIVER_ALSA:
+         return qapi_AudiodevAlsaPerDirectionOptions_base(dev->u.alsa.TYPE);
+diff --git a/audio/meson.build b/audio/meson.build
+index 0e33b6f9836e8cd70306042442fbf5ff9b1f9b46..9adddc60b21c7b1d768f72a46a8561b5e3e8fba4 100644
+--- a/audio/meson.build
++++ b/audio/meson.build
+@@ -20,6 +20,7 @@ foreach m : [
+   ['pa', pulse, files('paaudio.c')],
+   ['sdl', sdl, files('sdlaudio.c')],
+   ['jack', jack, files('jackaudio.c')],
++  ['ohos-ohaudio', ohaudio, files('ohos_ohaudio.c')],
+   ['sndio', sndio, files('sndioaudio.c')],
+   ['pipewire', pipewire, files('pwaudio.c')],
+   ['spice', spice, files('spiceaudio.c')]
+diff --git a/audio/ohos_ohaudio.c b/audio/ohos_ohaudio.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..73ceb04f23b780b6427a57f3c9d51ad1d23b223b
+--- /dev/null
++++ b/audio/ohos_ohaudio.c
+@@ -0,0 +1,564 @@
++/*
++ * HarmonyOS OHAudio backend
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/error-report.h"
++#include "qemu/module.h"
++#include "qemu/thread.h"
++#include "qom/object.h"
++
++#include <ohaudio/native_audiocapturer.h>
++#include <ohaudio/native_audiorenderer.h>
++#include <ohaudio/native_audiostreambuilder.h>
++
++#include "qemu/audio.h"
++#include "audio_int.h"
++
++#define TYPE_AUDIO_OHOS_OHAUDIO "audio-ohos-ohaudio"
++OBJECT_DECLARE_SIMPLE_TYPE(AudioOhosOHAudio, AUDIO_OHOS_OHAUDIO)
++
++#define OHOS_OHAUDIO_DEFAULT_BUFFER_USEC 60000
++#define OHOS_OHAUDIO_MIN_BUFFER_FRAMES 256
++
++struct AudioOhosOHAudio {
++    AudioMixengBackend parent_obj;
++};
++
++typedef struct OhosOHAudioRingBuffer {
++    uint8_t *data;
++    size_t size;
++    size_t read_pos;
++    size_t write_pos;
++    size_t used;
++} OhosOHAudioRingBuffer;
++
++typedef struct OhosOHAudioVoiceOut {
++    HWVoiceOut hw;
++    QemuMutex lock;
++    OhosOHAudioRingBuffer ring;
++    OH_AudioRenderer *renderer;
++    bool started;
++} OhosOHAudioVoiceOut;
++
++typedef struct OhosOHAudioVoiceIn {
++    HWVoiceIn hw;
++    QemuMutex lock;
++    OhosOHAudioRingBuffer ring;
++    OH_AudioCapturer *capturer;
++    bool started;
++} OhosOHAudioVoiceIn;
++
++static void ohos_ohaudio_ring_init(OhosOHAudioRingBuffer *ring, size_t size)
++{
++    ring->data = g_malloc0(size);
++    ring->size = size;
++    ring->read_pos = 0;
++    ring->write_pos = 0;
++    ring->used = 0;
++}
++
++static void ohos_ohaudio_ring_reset(OhosOHAudioRingBuffer *ring)
++{
++    ring->read_pos = 0;
++    ring->write_pos = 0;
++    ring->used = 0;
++}
++
++static void ohos_ohaudio_ring_fini(OhosOHAudioRingBuffer *ring)
++{
++    g_clear_pointer(&ring->data, g_free);
++    ring->size = 0;
++    ohos_ohaudio_ring_reset(ring);
++}
++
++static size_t ohos_ohaudio_ring_write(OhosOHAudioRingBuffer *ring,
++                                      const uint8_t *src, size_t size)
++{
++    size_t first;
++
++    if (!ring->data || !ring->size || !size) {
++        return 0;
++    }
++
++    if (size >= ring->size) {
++        src += size - ring->size;
++        size = ring->size;
++        ohos_ohaudio_ring_reset(ring);
++    }
++
++    if (size > ring->size - ring->used) {
++        size_t drop = size - (ring->size - ring->used);
++
++        ring->read_pos = (ring->read_pos + drop) % ring->size;
++        ring->used -= drop;
++    }
++
++    first = MIN(size, ring->size - ring->write_pos);
++    memcpy(ring->data + ring->write_pos, src, first);
++    if (size > first) {
++        memcpy(ring->data, src + first, size - first);
++    }
++    ring->write_pos = (ring->write_pos + size) % ring->size;
++    ring->used += size;
++    return size;
++}
++
++static size_t ohos_ohaudio_ring_write_available(OhosOHAudioRingBuffer *ring,
++                                                const uint8_t *src,
++                                                size_t size)
++{
++    size_t first;
++
++    if (!ring->data || !ring->size || !size) {
++        return 0;
++    }
++
++    size = MIN(size, ring->size - ring->used);
++    first = MIN(size, ring->size - ring->write_pos);
++    memcpy(ring->data + ring->write_pos, src, first);
++    if (size > first) {
++        memcpy(ring->data, src + first, size - first);
++    }
++    ring->write_pos = (ring->write_pos + size) % ring->size;
++    ring->used += size;
++    return size;
++}
++
++static size_t ohos_ohaudio_ring_read(OhosOHAudioRingBuffer *ring,
++                                     uint8_t *dst, size_t size)
++{
++    size_t first;
++
++    size = MIN(size, ring->used);
++    if (!size) {
++        return 0;
++    }
++
++    first = MIN(size, ring->size - ring->read_pos);
++    memcpy(dst, ring->data + ring->read_pos, first);
++    if (size > first) {
++        memcpy(dst + first, ring->data, size - first);
++    }
++    ring->read_pos = (ring->read_pos + size) % ring->size;
++    ring->used -= size;
++    return size;
++}
++
++static void ohos_ohaudio_fill_silence(const struct audio_pcm_info *info,
++                                      void *buffer, size_t size)
++{
++    int value = info->af == AUDIO_FORMAT_U8 ? 0x80 : 0;
++
++    memset(buffer, value, size);
++}
++
++static bool ohos_ohaudio_result_ok(OH_AudioStream_Result result,
++                                   const char *operation)
++{
++    if (result == AUDIOSTREAM_SUCCESS) {
++        return true;
++    }
++
++    error_report("ohos-ohaudio: %s failed (result=%d)", operation,
++                 (int)result);
++    return false;
++}
++
++static bool ohos_ohaudio_sample_format(AudioFormat format,
++                                       OH_AudioStream_SampleFormat *result)
++{
++    switch (format) {
++    case AUDIO_FORMAT_U8:
++        *result = AUDIOSTREAM_SAMPLE_U8;
++        return true;
++    case AUDIO_FORMAT_S16:
++        *result = AUDIOSTREAM_SAMPLE_S16LE;
++        return true;
++    case AUDIO_FORMAT_S32:
++        *result = AUDIOSTREAM_SAMPLE_S32LE;
++        return true;
++    case AUDIO_FORMAT_F32:
++        *result = AUDIOSTREAM_SAMPLE_F32LE;
++        return true;
++    case AUDIO_FORMAT_S8:
++    case AUDIO_FORMAT_U16:
++    case AUDIO_FORMAT_U32:
++    case AUDIO_FORMAT__MAX:
++        return false;
++    }
++
++    return false;
++}
++
++static bool ohos_ohaudio_configure_builder(OH_AudioStreamBuilder *builder,
++                                           const audsettings *settings,
++                                           OH_AudioStream_SampleFormat format)
++{
++    return ohos_ohaudio_result_ok(
++               OH_AudioStreamBuilder_SetSamplingRate(builder,
++                                                      settings->freq),
++               "set sampling rate") &&
++           ohos_ohaudio_result_ok(
++               OH_AudioStreamBuilder_SetChannelCount(builder,
++                                                      settings->nchannels),
++               "set channel count") &&
++           ohos_ohaudio_result_ok(
++               OH_AudioStreamBuilder_SetSampleFormat(builder, format),
++               "set sample format") &&
++           ohos_ohaudio_result_ok(
++               OH_AudioStreamBuilder_SetEncodingType(
++                   builder, AUDIOSTREAM_ENCODING_TYPE_RAW),
++               "set encoding type") &&
++           ohos_ohaudio_result_ok(
++               OH_AudioStreamBuilder_SetLatencyMode(
++                   builder, AUDIOSTREAM_LATENCY_MODE_NORMAL),
++               "set latency mode");
++}
++
++static OH_AudioData_Callback_Result ohos_ohaudio_renderer_write(
++    OH_AudioRenderer *renderer, void *user_data, void *audio_data,
++    int32_t audio_data_size)
++{
++    OhosOHAudioVoiceOut *voice = user_data;
++
++    (void)renderer;
++    if (!voice || !audio_data || audio_data_size <= 0) {
++        return AUDIO_DATA_CALLBACK_RESULT_INVALID;
++    }
++
++    ohos_ohaudio_fill_silence(&voice->hw.info, audio_data,
++                              (size_t)audio_data_size);
++    qemu_mutex_lock(&voice->lock);
++    ohos_ohaudio_ring_read(&voice->ring, audio_data,
++                           (size_t)audio_data_size);
++    qemu_mutex_unlock(&voice->lock);
++    return AUDIO_DATA_CALLBACK_RESULT_VALID;
++}
++
++static void ohos_ohaudio_capturer_read(OH_AudioCapturer *capturer,
++                                       void *user_data, void *audio_data,
++                                       int32_t audio_data_size)
++{
++    OhosOHAudioVoiceIn *voice = user_data;
++
++    (void)capturer;
++    if (!voice || !audio_data || audio_data_size <= 0) {
++        return;
++    }
++
++    qemu_mutex_lock(&voice->lock);
++    ohos_ohaudio_ring_write(&voice->ring, audio_data,
++                            (size_t)audio_data_size);
++    qemu_mutex_unlock(&voice->lock);
++}
++
++static int ohos_ohaudio_create_renderer(OhosOHAudioVoiceOut *voice,
++                                        const audsettings *settings,
++                                        OH_AudioStream_SampleFormat format)
++{
++    OH_AudioStreamBuilder *builder = NULL;
++    OH_AudioRenderer *renderer = NULL;
++    OH_AudioStream_Result result;
++    bool configured;
++
++    result = OH_AudioStreamBuilder_Create(&builder,
++                                          AUDIOSTREAM_TYPE_RENDERER);
++    if (!ohos_ohaudio_result_ok(result, "create renderer builder") ||
++        !builder) {
++        return -1;
++    }
++
++    configured = ohos_ohaudio_configure_builder(builder, settings, format) &&
++        ohos_ohaudio_result_ok(
++            OH_AudioStreamBuilder_SetRendererInfo(
++                builder, AUDIOSTREAM_USAGE_MUSIC),
++            "set renderer usage") &&
++        ohos_ohaudio_result_ok(
++            OH_AudioStreamBuilder_SetRendererWriteDataCallback(
++                builder, ohos_ohaudio_renderer_write, voice),
++            "set renderer callback");
++    if (configured) {
++        result = OH_AudioStreamBuilder_GenerateRenderer(builder, &renderer);
++        configured = ohos_ohaudio_result_ok(result, "generate renderer") &&
++            renderer;
++    }
++
++    result = OH_AudioStreamBuilder_Destroy(builder);
++    if (!ohos_ohaudio_result_ok(result, "destroy renderer builder")) {
++        configured = false;
++    }
++    if (!configured) {
++        if (renderer) {
++            OH_AudioRenderer_Release(renderer);
++        }
++        return -1;
++    }
++
++    voice->renderer = renderer;
++    return 0;
++}
++
++static int ohos_ohaudio_create_capturer(OhosOHAudioVoiceIn *voice,
++                                        const audsettings *settings,
++                                        OH_AudioStream_SampleFormat format)
++{
++    OH_AudioStreamBuilder *builder = NULL;
++    OH_AudioCapturer *capturer = NULL;
++    OH_AudioStream_Result result;
++    bool configured;
++
++    result = OH_AudioStreamBuilder_Create(&builder,
++                                          AUDIOSTREAM_TYPE_CAPTURER);
++    if (!ohos_ohaudio_result_ok(result, "create capturer builder") ||
++        !builder) {
++        return -1;
++    }
++
++    configured = ohos_ohaudio_configure_builder(builder, settings, format) &&
++        ohos_ohaudio_result_ok(
++            OH_AudioStreamBuilder_SetCapturerInfo(
++                builder, AUDIOSTREAM_SOURCE_TYPE_MIC),
++            "set capturer source") &&
++        ohos_ohaudio_result_ok(
++            OH_AudioStreamBuilder_SetCapturerReadDataCallback(
++                builder, ohos_ohaudio_capturer_read, voice),
++            "set capturer callback");
++    if (configured) {
++        result = OH_AudioStreamBuilder_GenerateCapturer(builder, &capturer);
++        configured = ohos_ohaudio_result_ok(result, "generate capturer") &&
++            capturer;
++    }
++
++    result = OH_AudioStreamBuilder_Destroy(builder);
++    if (!ohos_ohaudio_result_ok(result, "destroy capturer builder")) {
++        configured = false;
++    }
++    if (!configured) {
++        if (capturer) {
++            OH_AudioCapturer_Release(capturer);
++        }
++        return -1;
++    }
++
++    voice->capturer = capturer;
++    return 0;
++}
++
++static int ohos_ohaudio_init_out(HWVoiceOut *hw, audsettings *settings)
++{
++    OhosOHAudioVoiceOut *voice = container_of(hw, OhosOHAudioVoiceOut, hw);
++    AudiodevPerDirectionOptions *options = audio_get_pdo_out(hw->s->dev);
++    OH_AudioStream_SampleFormat format;
++    size_t ring_size;
++
++    if (settings->big_endian ||
++        !ohos_ohaudio_sample_format(settings->fmt, &format)) {
++        error_report("ohos-ohaudio: unsupported playback format %s-endian %s",
++                     settings->big_endian ? "big" : "little",
++                     AudioFormat_str(settings->fmt));
++        return -1;
++    }
++
++    audio_pcm_init_info(&hw->info, settings);
++    hw->samples = MAX(OHOS_OHAUDIO_MIN_BUFFER_FRAMES,
++                      audio_buffer_frames(options, settings,
++                                          OHOS_OHAUDIO_DEFAULT_BUFFER_USEC));
++    ring_size = hw->samples * hw->info.bytes_per_frame;
++    qemu_mutex_init(&voice->lock);
++    ohos_ohaudio_ring_init(&voice->ring, ring_size);
++
++    if (ohos_ohaudio_create_renderer(voice, settings, format) < 0) {
++        ohos_ohaudio_ring_fini(&voice->ring);
++        qemu_mutex_destroy(&voice->lock);
++        return -1;
++    }
++    return 0;
++}
++
++static void ohos_ohaudio_fini_out(HWVoiceOut *hw)
++{
++    OhosOHAudioVoiceOut *voice = container_of(hw, OhosOHAudioVoiceOut, hw);
++
++    if (voice->renderer) {
++        if (voice->started) {
++            OH_AudioRenderer_Stop(voice->renderer);
++            voice->started = false;
++        }
++        OH_AudioRenderer_Release(voice->renderer);
++        voice->renderer = NULL;
++    }
++    ohos_ohaudio_ring_fini(&voice->ring);
++    qemu_mutex_destroy(&voice->lock);
++}
++
++static size_t ohos_ohaudio_write(HWVoiceOut *hw, void *buffer, size_t size)
++{
++    OhosOHAudioVoiceOut *voice = container_of(hw, OhosOHAudioVoiceOut, hw);
++    size_t written;
++
++    qemu_mutex_lock(&voice->lock);
++    written = ohos_ohaudio_ring_write_available(&voice->ring, buffer, size);
++    qemu_mutex_unlock(&voice->lock);
++    return written;
++}
++
++static size_t ohos_ohaudio_buffer_get_free(HWVoiceOut *hw)
++{
++    OhosOHAudioVoiceOut *voice = container_of(hw, OhosOHAudioVoiceOut, hw);
++    size_t generic_free = audio_generic_buffer_get_free(hw);
++    size_t generic_in_use = hw->samples * hw->info.bytes_per_frame -
++                            generic_free;
++    size_t available;
++
++    qemu_mutex_lock(&voice->lock);
++    available = voice->ring.size - voice->ring.used;
++    qemu_mutex_unlock(&voice->lock);
++
++    return available > generic_in_use ? available - generic_in_use : 0;
++}
++
++static void ohos_ohaudio_enable_out(HWVoiceOut *hw, bool enable)
++{
++    OhosOHAudioVoiceOut *voice = container_of(hw, OhosOHAudioVoiceOut, hw);
++    OH_AudioStream_Result result;
++
++    if (!voice->renderer || enable == voice->started) {
++        return;
++    }
++
++    if (enable) {
++        result = OH_AudioRenderer_Start(voice->renderer);
++        if (ohos_ohaudio_result_ok(result, "start renderer")) {
++            voice->started = true;
++        }
++    } else {
++        result = OH_AudioRenderer_Pause(voice->renderer);
++        if (ohos_ohaudio_result_ok(result, "pause renderer")) {
++            voice->started = false;
++        }
++        qemu_mutex_lock(&voice->lock);
++        ohos_ohaudio_ring_reset(&voice->ring);
++        qemu_mutex_unlock(&voice->lock);
++    }
++}
++
++static int ohos_ohaudio_init_in(HWVoiceIn *hw, audsettings *settings)
++{
++    OhosOHAudioVoiceIn *voice = container_of(hw, OhosOHAudioVoiceIn, hw);
++    AudiodevPerDirectionOptions *options = audio_get_pdo_in(hw->s->dev);
++    OH_AudioStream_SampleFormat format;
++    size_t ring_size;
++
++    if (settings->big_endian ||
++        !ohos_ohaudio_sample_format(settings->fmt, &format)) {
++        error_report("ohos-ohaudio: unsupported capture format %s-endian %s",
++                     settings->big_endian ? "big" : "little",
++                     AudioFormat_str(settings->fmt));
++        return -1;
++    }
++
++    audio_pcm_init_info(&hw->info, settings);
++    hw->samples = MAX(OHOS_OHAUDIO_MIN_BUFFER_FRAMES,
++                      audio_buffer_frames(options, settings,
++                                          OHOS_OHAUDIO_DEFAULT_BUFFER_USEC));
++    ring_size = hw->samples * hw->info.bytes_per_frame;
++    qemu_mutex_init(&voice->lock);
++    ohos_ohaudio_ring_init(&voice->ring, ring_size);
++
++    if (ohos_ohaudio_create_capturer(voice, settings, format) < 0) {
++        ohos_ohaudio_ring_fini(&voice->ring);
++        qemu_mutex_destroy(&voice->lock);
++        return -1;
++    }
++    return 0;
++}
++
++static void ohos_ohaudio_fini_in(HWVoiceIn *hw)
++{
++    OhosOHAudioVoiceIn *voice = container_of(hw, OhosOHAudioVoiceIn, hw);
++
++    if (voice->capturer) {
++        if (voice->started) {
++            OH_AudioCapturer_Stop(voice->capturer);
++            voice->started = false;
++        }
++        OH_AudioCapturer_Release(voice->capturer);
++        voice->capturer = NULL;
++    }
++    ohos_ohaudio_ring_fini(&voice->ring);
++    qemu_mutex_destroy(&voice->lock);
++}
++
++static size_t ohos_ohaudio_read(HWVoiceIn *hw, void *buffer, size_t size)
++{
++    OhosOHAudioVoiceIn *voice = container_of(hw, OhosOHAudioVoiceIn, hw);
++    size_t captured;
++
++    qemu_mutex_lock(&voice->lock);
++    captured = ohos_ohaudio_ring_read(&voice->ring, buffer, size);
++    qemu_mutex_unlock(&voice->lock);
++    return captured;
++}
++
++static void ohos_ohaudio_enable_in(HWVoiceIn *hw, bool enable)
++{
++    OhosOHAudioVoiceIn *voice = container_of(hw, OhosOHAudioVoiceIn, hw);
++    OH_AudioStream_Result result;
++
++    if (!voice->capturer || enable == voice->started) {
++        return;
++    }
++
++    if (enable) {
++        result = OH_AudioCapturer_Start(voice->capturer);
++        if (ohos_ohaudio_result_ok(result, "start capturer")) {
++            voice->started = true;
++        }
++    } else {
++        result = OH_AudioCapturer_Pause(voice->capturer);
++        if (ohos_ohaudio_result_ok(result, "pause capturer")) {
++            voice->started = false;
++        }
++        qemu_mutex_lock(&voice->lock);
++        ohos_ohaudio_ring_reset(&voice->ring);
++        qemu_mutex_unlock(&voice->lock);
++    }
++}
++
++static void ohos_ohaudio_class_init(ObjectClass *klass, const void *data)
++{
++    AudioMixengBackendClass *backend = AUDIO_MIXENG_BACKEND_CLASS(klass);
++
++    backend->max_voices_out = 1;
++    backend->max_voices_in = 1;
++    backend->voice_size_out = sizeof(OhosOHAudioVoiceOut);
++    backend->voice_size_in = sizeof(OhosOHAudioVoiceIn);
++
++    backend->init_out = ohos_ohaudio_init_out;
++    backend->fini_out = ohos_ohaudio_fini_out;
++    backend->write = ohos_ohaudio_write;
++    backend->buffer_get_free = ohos_ohaudio_buffer_get_free;
++    backend->run_buffer_out = audio_generic_run_buffer_out;
++    backend->enable_out = ohos_ohaudio_enable_out;
++
++    backend->init_in = ohos_ohaudio_init_in;
++    backend->fini_in = ohos_ohaudio_fini_in;
++    backend->read = ohos_ohaudio_read;
++    backend->run_buffer_in = audio_generic_run_buffer_in;
++    backend->enable_in = ohos_ohaudio_enable_in;
++}
++
++static const TypeInfo ohos_ohaudio_types[] = {
++    {
++        .name = TYPE_AUDIO_OHOS_OHAUDIO,
++        .parent = TYPE_AUDIO_MIXENG_BACKEND,
++        .instance_size = sizeof(AudioOhosOHAudio),
++        .class_init = ohos_ohaudio_class_init,
++    },
++};
++
++DEFINE_TYPES(ohos_ohaudio_types)
++module_obj(TYPE_AUDIO_OHOS_OHAUDIO);
+diff --git a/build_harmonyos_full.sh b/build_harmonyos_full.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..1f5f2c79ca7231a263b0591b796ef58ef815f9dc
+--- /dev/null
++++ b/build_harmonyos_full.sh
+@@ -0,0 +1,192 @@
++#!/usr/bin/env bash
++# SPDX-License-Identifier: GPL-2.0-or-later
++# Build the QEMU 11.1 AArch64 system emulator as one HarmonyOS shared core.
++
++set -euo pipefail
++
++checkout_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
++work_root=${QEMU_OHOS_BUILD_DIR:-"${TMPDIR:-/tmp}/qemu-hmos-11.1-ohos"}
++source_commit=$(git -c safe.directory="${checkout_dir}" \
++    -C "${checkout_dir}" rev-parse HEAD)
++source_dir="${work_root}/source-${source_commit}"
++source_ready="${source_dir}/.qemu-ohos-source-ready"
++build_dir="${work_root}/build-${source_commit}"
++stage_dir=${QEMU_OHOS_STAGE_DIR:-"${work_root}/stage-${source_commit}"}
++deps_prefix=${OHOS_DEPS_PREFIX:-"${checkout_dir}/../deps/install-ohos"}
++cross_bin=${OHOS_CROSS_BIN:-"${checkout_dir}/../deps/bin"}
++
++if [[ -z "${OHOS_SDK_DIR:-}" ]]; then
++    printf '%s\n' \
++        "OHOS_SDK_DIR must point to a HarmonyOS SDK containing native/." >&2
++    exit 2
++fi
++
++ndk_dir="${OHOS_SDK_DIR}/native"
++clang="${ndk_dir}/llvm/bin/aarch64-unknown-linux-ohos-clang"
++clangxx="${ndk_dir}/llvm/bin/aarch64-unknown-linux-ohos-clang++"
++llvm_ar="${ndk_dir}/llvm/bin/llvm-ar"
++llvm_nm="${ndk_dir}/llvm/bin/llvm-nm"
++llvm_ranlib="${ndk_dir}/llvm/bin/llvm-ranlib"
++llvm_strip="${ndk_dir}/llvm/bin/llvm-strip"
++
++for required in \
++    "${clang}" \
++    "${clangxx}" \
++    "${llvm_ar}" \
++    "${llvm_nm}" \
++    "${llvm_ranlib}" \
++    "${llvm_strip}" \
++    "${cross_bin}/aarch64-unknown-linux-ohos-pkg-config" \
++    "${deps_prefix}/lib/libglib-2.0.a" \
++    "${deps_prefix}/lib/libpixman-1.a" \
++    "${deps_prefix}/lib/libusb-1.0.a" \
++    "${deps_prefix}/lib/pkgconfig/libusb-1.0.pc" \
++    "${deps_prefix}/lib/libintl.a"; do
++    if [[ ! -e "${required}" ]]; then
++        printf 'Required HarmonyOS build input is missing: %s\n' \
++            "${required}" >&2
++        exit 2
++    fi
++done
++
++libusb_version=$(awk '$1 == "Version:" { print $2 }' \
++    "${deps_prefix}/lib/pkgconfig/libusb-1.0.pc")
++if [[ ${libusb_version} != "1.0.30" ]]; then
++    printf '%s: %s\n' \
++        'HarmonyOS USB passthrough requires pinned libusb 1.0.30' \
++        "${libusb_version:-missing}" >&2
++    exit 2
++fi
++if ! strings "${deps_prefix}/lib/libusb-1.0.a" | \
++    grep -F 'HarmonyOS descriptor-only context' >/dev/null; then
++    printf '%s\n' \
++        'The pinned libusb archive is missing the HarmonyOS' \
++        'descriptor-only patch.' >&2
++    exit 2
++fi
++
++source_version=$(git -c safe.directory="${checkout_dir}" \
++    -C "${checkout_dir}" show "${source_commit}:VERSION")
++if [[ ${source_version} != "11.1.0" ]]; then
++    printf '%s\n' "This port is pinned to QEMU 11.1.0." >&2
++    exit 2
++fi
++
++export PKG_CONFIG_LIBDIR="${deps_prefix}/lib/pkgconfig:"
++export PKG_CONFIG_LIBDIR+="${deps_prefix}/share/pkgconfig"
++export PKG_CONFIG_PATH="${PKG_CONFIG_LIBDIR}"
++export AR="${llvm_ar}"
++export NM="${llvm_nm}"
++export RANLIB="${llvm_ranlib}"
++export STRIP="${llvm_strip}"
++qemu_ohos_flags='-D__OHOS__=1 -D__HARMONYOS__=1 -fPIC -fvisibility=hidden'
++
++mkdir -p "${work_root}" "${stage_dir}"
++
++# Meson initializes pinned QEMU fallback subprojects with Git. HarmonyOS
++# development commonly happens on NTFS/DrvFs, whose executable-bit semantics
++# can make that initialization fail. Build the exact checked-out commit from a
++# metadata-free archive on a native Linux filesystem. This also prevents old
++# build trees and unrelated untracked files from entering the build input.
++if [[ -e "${source_dir}" && ! -f "${source_ready}" ]]; then
++    printf '%s: %s\n' \
++        'Incomplete archived source; choose a new build root or remove it' \
++        "${source_dir}" >&2
++    exit 2
++fi
++if [[ ! -f "${source_ready}" ]]; then
++    source_temp=$(mktemp -d "${work_root}/.source-${source_commit}.XXXXXX")
++    trap 'rm -rf -- "${source_temp}"' EXIT
++    git -c safe.directory="${checkout_dir}" \
++        -C "${checkout_dir}" archive --format=tar "${source_commit}" | (
++        cd "${source_temp}"
++        tar -xf -
++    )
++    if [[ $(<"${source_temp}/VERSION") != "${source_version}" ]]; then
++        printf '%s\n' \
++            'Archived QEMU VERSION does not match the locked commit.' >&2
++        exit 2
++    fi
++    printf '%s\n' "${source_commit}" > "${source_temp}/.qemu-ohos-source-ready"
++    mv "${source_temp}" "${source_dir}"
++    trap - EXIT
++elif [[ $(<"${source_ready}") != "${source_commit}" ]]; then
++    printf 'Archived source marker mismatch: %s\n' "${source_dir}" >&2
++    exit 2
++fi
++
++mkdir -p "${build_dir}"
++
++if [[ ! -f "${build_dir}/build.ninja" ]]; then
++    (
++        cd "${build_dir}"
++        "${source_dir}/configure" \
++            --target-list=aarch64-softmmu \
++            --cross-prefix="${cross_bin}/aarch64-unknown-linux-ohos-" \
++            --cc="${clang}" \
++            --cxx="${clangxx}" \
++            --host-cc=cc \
++            --extra-cflags="${qemu_ohos_flags}" \
++            --extra-cxxflags="${qemu_ohos_flags}" \
++            --extra-ldflags='-fuse-ld=lld' \
++            --without-default-features \
++            --enable-system \
++            --enable-tcg \
++            --enable-pixman \
++            --enable-vnc \
++            --enable-slirp \
++            --enable-fdt=internal \
++            --enable-tpm \
++            --enable-libusb \
++            --enable-ohos-ohaudio \
++            --audio-drv-list=ohos-ohaudio \
++            --with-coroutine=sigaltstack \
++            --disable-rust \
++            --disable-modules \
++            --disable-plugins \
++            --disable-tools \
++            --disable-docs \
++            --disable-guest-agent \
++            --disable-opengl \
++            --disable-virglrenderer \
++            --disable-pie \
++            --disable-werror \
++            -Ddefault_library=static \
++            -Db_staticpic=true \
++            -Db_pie=false \
++            -Dstrip=false \
++            -Dharmonyos_shared_core=true \
++            --with-devices-aarch64=harmonyos \
++            --without-default-devices
++    )
++fi
++
++if ! grep -qx 'CONFIG_TPM_EMULATOR=y' \
++    "${build_dir}/aarch64-softmmu-config-devices.mak"; then
++    printf '%s\n' \
++        'HarmonyOS QEMU core is missing the SWTPM emulator backend.' >&2
++    exit 2
++fi
++
++jobs=${QEMU_BUILD_JOBS:-8}
++ninja -C "${build_dir}" -j "${jobs}" libqemu_full.so
++
++meson_bin="${build_dir}/pyvenv/bin/meson"
++if [[ ! -x "${meson_bin}" ]]; then
++    printf 'Meson executable is missing from the QEMU build: %s\n' \
++        "${meson_bin}" >&2
++    exit 2
++fi
++
++DESTDIR="${stage_dir}" "${meson_bin}" install \
++    -C "${build_dir}" \
++    --no-rebuild \
++    --tags harmonyos-core
++
++installed_core="${stage_dir}/usr/local/lib/libqemu_full.so"
++if [[ ! -f "${installed_core}" ]]; then
++    printf 'Installed HarmonyOS core is missing: %s\n' "${installed_core}" >&2
++    exit 2
++fi
++
++printf 'HarmonyOS QEMU core: %s\n' "${installed_core}"
+diff --git a/configs/devices/aarch64-softmmu/harmonyos.mak b/configs/devices/aarch64-softmmu/harmonyos.mak
+new file mode 100644
+index 0000000000000000000000000000000000000000..9c4af78e154e227da8bb6154a6a56a88c51c83a3
+--- /dev/null
++++ b/configs/devices/aarch64-softmmu/harmonyos.mak
+@@ -0,0 +1,44 @@
++# Device configuration for an AArch64 HarmonyOS-hosted virtual machine.
++# SPDX-License-Identifier: GPL-2.0-or-later
++#
++# Keep this as a positive list on top of QEMU's ARM virt board. The build uses
++# --without-default-devices so unrelated ARM development boards and legacy
++# devices are not pulled into the application shared library.
++
++CONFIG_ARM_VIRT=y
++
++# Firmware and installation display, plus the post-driver display device.
++# RAMFB is selected by ARM_VIRT through FW_CFG_DMA.
++CONFIG_VIRTIO_GPU=y
++
++# PCI transport and the storage/network devices exposed by the application.
++CONFIG_VIRTIO_PCI=y
++CONFIG_VIRTIO_BLK=y
++CONFIG_VIRTIO_SCSI=y
++CONFIG_VIRTIO_NET=y
++CONFIG_VIRTIO_SERIAL=y
++CONFIG_VIRTIO_RNG=y
++CONFIG_VIRTIO_BALLOON=y
++CONFIG_VIRTIO_INPUT=y
++CONFIG_VIRTIO_SND=y
++CONFIG_NVME_PCI=y
++CONFIG_SPDM_SOCKET=y
++CONFIG_E1000_PCI=y
++CONFIG_E1000E_PCI_EXPRESS=y
++
++# Windows installation media and host audio devices.
++CONFIG_AHCI_ICH9=y
++CONFIG_HDA=y
++
++# Remote input, removable media, and authorized host USB passthrough.
++CONFIG_USB_XHCI_PCI=y
++CONFIG_USB_XHCI_NEC=y
++CONFIG_USB_HID=y
++CONFIG_USB_STORAGE_CLASSIC=y
++CONFIG_USB_STORAGE_BOT=y
++CONFIG_USB_AUDIO=y
++CONFIG_USB_NETWORK=y
++
++# ARM virt exposes the TPM through the sysbus TIS model.
++CONFIG_TPM_EMULATOR=y
++CONFIG_TPM_TIS_SYSBUS=y
+diff --git a/hw/usb/host-libusb.c b/hw/usb/host-libusb.c
+index b9f3ad3f66dd7f3142433e86575f3ce78062d66b..2710f070a25c76a30d28cd477889b75e8aae0c18 100644
+--- a/hw/usb/host-libusb.c
++++ b/hw/usb/host-libusb.c
+@@ -42,7 +42,18 @@
+ 
+ #ifdef CONFIG_LINUX
+ #include <sys/ioctl.h>
++#ifdef __OHOS__
++/* HarmonyOS Linux UAPI headers retain sparse's userspace annotation. */
++#ifndef __user
++#define __user
++#define QEMU_OHOS_DEFINED_USER_ANNOTATION
++#endif
++#endif
+ #include <linux/usbdevice_fs.h>
++#ifdef QEMU_OHOS_DEFINED_USER_ANNOTATION
++#undef __user
++#undef QEMU_OHOS_DEFINED_USER_ANNOTATION
++#endif
+ #endif
+ 
+ #include "qapi/error.h"
+@@ -289,9 +300,23 @@ static int usb_host_init(void)
+     if (ctx) {
+         return 0;
+     }
++#ifdef __OHOS__
++    /*
++     * HarmonyOS grants USB access per device through usbManager and exposes
++     * an already-authorized file descriptor. The application sandbox cannot
++     * enumerate /dev/bus/usb directly, so initialize libusb without device
++     * discovery and let usb-host wrap the descriptor supplied through the
++     * hostdevice property (/dev/fdset/<n>).
++     */
++    const struct libusb_init_option init_options[] = {
++        { .option = LIBUSB_OPTION_NO_DEVICE_DISCOVERY },
++    };
++    rc = libusb_init_context(&ctx, init_options, 1);
++#else
+     rc = libusb_init(&ctx);
++#endif
+     if (rc != 0) {
+-        return -1;
++        return rc;
+     }
+ #if LIBUSB_API_VERSION >= 0x01000106
+     libusb_set_option(ctx, LIBUSB_OPTION_LOG_LEVEL, loglevel);
+@@ -1184,8 +1209,10 @@ static void usb_host_realize(USBDevice *udev, Error **errp)
+     libusb_device *ldev;
+     int rc;
+ 
+-    if (usb_host_init() != 0) {
+-        error_setg(errp, "failed to init libusb");
++    rc = usb_host_init();
++    if (rc != 0) {
++        error_setg(errp, "failed to init libusb: %s (%d)",
++                   libusb_error_name(rc), rc);
+         return;
+     }
+     if (s->match.vendor_id > 0xffff) {
+diff --git a/include/system/qemu-hmos.h b/include/system/qemu-hmos.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..3f3a70d768a221d5c16b19419a389d3043bb2220
+--- /dev/null
++++ b/include/system/qemu-hmos.h
+@@ -0,0 +1,19 @@
++/*
++ * HarmonyOS shared-core ABI for QEMU system emulation.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef SYSTEM_QEMU_HMOS_H
++#define SYSTEM_QEMU_HMOS_H
++
++#define QEMU_HMOS_EXPORT __attribute__((visibility("default")))
++#define QEMU_HMOS_RETAIN __attribute__((used, visibility("default")))
++
++extern QEMU_HMOS_EXPORT const char qemu_hmos_core_marker[];
++QEMU_HMOS_EXPORT int qemu_hmos_core_abi_version(void);
++QEMU_HMOS_EXPORT const char *qemu_hmos_core_upstream_version(void);
++QEMU_HMOS_EXPORT int qemu_hmos_probe(int argc, char **argv);
++QEMU_HMOS_EXPORT int qemu_hmos_run(int argc, char **argv);
++
++#endif /* SYSTEM_QEMU_HMOS_H */
+diff --git a/meson.build b/meson.build
+index 49a5baf5b52fd257001b81d4212a129a0315cd11..900feb50854759430931924d001614a8ca81e70d 100644
+--- a/meson.build
++++ b/meson.build
+@@ -264,6 +264,10 @@ enable_modules = get_option('modules') \
+            error_message: 'Modules are incompatible with static linking') \
+   .allowed()
+ 
++if get_option('harmonyos_shared_core') and enable_modules
++  error('The HarmonyOS shared core must contain its device backends; modules are not supported')
++endif
++
+ #######################################
+ # Variables for host and accelerators #
+ #######################################
+@@ -1328,6 +1332,27 @@ if not get_option('alsa').auto() or (host_os == 'linux' and have_system)
+   alsa = dependency('alsa', required: get_option('alsa'),
+                     method: 'pkg-config')
+ endif
++ohaudio = not_found
++if not get_option('ohos_ohaudio').auto() or have_system
++  ohaudio = cc.find_library(
++    'ohaudio',
++    has_headers: [
++      'ohaudio/native_audiocapturer.h',
++      'ohaudio/native_audiorenderer.h',
++      'ohaudio/native_audiostreambuilder.h',
++    ],
++    required: get_option('ohos_ohaudio'))
++  if ohaudio.found()
++    have_ohaudio_callbacks = cc.has_function(
++      'OH_AudioStreamBuilder_SetCapturerReadDataCallback',
++      prefix: '#include <ohaudio/native_audiostreambuilder.h>',
++      dependencies: ohaudio,
++      required: get_option('ohos_ohaudio'))
++    if not have_ohaudio_callbacks
++      ohaudio = not_found
++    endif
++  endif
++endif
+ jack = not_found
+ if not get_option('jack').auto() or have_system
+   jack = dependency('jack', required: get_option('jack'),
+@@ -2273,6 +2298,7 @@ if have_system
+     'coreaudio': coreaudio.found(),
+     'dsound': dsound.found(),
+     'jack': jack.found(),
++    'ohos-ohaudio': ohaudio.found(),
+     'oss': oss.found(),
+     'pa': pulse.found(),
+     'pipewire': pipewire.found(),
+@@ -2280,12 +2306,12 @@ if have_system
+     'sndio': sndio.found(),
+   }
+   foreach k, v: audio_drivers_available
+-    config_host_data.set('CONFIG_AUDIO_' + k.to_upper(), v)
++    config_host_data.set('CONFIG_AUDIO_' + k.to_upper().replace('-', '_'), v)
+   endforeach
+ 
+   # Default to native drivers first, OSS second, SDL third
+   audio_drivers_priority = \
+-    [ 'pa', 'coreaudio', 'dsound', 'sndio', 'oss' ] + \
++    [ 'ohos-ohaudio', 'pa', 'coreaudio', 'dsound', 'sndio', 'oss' ] + \
+     (host_os == 'linux' ? [] : [ 'sdl' ])
+   audio_drivers_default = []
+   foreach k: audio_drivers_priority
+@@ -2512,6 +2538,7 @@ config_host_data.set('CONFIG_PNG', png.found())
+ config_host_data.set('CONFIG_VNC', vnc.found())
+ config_host_data.set('CONFIG_VNC_JPEG', jpeg.found())
+ config_host_data.set('CONFIG_VNC_SASL', sasl.found())
++config_host_data.set('CONFIG_VIRGL_RENDERER', virgl.found())
+ if virgl.found()
+   config_host_data.set('VIRGL_VERSION_MAJOR', virgl.version().split('.')[0])
+   config_host_data.set('VIRGL_VERSION_MINOR', virgl.version().split('.')[1])
+@@ -4436,6 +4463,26 @@ foreach target : target_dirs
+       'dependencies': [target_stubs]
+     }]
+   endif
++
++  if get_option('harmonyos_shared_core') and target == 'aarch64-softmmu'
++    qemu_hmos_map = meson.current_source_dir() / 'qemu_hmos.map'
++    shared_module('qemu_full',
++                  files('qemu_hmos_exports.c'),
++                  install: true,
++                  install_dir: get_option('libdir'),
++                  install_rpath: '$ORIGIN',
++                  install_tag: 'harmonyos-core',
++                  c_args: c_args,
++                  include_directories: target_inc,
++                  dependencies: arch_deps + [sdl, target_stubs],
++                  objects: lib.extract_all_objects(recursive: true),
++                  link_depends: [block_syms, qemu_syms, files('qemu_hmos.map')],
++                  link_args: link_args + [
++                    '-Wl,--version-script=' + qemu_hmos_map,
++                    '-Wl,--no-undefined',
++                  ])
++  endif
++
+   foreach exe: execs
+     exe_name = exe['name']
+     if host_os == 'darwin'
+@@ -4937,6 +4984,7 @@ if host_os == 'linux'
+ endif
+ summary_info += {'PipeWire support':  pipewire}
+ summary_info += {'JACK support':      jack}
++summary_info += {'OHAudio support':   ohaudio}
+ summary(summary_info, bool_yn: true, section: 'Audio backends')
+ 
+ # Network backends
+diff --git a/meson_options.txt b/meson_options.txt
+index a07cb47d35e9b83636182c1b38f2f8ad84facabb..a8a2fcdd831d18979ed6f686674b70ab674db8bd 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -19,7 +19,7 @@ option('tls_priority', type : 'string', value : 'NORMAL',
+ option('default_devices', type : 'boolean', value : true,
+        description: 'Include a default selection of devices in emulators')
+ option('audio_drv_list', type: 'array', value: ['default'],
+-       choices: ['alsa', 'coreaudio', 'default', 'dsound', 'jack', 'oss', 'pa', 'pipewire', 'sdl', 'sndio'],
++       choices: ['alsa', 'coreaudio', 'default', 'dsound', 'jack', 'ohos-ohaudio', 'oss', 'pa', 'pipewire', 'sdl', 'sndio'],
+        description: 'Set audio driver list')
+ option('block_drv_rw_whitelist', type : 'string', value : '',
+        description: 'set block driver read-write whitelist (by default affects only QEMU, not tools like qemu-img)')
+@@ -289,6 +289,8 @@ option('dsound', type: 'feature', value: 'auto',
+        description: 'DirectSound sound support')
+ option('jack', type: 'feature', value: 'auto',
+        description: 'JACK sound support')
++option('ohos_ohaudio', type: 'feature', value: 'auto',
++       description: 'HarmonyOS OHAudio sound support (API 20+)')
+ option('oss', type: 'feature', value: 'auto',
+        description: 'OSS sound support')
+ option('pa', type: 'feature', value: 'auto',
+@@ -385,3 +387,6 @@ option('rust', type: 'feature', value: 'disabled',
+        description: 'Rust support')
+ option('strict_rust_lints', type: 'boolean', value: false,
+        description: 'Enable stricter set of Rust warnings')
++
++option('harmonyos_shared_core', type: 'boolean', value: false,
++       description: 'build the aarch64 system emulator as a HarmonyOS shared core')
+diff --git a/qapi/audio.json b/qapi/audio.json
+index 2df87b97101b77add4ea5b2406bf9f29fda75270..6a86db1d13ccb600519c8a30a5e4660f7beb9981 100644
+--- a/qapi/audio.json
++++ b/qapi/audio.json
+@@ -469,6 +469,8 @@
+ #
+ # @jack: JACK audio backend (since 5.1)
+ #
++# @ohos-ohaudio: HarmonyOS OHAudio backend (downstream)
++#
+ # Since: 4.0
+ ##
+ { 'enum': 'AudiodevDriver',
+@@ -478,6 +480,8 @@
+             { 'name': 'dbus', 'if': 'CONFIG_DBUS_DISPLAY' },
+             { 'name': 'dsound', 'if': 'CONFIG_AUDIO_DSOUND' },
+             { 'name': 'jack', 'if': 'CONFIG_AUDIO_JACK' },
++            { 'name': 'ohos-ohaudio',
++              'if': 'CONFIG_AUDIO_OHOS_OHAUDIO' },
+             { 'name': 'oss', 'if': 'CONFIG_AUDIO_OSS' },
+             { 'name': 'pa', 'if': 'CONFIG_AUDIO_PA' },
+             { 'name': 'pipewire', 'if': 'CONFIG_AUDIO_PIPEWIRE' },
+@@ -518,6 +522,9 @@
+                    'if': 'CONFIG_AUDIO_DSOUND' },
+     'jack':      { 'type': 'AudiodevJackOptions',
+                    'if': 'CONFIG_AUDIO_JACK' },
++    'ohos-ohaudio':
++                 { 'type': 'AudiodevGenericOptions',
++                   'if': 'CONFIG_AUDIO_OHOS_OHAUDIO' },
+     'oss':       { 'type': 'AudiodevOssOptions',
+                    'if': 'CONFIG_AUDIO_OSS' },
+     'pa':        { 'type': 'AudiodevPaOptions',
+diff --git a/qemu_hmos.map b/qemu_hmos.map
+new file mode 100644
+index 0000000000000000000000000000000000000000..06b621303908c70972795862c729e0102b0d7364
+--- /dev/null
++++ b/qemu_hmos.map
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++QEMU_HMOS_CORE_2 {
++    global:
++        qemu_hmos_core_marker;
++        qemu_hmos_core_abi_version;
++        qemu_hmos_core_upstream_version;
++        qemu_hmos_probe;
++        qemu_hmos_run;
++    local:
++        *;
++};
+diff --git a/qemu_hmos_exports.c b/qemu_hmos_exports.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..53a2c160e5d3177b9cc32c5e1eb06951b7920c77
+--- /dev/null
++++ b/qemu_hmos_exports.c
+@@ -0,0 +1,164 @@
++/*
++ * HarmonyOS shared-core entry points for QEMU system emulation.
++ *
++ * QEMU is executed in a dedicated NativeChildProcess. Fatal QEMU exits are
++ * therefore process-local and must not be intercepted inside the core.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include CONFIG_DEVICES
++#include "qemu/main-loop.h"
++#include "system/qemu-hmos.h"
++#include "system/replay.h"
++#include "system/system.h"
++
++#define QEMU_HMOS_CORE_ABI 2
++
++#ifdef CONFIG_OPENGL
++#define QEMU_HMOS_FEATURE_OPENGL "1"
++#else
++#define QEMU_HMOS_FEATURE_OPENGL "0"
++#endif
++
++#if defined(CONFIG_OPENGL) && defined(CONFIG_VIRGL_RENDERER) && \
++    defined(CONFIG_VIRTIO_GPU) && defined(CONFIG_VIRTIO_PCI)
++#define QEMU_HMOS_FEATURE_VIRGL_GL "1"
++#else
++#define QEMU_HMOS_FEATURE_VIRGL_GL "0"
++#endif
++
++#ifdef CONFIG_FW_CFG_DMA
++#define QEMU_HMOS_FEATURE_RAMFB "1"
++#else
++#define QEMU_HMOS_FEATURE_RAMFB "0"
++#endif
++
++#if defined(CONFIG_VIRTIO_GPU) && defined(CONFIG_VIRTIO_PCI)
++#define QEMU_HMOS_FEATURE_VIRTIO_GPU_2D "1"
++#else
++#define QEMU_HMOS_FEATURE_VIRTIO_GPU_2D "0"
++#endif
++
++#ifdef CONFIG_SPICE
++#define QEMU_HMOS_FEATURE_SPICE "1"
++#else
++#define QEMU_HMOS_FEATURE_SPICE "0"
++#endif
++
++#ifdef CONFIG_VHOST_USER_FS
++#define QEMU_HMOS_FEATURE_VHOST_USER_FS "1"
++#else
++#define QEMU_HMOS_FEATURE_VHOST_USER_FS "0"
++#endif
++
++#if defined(CONFIG_VIRTIO_BALLOON) && defined(CONFIG_VIRTIO_PCI)
++#define QEMU_HMOS_FEATURE_VIRTIO_BALLOON "1"
++#else
++#define QEMU_HMOS_FEATURE_VIRTIO_BALLOON "0"
++#endif
++
++#if defined(CONFIG_VIRTIO_INPUT) && defined(CONFIG_VIRTIO_PCI)
++#define QEMU_HMOS_FEATURE_VIRTIO_INPUT "1"
++#else
++#define QEMU_HMOS_FEATURE_VIRTIO_INPUT "0"
++#endif
++
++#if defined(CONFIG_VIRTIO_SND) && defined(CONFIG_VIRTIO_PCI)
++#define QEMU_HMOS_FEATURE_VIRTIO_SOUND "1"
++#else
++#define QEMU_HMOS_FEATURE_VIRTIO_SOUND "0"
++#endif
++
++#ifdef CONFIG_HDA
++#define QEMU_HMOS_FEATURE_HDA "1"
++#else
++#define QEMU_HMOS_FEATURE_HDA "0"
++#endif
++
++#if defined(CONFIG_VIRTIO_NET) && defined(CONFIG_VIRTIO_PCI)
++#define QEMU_HMOS_FEATURE_VIRTIO_NET "1"
++#else
++#define QEMU_HMOS_FEATURE_VIRTIO_NET "0"
++#endif
++
++#ifdef CONFIG_E1000_PCI
++#define QEMU_HMOS_FEATURE_E1000 "1"
++#else
++#define QEMU_HMOS_FEATURE_E1000 "0"
++#endif
++
++#if defined(CONFIG_USB) && defined(CONFIG_USB_LIBUSB)
++#define QEMU_HMOS_FEATURE_USB_HOST "1"
++#else
++#define QEMU_HMOS_FEATURE_USB_HOST "0"
++#endif
++
++#ifdef CONFIG_AUDIO_OHOS_OHAUDIO
++#define QEMU_HMOS_FEATURE_OHAUDIO "1"
++#else
++#define QEMU_HMOS_FEATURE_OHAUDIO "0"
++#endif
++
++/* This clean QEMU 11.1 port does not carry a Neptune renderer. */
++#define QEMU_HMOS_FEATURE_NEPTUNE "0"
++
++QEMU_HMOS_RETAIN
++const char qemu_hmos_core_marker[] =
++    "qemu_hmos_core_abi=2;upstream_qemu=" QEMU_VERSION
++    ";compiled_features="
++    "openGl=" QEMU_HMOS_FEATURE_OPENGL ","
++    "virglGl=" QEMU_HMOS_FEATURE_VIRGL_GL ","
++    "ramfb=" QEMU_HMOS_FEATURE_RAMFB ","
++    "virtioGpu2d=" QEMU_HMOS_FEATURE_VIRTIO_GPU_2D ","
++    "spice=" QEMU_HMOS_FEATURE_SPICE ","
++    "vhostUserFs=" QEMU_HMOS_FEATURE_VHOST_USER_FS ","
++    "virtioBalloon=" QEMU_HMOS_FEATURE_VIRTIO_BALLOON ","
++    "virtioInput=" QEMU_HMOS_FEATURE_VIRTIO_INPUT ","
++    "virtioSound=" QEMU_HMOS_FEATURE_VIRTIO_SOUND ","
++    "hda=" QEMU_HMOS_FEATURE_HDA ","
++    "virtioNet=" QEMU_HMOS_FEATURE_VIRTIO_NET ","
++    "e1000=" QEMU_HMOS_FEATURE_E1000 ","
++    "usbHost=" QEMU_HMOS_FEATURE_USB_HOST ","
++    "ohAudio=" QEMU_HMOS_FEATURE_OHAUDIO ","
++    "neptune=" QEMU_HMOS_FEATURE_NEPTUNE;
++
++QEMU_HMOS_EXPORT
++int qemu_hmos_core_abi_version(void)
++{
++    return QEMU_HMOS_CORE_ABI;
++}
++
++QEMU_HMOS_EXPORT
++const char *qemu_hmos_core_upstream_version(void)
++{
++    return QEMU_VERSION;
++}
++
++QEMU_HMOS_EXPORT
++int qemu_hmos_probe(int argc, char **argv)
++{
++    qemu_init(argc, argv);
++    qemu_cleanup(0);
++
++    /* Match system/main.c before returning to the disposable child. */
++    bql_unlock();
++    replay_mutex_unlock();
++    return 0;
++}
++
++QEMU_HMOS_EXPORT
++int qemu_hmos_run(int argc, char **argv)
++{
++    int status;
++
++    qemu_init(argc, argv);
++    status = qemu_main_loop();
++    qemu_cleanup(status);
++
++    /* Match system/main.c before returning to the NativeChildProcess entry. */
++    bql_unlock();
++    replay_mutex_unlock();
++    return status;
++}
+diff --git a/scripts/meson-buildoptions.sh b/scripts/meson-buildoptions.sh
+index c003985047c0386bc664fa288aac0aa38acef003..54e6e267d7eaac2178adf52e2f763179eeccca93 100644
+--- a/scripts/meson-buildoptions.sh
++++ b/scripts/meson-buildoptions.sh
+@@ -1,8 +1,8 @@
+ # This file is generated by meson-buildoptions.py, do not edit!
+ meson_options_help() {
+-  printf "%s\n" '  --audio-drv-list=CHOICES Set audio driver list [default] (choices: alsa/co'
+-  printf "%s\n" '                           reaudio/default/dsound/jack/oss/pa/pipewire/sdl/s'
+-  printf "%s\n" '                           ndio)'
++  printf "%s\n" '  --audio-drv-list=CHOICES Set audio driver list [default] (choices:'
++  printf "%s\n" '                           alsa/coreaudio/default/dsound/jack/ohos-'
++  printf "%s\n" '                           ohaudio/oss/pa/pipewire/sdl/sndio)'
+   printf "%s\n" '  --bindir=VALUE           Executable directory [bin]'
+   printf "%s\n" '  --block-drv-ro-whitelist=VALUE'
+   printf "%s\n" '                           set block driver read-only whitelist (by default'
+@@ -159,6 +159,7 @@ meson_options_help() {
+   printf "%s\n" '  nitro           Nitro acceleration support'
+   printf "%s\n" '  numa            libnuma support'
+   printf "%s\n" '  nvmm            NVMM acceleration support'
++  printf "%s\n" '  ohos-ohaudio    HarmonyOS OHAudio sound support (API 20+)'
+   printf "%s\n" '  opengl          OpenGL support'
+   printf "%s\n" '  oss             OSS sound support'
+   printf "%s\n" '  pa              PulseAudio sound support'
+@@ -420,6 +421,8 @@ _meson_option_parse() {
+     --disable-numa) printf "%s" -Dnuma=disabled ;;
+     --enable-nvmm) printf "%s" -Dnvmm=enabled ;;
+     --disable-nvmm) printf "%s" -Dnvmm=disabled ;;
++    --enable-ohos-ohaudio) printf "%s" -Dohos_ohaudio=enabled ;;
++    --disable-ohos-ohaudio) printf "%s" -Dohos_ohaudio=disabled ;;
+     --enable-opengl) printf "%s" -Dopengl=enabled ;;
+     --disable-opengl) printf "%s" -Dopengl=disabled ;;
+     --enable-oss) printf "%s" -Doss=enabled ;;
+diff --git a/util/osdep.c b/util/osdep.c
+index 4a8b8b5a90f77f84f13cfe2d8753663be870750e..f59dcc96b6f24680835106520955e90265851704 100644
+--- a/util/osdep.c
++++ b/util/osdep.c
+@@ -31,6 +31,15 @@
+ #include "qemu/hw-version.h"
+ #include "monitor/monitor.h"
+ 
++#if defined(__OHOS__)
++#include <sys/prctl.h>
++
++/* HarmonyOS JITFORT must be opened around executable permission changes. */
++#ifndef PRCTL_SET_JITFORT
++#define PRCTL_SET_JITFORT 0x6a6974
++#endif
++#endif
++
+ int socket_set_cork(int fd, int v)
+ {
+ #if defined(SOL_TCP) && defined(TCP_CORK)
+@@ -82,7 +91,29 @@ static int qemu_mprotect__osdep(void *addr, size_t size, int prot)
+     }
+     return 0;
+ #else
+-    if (mprotect(addr, size, prot)) {
++#if defined(__OHOS__)
++    const bool executable = (prot & PROT_EXEC) != 0;
++
++    if (executable && prctl(PRCTL_SET_JITFORT, 0, 0) != 0) {
++        error_report("%s: could not open HarmonyOS JITFORT: %s",
++                     __func__, strerror(errno));
++        return -1;
++    }
++#endif
++
++    int ret = mprotect(addr, size, prot);
++    int saved_errno = errno;
++
++#if defined(__OHOS__)
++    if (executable && prctl(PRCTL_SET_JITFORT, 0, 1) != 0 && ret == 0) {
++        error_report("%s: could not restore HarmonyOS JITFORT: %s",
++                     __func__, strerror(errno));
++        return -1;
++    }
++#endif
++
++    if (ret) {
++        errno = saved_errno;
+         error_report("%s: mprotect failed: %s", __func__, strerror(errno));
+         return -1;
+     }
