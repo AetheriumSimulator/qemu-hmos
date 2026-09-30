@@ -260,6 +260,14 @@ jobs:
         # 验证构建结果
         QEMU_STATIC=$(find . -name "libqemu-aarch64-softmmu.a" -type f -print -quit)
         if [ -z "$QEMU_STATIC" ]; then
+          OBJ_DIR="./libqemu-aarch64-softmmu.a.p"
+          if [ -d "$OBJ_DIR" ] && find "$OBJ_DIR" -name "*.o" -type f -print -quit | grep -q .; then
+            echo "Meson did not emit an archive; assembling target objects with llvm-ar"
+            find "$OBJ_DIR" -name "*.o" -type f -print0 | xargs -0 "$TOOL_BIN/llvm-ar" rcs libqemu-aarch64-softmmu.a
+            QEMU_STATIC="./libqemu-aarch64-softmmu.a"
+          fi
+        fi
+        if [ -z "$QEMU_STATIC" ]; then
           echo "❌ QEMU aarch64 static library not found"
           find . -name "*.a" -maxdepth 3 -print | head -20
           exit 1
