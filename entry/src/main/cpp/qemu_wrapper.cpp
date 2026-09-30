@@ -1059,7 +1059,6 @@ int qemu_vm_start(qemu_vm_handle_t handle) {
     
     // 构建 QEMU 参数列表
     std::vector<std::string> args;
-    const std::string arch = instance->config.arch_type ? instance->config.arch_type : "aarch64";
     const std::string qemu_binary = "qemu-system-aarch64";
     args.push_back(qemu_binary);  // argv[0]
     
