@@ -389,8 +389,13 @@ jobs:
         # so the wrapper links/packages the exact artifact just validated.
         CORE_SO="$GITHUB_WORKSPACE/third_party/qemu/build/libqemu_full.so"
         test -s "$CORE_SO"
-        mkdir -p "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a"
+        # HarmonyOS packages module-native libraries from entry/libs/<abi>.
+        # CMake also reads this path when linking the NAPI wrapper.
+        mkdir -p "$GITHUB_WORKSPACE/entry/libs/arm64-v8a" \
+          "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a"
+        cp "$CORE_SO" "$GITHUB_WORKSPACE/entry/libs/arm64-v8a/libqemu_full.so"
         cp "$CORE_SO" "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_full.so"
+        test -s "$GITHUB_WORKSPACE/entry/libs/arm64-v8a/libqemu_full.so"
         test -s "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_full.so"
 
         # 创建构建目录
@@ -408,11 +413,15 @@ jobs:
         # 构建
         make -j$(nproc)
         
-        NAPI_SO="$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_hmos.so"
+        NAPI_SO="$GITHUB_WORKSPACE/entry/libs/arm64-v8a/libqemu_hmos.so"
         if [ ! -s "$NAPI_SO" ]; then
-          echo "❌ NAPI wrapper build failed: $NAPI_SO is missing"
-          exit 1
+          # CMake's output directory may still be the legacy source path.
+          LEGACY_NAPI_SO="$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_hmos.so"
+          test -s "$LEGACY_NAPI_SO"
+          cp "$LEGACY_NAPI_SO" "$NAPI_SO"
         fi
+        test -s "$NAPI_SO"
+        cp "$NAPI_SO" "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_hmos.so"
         echo "✅ libqemu_hmos.so created (size: $(du -h "$NAPI_SO" | cut -f1))"
         
     - name: Prepare SO artifacts
@@ -422,7 +431,7 @@ jobs:
         
         # 复制SO文件
         cp third_party/qemu/build/libqemu_full.so artifacts/libs/arm64-v8a/
-        cp entry/src/main/libs/arm64-v8a/libqemu_hmos.so artifacts/libs/arm64-v8a/
+        cp entry/libs/arm64-v8a/libqemu_hmos.so artifacts/libs/arm64-v8a/
         test -s artifacts/libs/arm64-v8a/libqemu_full.so
         test -s artifacts/libs/arm64-v8a/libqemu_hmos.so
         file artifacts/libs/arm64-v8a/*.so
