@@ -4882,7 +4882,9 @@ static napi_value VncConnect(napi_env env, napi_callback_info info) {
     }
 #else
     (void)host; (void)port;
-    // Client lib not available
+    // Do not report an accepted connection when the native client was not
+    // compiled into this build; ArkTS treats this result as availability.
+    return out;
 #endif
     napi_get_boolean(env, true, &out);
     return out;
