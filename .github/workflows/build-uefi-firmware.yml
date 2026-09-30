@@ -25,6 +25,13 @@ on:
         required: false
         type: boolean
         default: false
+    outputs:
+      firmware-artifact-name:
+        description: 'Name of the source-built UEFI firmware artifact'
+        value: ${{ jobs.build-uefi-firmware.outputs.firmware-artifact-name }}
+      firmware-version:
+        description: 'Source-built UEFI firmware version'
+        value: ${{ jobs.build-uefi-firmware.outputs.firmware-version }}
 
 jobs:
   publication-review:
