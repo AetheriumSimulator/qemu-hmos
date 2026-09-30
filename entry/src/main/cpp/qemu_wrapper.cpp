@@ -14,6 +14,7 @@
 #include <vector>
 #include <sys/statvfs.h>
 #include <algorithm>
+#include <cctype>
 #include <ctime>
 #include <chrono>
 #include <sys/socket.h>
@@ -82,6 +83,24 @@ static std::string shell_quote(const std::string& value) {
     }
     quoted += "'";
     return quoted;
+}
+
+// HMP snapshot names are parsed as commands, so JSON escaping alone is not
+// sufficient. Keep them narrow until these operations use structured QMP.
+static bool valid_snapshot_name(const char* name) {
+    if (!name || !*name || strlen(name) > 128) return false;
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(name); *p; ++p) {
+        if (!(std::isalnum(*p) || *p == '_' || *p == '-' || *p == '.')) return false;
+    }
+    return true;
+}
+
+// The wrapper currently dlopens one HarmonyOS ARM64 QEMU core. Do not let a
+// caller select an x86 core that is not present and then silently run an ARM
+// guest instead. A different architecture needs a separately built core and
+// an explicit loader path before it can be advertised here.
+static bool supported_dlopen_arch(const char* arch) {
+    return !arch || !*arch || strcmp(arch, "aarch64") == 0;
 }
 
 static std::string json_escape(const std::string& value) {
@@ -462,6 +481,7 @@ extern "C" bool qemu_resume_vm_by_name(const char* vm_name) {
  * 通过 VM 名称创建快照
  */
 extern "C" bool qemu_create_snapshot_by_name(const char* vm_name, const char* snapshot_name) {
+    if (!valid_snapshot_name(snapshot_name)) return false;
     std::string socket = qemu_get_monitor_socket_by_name(vm_name);
     if (socket.empty()) {
         std::cerr << "[QEMU] VM not found: " << (vm_name ? vm_name : "null") << std::endl;
@@ -474,6 +494,7 @@ extern "C" bool qemu_create_snapshot_by_name(const char* vm_name, const char* sn
  * 通过 VM 名称恢复快照
  */
 extern "C" bool qemu_restore_snapshot_by_name(const char* vm_name, const char* snapshot_name) {
+    if (!valid_snapshot_name(snapshot_name)) return false;
     std::string socket = qemu_get_monitor_socket_by_name(vm_name);
     if (socket.empty()) {
         std::cerr << "[QEMU] VM not found: " << (vm_name ? vm_name : "null") << std::endl;
@@ -486,6 +507,7 @@ extern "C" bool qemu_restore_snapshot_by_name(const char* vm_name, const char* s
  * 通过 VM 名称删除快照
  */
 extern "C" bool qemu_delete_snapshot_by_name(const char* vm_name, const char* snapshot_name) {
+    if (!valid_snapshot_name(snapshot_name)) return false;
     std::string socket = qemu_get_monitor_socket_by_name(vm_name);
     if (socket.empty()) {
         std::cerr << "[QEMU] VM not found: " << (vm_name ? vm_name : "null") << std::endl;
@@ -935,6 +957,12 @@ qemu_vm_handle_t qemu_vm_create(const qemu_vm_config_t* config) {
     if (!config) {
         return nullptr;
     }
+
+    if (!supported_dlopen_arch(config->arch_type)) {
+        std::cerr << "[QEMU] Unsupported architecture for the bundled core: "
+                  << config->arch_type << std::endl;
+        return nullptr;
+    }
     
     std::lock_guard<std::mutex> lock(g_vm_mutex);
     
@@ -944,6 +972,9 @@ qemu_vm_handle_t qemu_vm_create(const qemu_vm_config_t* config) {
     instance->config = *config;
     if (config->name) {
         instance->config.name = strdup(config->name);
+    }
+    if (config->arch_type) {
+        instance->config.arch_type = strdup(config->arch_type);
     }
     if (config->machine_type) {
         instance->config.machine_type = strdup(config->machine_type);
@@ -995,6 +1026,12 @@ int qemu_vm_start(qemu_vm_handle_t handle) {
     if (instance->state == QEMU_VM_RUNNING) {
         return 0; // 已在运行
     }
+
+    if (!supported_dlopen_arch(instance->config.arch_type)) {
+        std::cerr << "[QEMU] Refusing to start unsupported architecture: "
+                  << instance->config.arch_type << std::endl;
+        return -5;
+    }
     
     // 检查磁盘空间
     size_t required_space = instance->config.disk_size_gb * 1024ULL * 1024ULL * 1024ULL;
@@ -1023,25 +1060,17 @@ int qemu_vm_start(qemu_vm_handle_t handle) {
     // 构建 QEMU 参数列表
     std::vector<std::string> args;
     const std::string arch = instance->config.arch_type ? instance->config.arch_type : "aarch64";
-    std::string qemu_binary = "qemu-system-aarch64";
-    if (arch == "x86_64") {
-        qemu_binary = "qemu-system-x86_64";
-    } else if (arch == "i386") {
-        qemu_binary = "qemu-system-i386";
-    } else if (arch != "aarch64") {
-        std::cerr << "[QEMU] Unsupported architecture: " << arch << std::endl;
-        return -5;
-    }
+    const std::string qemu_binary = "qemu-system-aarch64";
     args.push_back(qemu_binary);  // argv[0]
     
     // 机器类型
     args.push_back("-machine");
-    const char* default_machine = arch == "aarch64" ? "virt,gic-version=3" : "pc";
+    const char* default_machine = "virt,gic-version=3";
     args.push_back(instance->config.machine_type ? instance->config.machine_type : default_machine);
     
     // CPU
     args.push_back("-cpu");
-    const char* default_cpu = arch == "aarch64" ? "max" : (arch == "x86_64" ? "qemu64" : "qemu32");
+    const char* default_cpu = "max";
     args.push_back(instance->config.cpu_type ? instance->config.cpu_type : default_cpu);
     
     // SMP
@@ -1280,6 +1309,9 @@ void qemu_vm_destroy(qemu_vm_handle_t handle) {
     if (instance->config.name) {
         free(const_cast<char*>(instance->config.name));
     }
+    if (instance->config.arch_type) {
+        free(const_cast<char*>(instance->config.arch_type));
+    }
     if (instance->config.machine_type) {
         free(const_cast<char*>(instance->config.machine_type));
     }
@@ -1516,7 +1548,7 @@ static std::string get_vm_disk_path(const std::string& vm_name) {
 }
 
 int qemu_create_snapshot(const char* vm_name, const char* snapshot_name) {
-    if (!vm_name || !snapshot_name) {
+    if (!vm_name || !valid_snapshot_name(snapshot_name)) {
         return -1;
     }
     
@@ -1548,7 +1580,7 @@ int qemu_create_snapshot(const char* vm_name, const char* snapshot_name) {
 }
 
 int qemu_restore_snapshot(const char* vm_name, const char* snapshot_name) {
-    if (!vm_name || !snapshot_name) {
+    if (!vm_name || !valid_snapshot_name(snapshot_name)) {
         return -1;
     }
     
@@ -1611,7 +1643,7 @@ int qemu_list_snapshots(const char* vm_name, char** snapshot_list, int* count) {
         // 方法2: 通过 qemu-img 列出快照
         std::string disk_path = get_vm_disk_path(vm_name);
         if (!disk_path.empty()) {
-            std::string cmd = "qemu-img snapshot -l " + disk_path + " 2>/dev/null";
+            std::string cmd = "qemu-img snapshot -l " + shell_quote(disk_path) + " 2>/dev/null";
             FILE* pipe = popen(cmd.c_str(), "r");
             if (pipe) {
                 char buffer[256];
@@ -1644,7 +1676,7 @@ int qemu_list_snapshots(const char* vm_name, char** snapshot_list, int* count) {
 }
 
 int qemu_delete_snapshot(const char* vm_name, const char* snapshot_name) {
-    if (!vm_name || !snapshot_name) {
+    if (!vm_name || !valid_snapshot_name(snapshot_name)) {
         return -1;
     }
     
