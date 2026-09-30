@@ -167,8 +167,11 @@ jobs:
         npm config set @ohos:registry https://repo.harmonyos.com/npm/
         npm install --no-save --ignore-scripts \
           @ohos/hvigor@6.0.0 @ohos/hvigor-ohos-plugin@6.0.0
-        test -x node_modules/.bin/hvigor
-        ./node_modules/.bin/hvigor --version
+        # The package exposes hvigor.js rather than a node_modules/.bin shim.
+        # Invoke the pinned CLI directly so this stays deterministic in CI.
+        HVIGOR_JS=node_modules/@ohos/hvigor/bin/hvigor.js
+        test -f "$HVIGOR_JS"
+        node "$HVIGOR_JS" --version
 
     - name: Prepare project files
       run: |
@@ -202,8 +205,8 @@ jobs:
     - name: Build unsigned HAP validation artifact
       run: |
         set -euxo pipefail
-        ./node_modules/.bin/hvigor clean --no-daemon
-        ./node_modules/.bin/hvigor --mode module -p product=default assembleHap --no-daemon
+        node node_modules/@ohos/hvigor/bin/hvigor.js clean --no-daemon
+        node node_modules/@ohos/hvigor/bin/hvigor.js --mode module -p product=default assembleHap --no-daemon
         hap='entry/build/default/outputs/default/entry-default-unsigned.hap'
         test -s "$hap"
         unzip -tq "$hap"
