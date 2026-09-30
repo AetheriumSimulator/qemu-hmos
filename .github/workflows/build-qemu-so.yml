@@ -272,7 +272,9 @@ jobs:
           find . -name "*.a" -maxdepth 3 -print | head -20
           exit 1
         fi
-        cp "$QEMU_STATIC" libqemu-aarch64-softmmu.a
+        if [ "$QEMU_STATIC" != "./libqemu-aarch64-softmmu.a" ]; then
+          cp "$QEMU_STATIC" libqemu-aarch64-softmmu.a
+        fi
         echo "✅ QEMU ARM64 build successful: $QEMU_STATIC"
         
     - name: Create QEMU shared library
