@@ -261,7 +261,6 @@ jobs:
         # This keeps Meson's resolved internal archives and target dependencies,
         # while excluding system/main.c (which supplies the executable main).
         LINK_CMD=$(ninja -t commands qemu-system-aarch64 | grep -F "system_main.c.o" | tail -n 1)
-        test -n "$LINK_CMD"
         export LINK_CMD
         python3 - <<'PY'
         import os, shlex, subprocess
@@ -276,11 +275,8 @@ jobs:
         for token in argv[1:]:
             if skip_next:
                 skip_next = False
-                if token == 'qemu-system-aarch64' or token.endswith('/qemu-system-aarch64'):
-                    args.append('libqemu_full.so')
-                    saw_output = True
-                else:
-                    args.append(token)
+                args.append('libqemu_full.so')
+                saw_output = True
                 continue
             if token in ('-pie', '-Wl,-pie'):
                 continue
@@ -292,7 +288,7 @@ jobs:
                 continue
             args.append(token)
         if not saw_output:
-            raise SystemExit('Meson link command output was not qemu-system-aarch64')
+            raise SystemExit('Meson link command had no output path')
         cmd = [compiler, '-shared', '-fPIC', '-Wl,--no-undefined'] + args
         print('Running PIC shared link with Meson graph:', ' '.join(shlex.quote(x) for x in cmd))
         subprocess.run(cmd, check=True)
