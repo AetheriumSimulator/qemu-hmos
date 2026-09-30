@@ -562,9 +562,6 @@ static constexpr int SHUTDOWN_CAUSE_HOST = 0;
 static void HilogPrint(const std::string& message);
 static void WriteLog(const std::string& logPath, const std::string& message);
 
-// RDP客户端管理
-static std::map<std::string, rdp_client_handle_t> g_rdp_clients;
-static std::mutex g_rdp_mutex;
 
 // 检测KVM支持
 static bool kvmSupported() {
@@ -4226,251 +4223,15 @@ static napi_value TakeScreenshot(napi_env env, napi_callback_info info) {
 }
 
 // 创建RDP客户端
-static napi_value CreateRdpClient(napi_env env, napi_callback_info info) {
-    (void)info;  // 添加
-    napi_value result;
-    napi_create_object(env, &result);
-    
-    // 生成唯一的客户端ID
-    static int client_counter = 0;
-    std::string client_id = "rdp_client_" + std::to_string(++client_counter);
-    
-    // 创建RDP客户端
-    rdp_client_handle_t client = rdp_client_create();
-    
-    // 存储客户端句柄
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        g_rdp_clients[client_id] = client;
-    }
-    
-    // 设置客户端ID
-    napi_value id_value;
-    napi_create_string_utf8(env, client_id.c_str(), NAPI_AUTO_LENGTH, &id_value);
-    napi_set_named_property(env, result, "id", id_value);
-    
-    return result;
-}
 
 // 连接RDP
-static napi_value ConnectRdp(napi_env env, napi_callback_info info) {
-    size_t argc = 2;
-    napi_value argv[2];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc < 2) {
-        napi_throw_error(env, nullptr, "Missing parameters: clientId and config");
-        return nullptr;
-    }
-    
-    // 获取客户端ID
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-    
-    // 获取配置对象
-    napi_value config = argv[1];
-    
-    // 解析配置参数
-    rdp_connection_config_t rdp_config = {};
-    
-    // 主机地址
-    std::string hostStr;
-    napi_value host_value;
-    if (napi_get_named_property(env, config, "host", &host_value) == napi_ok) {
-        NapiGetStringUtf8(env, host_value, hostStr);
-        if (!hostStr.empty()) rdp_config.host = hostStr.c_str();
-    }
-    
-    // 端口
-    napi_value port_value;
-    if (napi_get_named_property(env, config, "port", &port_value) == napi_ok) {
-        int32_t port;
-        if (napi_get_value_int32(env, port_value, &port) == napi_ok) {
-            rdp_config.port = port;
-        }
-    }
-    
-    // 用户名
-    std::string usernameStr;
-    napi_value username_value;
-    if (napi_get_named_property(env, config, "username", &username_value) == napi_ok) {
-        NapiGetStringUtf8(env, username_value, usernameStr);
-        if (!usernameStr.empty()) rdp_config.username = usernameStr.c_str();
-    }
-    
-    // 密码
-    std::string passwordStr;
-    napi_value password_value;
-    if (napi_get_named_property(env, config, "password", &password_value) == napi_ok) {
-        NapiGetStringUtf8(env, password_value, passwordStr);
-        if (!passwordStr.empty()) rdp_config.password = passwordStr.c_str();
-    }
-    
-    // 显示设置
-    napi_value width_value;
-    if (napi_get_named_property(env, config, "width", &width_value) == napi_ok) {
-        int32_t width;
-        if (napi_get_value_int32(env, width_value, &width) == napi_ok) {
-            rdp_config.width = width;
-        }
-    }
-    
-    napi_value height_value;
-    if (napi_get_named_property(env, config, "height", &height_value) == napi_ok) {
-        int32_t height;
-        if (napi_get_value_int32(env, height_value, &height) == napi_ok) {
-            rdp_config.height = height;
-        }
-    }
-    
-    // 查找客户端
-    rdp_client_handle_t client = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        if (g_rdp_clients.find(client_id) != g_rdp_clients.end()) {
-            client = g_rdp_clients[client_id];
-        }
-    }
-    
-    if (!client) {
-        napi_throw_error(env, nullptr, "RDP client not found");
-        return nullptr;
-    }
-    
-    // 尝试连接
-    int result = qemu_rdp_client_connect(client, &rdp_config);
-    
-    napi_value result_value;
-    napi_create_int32(env, result, &result_value);
-    
-    return result_value;
-}
 
 // 断开RDP连接
-static napi_value DisconnectRdp(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc < 1) {
-        napi_throw_error(env, nullptr, "Missing client ID parameter");
-        return nullptr;
-    }
-    
-    // 获取客户端ID
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-    
-    // 查找并断开客户端
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        if (g_rdp_clients.find(client_id) != g_rdp_clients.end()) {
-            qemu_rdp_client_disconnect(g_rdp_clients[client_id]);
-        }
-    }
-    
-    napi_value result;
-    napi_create_int32(env, 0, &result);
-    return result;
-}
 
 // 获取RDP连接状态
-static napi_value GetRdpStatus(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc < 1) {
-        napi_throw_error(env, nullptr, "Missing client ID parameter");
-        return nullptr;
-    }
-    
-    // 获取客户端ID
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-    
-    // 查找客户端
-    rdp_client_handle_t client = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        if (g_rdp_clients.find(client_id) != g_rdp_clients.end()) {
-            client = g_rdp_clients[client_id];
-        }
-    }
-    
-    if (!client) {
-        napi_throw_error(env, nullptr, "RDP client not found");
-        return nullptr;
-    }
-    
-    // 获取状态
-    rdp_connection_state_t state = rdp_client_get_state(client);
-    
-    napi_value result;
-    napi_create_int32(env, static_cast<int32_t>(state), &result);
-    
-    return result;
-}
 
 // 发送 RDP 键盘事件（供 ArkTS 虚拟键盘使用）
 // key: 目前沿用 X11 keysym（与 VNC 一致），后续如需可在 native 内做 scanCode 映射
-static napi_value RdpSendKey(napi_env env, napi_callback_info info) {
-    size_t argc = 3;
-    napi_value argv[3];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-
-    if (argc < 3) {
-        napi_throw_error(env, nullptr, "Missing parameters: clientId, key, down");
-        return nullptr;
-    }
-
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-
-    int32_t key = 0;
-    if (napi_get_value_int32(env, argv[1], &key) != napi_ok) {
-        napi_throw_error(env, nullptr, "Failed to get key");
-        return nullptr;
-    }
-
-    bool down = false;
-    if (napi_get_value_bool(env, argv[2], &down) != napi_ok) {
-        napi_throw_error(env, nullptr, "Failed to get down");
-        return nullptr;
-    }
-
-    rdp_client_handle_t client = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        auto it = g_rdp_clients.find(client_id);
-        if (it != g_rdp_clients.end()) {
-            client = it->second;
-        }
-    }
-
-    if (!client) {
-        napi_throw_error(env, nullptr, "RDP client not found");
-        return nullptr;
-    }
-
-    int ret = rdp_client_send_keyboard_event(client, static_cast<int>(key), down ? 1 : 0);
-
-    napi_value result;
-    napi_create_int32(env, ret, &result);
-    return result;
-}
 
 // 检测核心库存在性（真实检测，不加载到全局）
 // ============ 诊断工具：追踪 dlopen 崩溃位置 ============
@@ -4564,97 +4325,18 @@ static napi_value CheckCoreLib(napi_env env, napi_callback_info info) {
 }
 
 // 销毁RDP客户端
-static napi_value DestroyRdpClient(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc < 1) {
-        napi_throw_error(env, nullptr, "Missing client ID parameter");
-        return nullptr;
-    }
-    
-    // 获取客户端ID
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-    
-    // 查找并销毁客户端
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        if (g_rdp_clients.find(client_id) != g_rdp_clients.end()) {
-            rdp_client_destroy(g_rdp_clients[client_id]);
-            g_rdp_clients.erase(client_id);
-        }
-    }
-    
-    napi_value result;
-    napi_create_int32(env, 0, &result);
-    return result;
-}
 
 // ================== RDP 超时处理和强制关闭 ==================
 
 // 检查 RDP 连接是否超时（返回超时秒数，0表示未超时）
-static napi_value RdpCheckTimeout(napi_env env, napi_callback_info info) {
-    (void)info;
-    int timeout_sec = rdp_check_timeout();
-    napi_value result;
-    napi_create_int32(env, timeout_sec, &result);
-    return result;
-}
 
 // 设置 RDP 超时时间（秒）
-static napi_value RdpSetTimeout(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc >= 1) {
-        int32_t seconds = 30;
-        napi_get_value_int32(env, argv[0], &seconds);
-        rdp_set_timeout(seconds);
-    }
-    
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
-}
 
 // 请求取消 RDP 连接
-static napi_value RdpRequestCancel(napi_env env, napi_callback_info info) {
-    (void)info;
-    rdp_request_cancel();
-    HilogPrint("RDP cancel requested");
-    
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
-}
 
 // 强制清理 RDP 连接（即使线程卡住也能清理）
-static napi_value RdpForceCleanup(napi_env env, napi_callback_info info) {
-    (void)info;
-    HilogPrint("RDP force cleanup initiated");
-    rdp_force_cleanup();
-    HilogPrint("RDP force cleanup completed");
-    
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
-}
 
 // 获取 RDP 状态字符串 (disconnected/connecting/connected/timeout/cancelling)
-static napi_value RdpGetStatusString(napi_env env, napi_callback_info info) {
-    (void)info;
-    const char* status = rdp_get_status_string();
-    
-    napi_value result;
-    napi_create_string_utf8(env, status, strlen(status), &result);
-    return result;
-}
 
 // ----------------------------- Native VNC (LibVNCClient) -----------------------------
 #ifdef LIBVNC_HAVE_CLIENT
@@ -5877,18 +5559,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         { "restoreSnapshot", 0, RestoreSnapshot, 0, 0, 0, napi_default, 0 },
         { "listSnapshots", 0, ListSnapshots, 0, 0, 0, napi_default, 0 },
         { "deleteSnapshot", 0, DeleteSnapshot, 0, 0, 0, napi_default, 0 },
-        { "createRdpClient", 0, CreateRdpClient, 0, 0, 0, napi_default, 0 },
-        { "connectRdp", 0, ConnectRdp, 0, 0, 0, napi_default, 0 },
-        { "disconnectRdp", 0, DisconnectRdp, 0, 0, 0, napi_default, 0 },
-        { "getRdpStatus", 0, GetRdpStatus, 0, 0, 0, napi_default, 0 },
-        { "destroyRdpClient", 0, DestroyRdpClient, 0, 0, 0, napi_default, 0 },
-        { "rdpSendKey", 0, RdpSendKey, 0, 0, 0, napi_default, 0 },
         // RDP 超时处理
-        { "rdpCheckTimeout", 0, RdpCheckTimeout, 0, 0, 0, napi_default, 0 },
-        { "rdpSetTimeout", 0, RdpSetTimeout, 0, 0, 0, napi_default, 0 },
-        { "rdpRequestCancel", 0, RdpRequestCancel, 0, 0, 0, napi_default, 0 },
-        { "rdpForceCleanup", 0, RdpForceCleanup, 0, 0, 0, napi_default, 0 },
-        { "rdpGetStatusString", 0, RdpGetStatusString, 0, 0, 0, napi_default, 0 },
         // Native VNC (client)
         { "vncAvailable", 0, VncAvailable, 0, 0, 0, napi_default, 0 },
         { "vncCreate", 0, VncCreate, 0, 0, 0, napi_default, 0 },
@@ -5928,18 +5599,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         { "getVmLogs", GetVmLogs, 0 },
         { "getVmStatus", GetVmStatus, 0 },
         { "checkCoreLib", CheckCoreLib, 0 },
-        { "createRdpClient", CreateRdpClient, 0 },
-        { "connectRdp", ConnectRdp, 0 },
-        { "disconnectRdp", DisconnectRdp, 0 },
-        { "getRdpStatus", GetRdpStatus, 0 },
-        { "destroyRdpClient", DestroyRdpClient, 0 },
-        { "rdpSendKey", RdpSendKey, 0 },
         // RDP 超时处理
-        { "rdpCheckTimeout", RdpCheckTimeout, 0 },
-        { "rdpSetTimeout", RdpSetTimeout, 0 },
-        { "rdpRequestCancel", RdpRequestCancel, 0 },
-        { "rdpForceCleanup", RdpForceCleanup, 0 },
-        { "rdpGetStatusString", RdpGetStatusString, 0 },
         // Native VNC (client)
         { "vncAvailable", VncAvailable, 0 },
         { "vncCreate", VncCreate, 0 },
