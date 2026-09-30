@@ -13,7 +13,7 @@ jobs:
 
   build-so-libraries:
     needs: publication-review
-    if: needs.publication-review.outputs.allowed == 'true'
+    if: ${{ needs.publication-review.outputs.allowed == 'true' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/build-qemu-so.yml
     with:
       validation: true
@@ -21,7 +21,7 @@ jobs:
     
   build-uefi-firmware:
     needs: publication-review
-    if: needs.publication-review.outputs.allowed == 'true'
+    if: ${{ needs.publication-review.outputs.allowed == 'true' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/build-uefi-firmware.yml
     with:
       validation: true
