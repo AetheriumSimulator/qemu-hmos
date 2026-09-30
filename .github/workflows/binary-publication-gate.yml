@@ -1,0 +1,31 @@
+name: Binary publication eligibility
+
+on:
+  workflow_call:
+    outputs:
+      allowed:
+        description: Whether complete release evidence permits binary publication
+        value: ${{ jobs.review.outputs.allowed }}
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    outputs:
+      allowed: ${{ steps.eligibility.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/check_public_source.py
+      - run: python tools/check_source_inventory.py
+      - id: eligibility
+        run: |
+          echo 'allowed=false' >> "$GITHUB_OUTPUT"
+          echo '::notice::Source-only maintenance: binary jobs are held pending complete corresponding-source and distribution evidence. See docs/OPEN_SOURCE_STATUS.md.'

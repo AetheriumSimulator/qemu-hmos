@@ -1,4 +1,11 @@
 # Aetherium for HarmonyOS（HMOS）
+
+> **源码维护状态**：本次更新移除了预编译库、固件、构建缓存和本机签名配置，并加入源码检查。二进制发布暂缓；GPL 链接边界与完整对应源码尚未验收。参见 [分发状态](docs/OPEN_SOURCE_STATUS.md) 和 [源码构建说明](docs/PUBLIC_SOURCE.md)。
+
+较新 Aether 的 [QEMU 11.1 手机核心源码](ports/qemu-11.1/README.md)及
+[LibVNC 来源和构建材料](ports/libvnc/README.md)现单独提供，可检查并还原固定源码树。
+它们尚未与已分发 HAP 完成对应验证，也不代表手机重复启动或 GPL 隔离已经通过。
+
 ## 让鸿蒙也能离线跑 Windows / Linux —— 一个“鸿蒙版 UTM”的实验项目
 
 > [!CAUTION]
@@ -128,7 +135,8 @@ QEMU 的 `Makefile` 不在根目录，并且通常需要先 `./configure`（或�
 本仓库是**多许可证**结构：
 - **QEMU（`third_party/qemu`）**：遵循上游 QEMU 的 GPL 许可证（见 `third_party/qemu/COPYING`）
 - 我们App使用到的[其他项目（详见星河合伙人页面）](docs/STARRIVER_PARTNER.md)，均遵循其他代码自带的许可证！  
-- **本项目自研代码**（如 `entry/`、`tools/`、`scripts/`、`patches/` 等）：采用 **Apache-2.0** 开源（见 `LICENSE-APACHE`）  
+- **本项目自研代码**（如 `entry/`、`tools/`、`scripts/` 等，不包括第三方代码及其派生修改）：采用 **Apache-2.0** 开源（见 `LICENSE-APACHE`）
+- **对 QEMU 等第三方代码的补丁**：遵循被修改代码的上游许可要求；不能因存放在 `patches/` 就统一视为 Apache-2.0。
 - **其他 third_party 组件**：遵循各自上游许可证（例如 FreeRDP、OpenSSL、GLib/Pixman/PCRE2 等）  
 
 > 说明：根目录的 `LICENSE` 当前放的是 GPL 文本，主要用于对 QEMU 相关分发/修改的合规提示；请以本节的“多许可证说明”理解整个仓库。  
@@ -144,4 +152,3 @@ QEMU 的 `Makefile` 不在根目录，并且通常需要先 `./configure`（或�
 - 新系统 / 来宾镜像模板支持  
 - 音频/输入/显示链路的兼容性完善  
 - 文档 / 教程 / 示例镜像（合法合规）  
-

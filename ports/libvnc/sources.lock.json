@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "target": "aarch64-linux-ohos",
+  "component": {
+    "name": "LibVNCServer / LibVNCClient",
+    "reportedVersion": "0.9.15",
+    "distributionVersion": "0.9.15+git.4249499",
+    "repository": "https://github.com/LibVNC/libvncserver.git",
+    "upstreamRevision": "42494999e6492aaab9c1db785ecd293ef10b3aed",
+    "upstreamTree": "5aa386a8154f82ca6e7028c28ad96a16b182b0ac",
+    "baselineTag": "LibVNCServer-0.9.15",
+    "baselineRevision": "9b54b1ec32731bd23158ca014dc18014db4194c3",
+    "licensePathInRepository": "COPYING",
+    "licenseSha256": "4d23c8c814e5baf007d854f01d8502e77dc56a41144934e003fb32c4e052d20f",
+    "distributedLicense": "entry/src/main/resources/rawfile/open_source/LICENSES/GPL-2.0.txt",
+    "securityFixes": [
+      {
+        "revision": "5b270544b85233668b98161323297d418a8f5fd1",
+        "subject": "libvncclient: fix Tight gradient decoding overflow"
+      },
+      {
+        "revision": "009008e2f4d5a54dd71f422070df3af7b3dbc931",
+        "subject": "libvncclient: add bounds checks to UltraZip subrectangle parsing"
+      }
+    ],
+    "build": {
+      "script": "tools/build_libvnc_ohos.sh",
+      "scriptSha256": "ef40f443ad425db958cb28090070a1e397b7605e7c737aab8bbd54bcb76f669a",
+      "sdkApiLevel": 20,
+      "compiler": "OHOS clang 15.0.4",
+      "compilerRevision": "bb5cdf0f93bfb5316dd3cc2a80d12ab829e49b43",
+      "buildType": "Release",
+      "sharedLibraries": false,
+      "features": {
+        "gnutls": false,
+        "openssl": false,
+        "sasl": false,
+        "ffmpeg": false,
+        "sdl": false,
+        "tightVncFileTransfer": false,
+        "websockets": false,
+        "jpeg": false,
+        "png": false,
+        "lzo": false,
+        "gcrypt": false
+      }
+    },
+    "archiveEvidence": {
+      "entry/src/main/cpp/third_party/libvncclient/libvncclient.a": "790482594e8856ef87c9f19cc4cbf37e152e6e22ae8500d480533915f5909de1",
+      "entry/src/main/cpp/third_party/libvncserver/libvncserver.a": "f0bee17b568fea28bfecaa817936dee68a93b8cb4c4ddc6b3c52398b01c31324"
+    }
+  }
+}

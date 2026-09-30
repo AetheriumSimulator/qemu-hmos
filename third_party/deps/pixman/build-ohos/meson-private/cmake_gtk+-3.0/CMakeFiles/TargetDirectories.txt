@@ -1,2 +1,0 @@
-/Users/caidingding233/projects/qemu-hmos/third_party/deps/pixman/build-ohos/meson-private/cmake_gtk+-3.0/CMakeFiles/edit_cache.dir
-/Users/caidingding233/projects/qemu-hmos/third_party/deps/pixman/build-ohos/meson-private/cmake_gtk+-3.0/CMakeFiles/rebuild_cache.dir

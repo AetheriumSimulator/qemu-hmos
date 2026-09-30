@@ -1,8 +1,0 @@
-E:/projects/qemu-hmos-oss/entry/.cxx/default/default/debug/arm64-v8a/CMakeFiles/qemu_hmos.dir
-E:/projects/qemu-hmos-oss/entry/.cxx/default/default/debug/arm64-v8a/CMakeFiles/copy_slirp.dir
-E:/projects/qemu-hmos-oss/entry/.cxx/default/default/debug/arm64-v8a/CMakeFiles/copy_intl.dir
-E:/projects/qemu-hmos-oss/entry/.cxx/default/default/debug/arm64-v8a/CMakeFiles/copy_qemu_full.dir
-E:/projects/qemu-hmos-oss/entry/.cxx/default/default/debug/arm64-v8a/CMakeFiles/debug_info.dir
-E:/projects/qemu-hmos-oss/entry/.cxx/default/default/debug/arm64-v8a/CMakeFiles/verify_build.dir
-E:/projects/qemu-hmos-oss/entry/.cxx/default/default/debug/arm64-v8a/CMakeFiles/edit_cache.dir
-E:/projects/qemu-hmos-oss/entry/.cxx/default/default/debug/arm64-v8a/CMakeFiles/rebuild_cache.dir

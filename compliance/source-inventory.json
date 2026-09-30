@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 1,
+  "scope": "Initial inventory of QEMU, native display and build dependencies; not a complete release SBOM",
+  "binaryPublication": {
+    "status": "blocked",
+    "blockers": [
+      "No complete version-bound corresponding-source archive and clean rebuild evidence.",
+      "LibVNC static linkage and same-process QEMU integration require combined-distribution license review.",
+      "Several vendored snapshots and downloaded dependencies lack exact upstream revision/patch provenance.",
+      "Firmware source/build provenance is incomplete; removed binaries must not be replaced by arbitrary downloads.",
+      "The root QEMU 10.1.93 application and supplementary 11.1 development port have not been matched to distributed Aether binaries.",
+      "The retained PCRE2 COPYING references a missing LICENCE file; header notices are retained but do not replace a complete upstream license inventory."
+    ]
+  },
+  "components": [
+    {
+      "id": "qemu",
+      "origin": "https://github.com/qemu/qemu.git",
+      "status": "pinned-upstream-with-patches",
+      "source": {
+        "kind": "gitlink",
+        "path": "third_party/qemu",
+        "revision": "9c23f2a7b0b45277693a14074b1aaa827eecdb92"
+      },
+      "versionFileAtRevision": "10.1.93",
+      "licenseEvidence": [
+        {
+          "path": "LICENSES/QEMU-LICENSE.txt",
+          "sha256": "139c64b7a9ae62858ff969aae622ecfcf4f1519655bd92d2e70a1a2fb615690e"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
+        }
+      ],
+      "patches": [
+        {
+          "path": "patches/qemu/0001-ohos-builtin-minimal-tpm2.patch",
+          "sha256": "0a207f987d843380a6c6163a001ae14942c14a6672996a43de33cacda3bde032"
+        },
+        {
+          "path": "patches/qemu/0002-ohos-ohaudio-audiodev.patch",
+          "sha256": "0c3a906a0da7b0f8ca84f59c760b4affb070055a2b9f4575c4fade49b4fbeeec"
+        }
+      ],
+      "recipes": [
+        {
+          "path": "tools/build_qemu_full_linux.sh",
+          "sha256": "37f1835074f85748959976e7030589a537a5e356a7505a9b74b4f04f385b5603"
+        }
+      ]
+    },
+    {
+      "id": "libvnc-headers",
+      "origin": "https://github.com/LibVNC/libvncserver.git",
+      "status": "provenance-incomplete",
+      "source": {
+        "kind": "vendored-tree",
+        "path": "entry/src/main/cpp/third_party/libvncclient",
+        "gitTree": "1c2e5a22c5c4ab50cba77a8fd5808985ca772039"
+      },
+      "upstreamRevision": null,
+      "licenseEvidence": [
+        {
+          "path": "entry/src/main/cpp/third_party/libvncclient/include/rfb/rfbclient.h",
+          "sha256": "ccc39e0e08fb30a6817335fab521c6955903801d031f992092c347bbcf8f7d5d"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
+        }
+      ],
+      "recipes": [
+        {
+          "path": "tools/build_libvnc_ohos.sh",
+          "sha256": "df524ce011b3dd913e6417a595cf7dae28ccd64ff5c01fad5e5cab2c5cbbb106"
+        }
+      ]
+    },
+    {
+      "id": "freerdp",
+      "origin": "https://github.com/FreeRDP/FreeRDP.git",
+      "status": "provenance-incomplete",
+      "source": {
+        "kind": "vendored-tree",
+        "path": "third_party/freerdp/src",
+        "gitTree": "f4e13ac4302442cacdcc079bb19bdebeceae46fc"
+      },
+      "upstreamRevision": null,
+      "licenseEvidence": [
+        {
+          "path": "third_party/freerdp/src/LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "recipes": [
+        {
+          "path": "tools/build_freerdp_ohos.sh",
+          "sha256": "fec899523cf6a95e28dcd867dd0c70d7432bc3c58668b13c0317f7e437367d32"
+        }
+      ]
+    },
+    {
+      "id": "glib",
+      "origin": "https://gitlab.gnome.org/GNOME/glib.git",
+      "status": "provenance-incomplete",
+      "source": {
+        "kind": "vendored-tree",
+        "path": "third_party/deps/glib/src",
+        "gitTree": "d2568e0694869f85804c3091e03093806eea8d9d"
+      },
+      "upstreamRevision": null,
+      "licenseEvidence": [
+        {
+          "path": "third_party/deps/glib/src/COPYING",
+          "sha256": "fa6f36630bb1e0c571d34b2bbdf188d08495c9dbf58f28cac112f303fc1f58fb"
+        }
+      ],
+      "recipes": [
+        {
+          "path": "tools/build_ohos_deps.sh",
+          "sha256": "686caca07ce152bb8c734ae3a974c6fa41c344ddb472f8f55b6f301937ea345d"
+        }
+      ]
+    },
+    {
+      "id": "pixman",
+      "origin": "https://gitlab.freedesktop.org/pixman/pixman.git",
+      "status": "provenance-incomplete",
+      "source": {
+        "kind": "vendored-tree",
+        "path": "third_party/deps/pixman/src",
+        "gitTree": "cdd0b18d2e4ffbe38d84cbc2ccbd21bb6ebb1cde"
+      },
+      "upstreamRevision": null,
+      "licenseEvidence": [
+        {
+          "path": "third_party/deps/pixman/src/COPYING",
+          "sha256": "fac9270f0987b96ff4533fca3548c633e02083cbba4a0172a3b149b2e4019793"
+        }
+      ],
+      "recipes": [
+        {
+          "path": "tools/build_ohos_deps.sh",
+          "sha256": "686caca07ce152bb8c734ae3a974c6fa41c344ddb472f8f55b6f301937ea345d"
+        }
+      ]
+    },
+    {
+      "id": "pcre2",
+      "origin": "https://github.com/PCRE2Project/pcre2.git",
+      "status": "provenance-incomplete",
+      "source": {
+        "kind": "vendored-tree",
+        "path": "third_party/deps/pcre2/src",
+        "gitTree": "7d90b224856c840f89d4169d9b83bdfca96f04e4"
+      },
+      "upstreamRevision": null,
+      "licenseEvidence": [
+        {
+          "path": "third_party/deps/pcre2/src/COPYING",
+          "sha256": "99272c55f3dcfa07a8a7e15a5c1a33096e4727de74241d65fa049fccfdd59507"
+        },
+        {
+          "path": "third_party/deps/pcre2/src/src/pcre2.h.generic",
+          "sha256": "35d206efd95a4eda06942034d6b0041f1b7a8fca54c58835c1d6f080a03ce97e"
+        }
+      ],
+      "recipes": [
+        {
+          "path": "tools/build_ohos_deps.sh",
+          "sha256": "686caca07ce152bb8c734ae3a974c6fa41c344ddb472f8f55b6f301937ea345d"
+        }
+      ]
+    },
+    {
+      "id": "openssl",
+      "origin": "https://github.com/openssl/openssl.git",
+      "status": "provenance-incomplete",
+      "source": {
+        "kind": "vendored-tree",
+        "path": "third_party/deps/openssl/src",
+        "gitTree": "6dc37422ba8ad74f1a4f7b2d40be66a75de824c6"
+      },
+      "upstreamRevision": null,
+      "licenseEvidence": [
+        {
+          "path": "third_party/deps/openssl/src/LICENSE.txt",
+          "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+        }
+      ],
+      "recipes": [
+        {
+          "path": "tools/build_openssl_ohos.sh",
+          "sha256": "693a30e832c92f8f6404b591b19f9ebf99adeba76c3b1bf838f0713b26bec0b5"
+        }
+      ]
+    },
+    {
+      "id": "cjson",
+      "origin": "https://github.com/DaveGamble/cJSON.git",
+      "status": "provenance-incomplete",
+      "source": {
+        "kind": "vendored-tree",
+        "path": "entry/src/main/cpp/third_party/cjson",
+        "gitTree": "9550684f61e716da9c140c4d8c4734a6b854a188"
+      },
+      "upstreamRevision": null,
+      "licenseEvidence": [
+        {
+          "path": "entry/src/main/cpp/third_party/cjson/cJSON.h",
+          "sha256": "25b0145150d500498e4d209cec69c18c42cf818bffcc54690be3b895a2a16dee"
+        }
+      ],
+      "recipes": []
+    }
+  ]
+}

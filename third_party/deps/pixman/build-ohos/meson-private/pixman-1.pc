@@ -1,9 +1,0 @@
-prefix=/Users/caidingding233/projects/qemu-hmos/third_party/deps/install-ohos
-includedir=${prefix}/include
-libdir=${prefix}/lib
-
-Name: Pixman
-Description: The pixman library (version 1)
-Version: 0.46.5
-Libs: -L${libdir} -lpixman-1 -lm -pthread
-Cflags: -I${includedir}/pixman-1 -pthread

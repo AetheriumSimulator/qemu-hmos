@@ -5,7 +5,12 @@ on:
   workflow_call:
 
 jobs:
+  publication-review:
+    uses: ./.github/workflows/binary-publication-gate.yml
+
   build-qemu-so:
+    needs: publication-review
+    if: needs.publication-review.outputs.allowed == 'true'
     runs-on: self-hosted
     timeout-minutes: 60
     

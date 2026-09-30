@@ -156,3 +156,33 @@ coverage/
 .env.*.local
 
 local.properties
+
+# Public-source hygiene: these are generated or developer-local, never sources.
+.appanalyzer/
+.claude/settings.local.json
+.pytest_cache/
+__pycache__/
+*.pyc
+*.p7b
+*.pfx
+*.jks
+*.keystore
+*.so.*
+*.fd
+third_party/deps/**/build-ohos/
+third_party/deps/.ohos-build/
+third_party/deps/openssl/src/apps/openssl
+third_party/deps/openssl/src/util/quicserver
+entry/src/main/libs/**/qemu-system-*
+entry/src/main/resources/rawfile/*.bin
+entry/src/main/cpp/qemu_test/CMakeFiles/
+entry/src/main/cpp/qemu_test/CMakeCache.txt
+entry/src/main/cpp/qemu_test/Makefile
+entry/src/main/cpp/qemu_test/cmake_install.cmake
+source-hygiene-*.json
+
+# Historical accidental command-output file
+/git
+# Immutable upstream clones used only for source-reconstruction checks.
+.source-cache/
+!ports/qemu-11.1/overlay/qemu_hmos_phone.map

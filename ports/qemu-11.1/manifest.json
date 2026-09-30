@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "scope": "Reviewed QEMU 11.1 development port source; not complete Aether corresponding source or a binary release",
+  "upstream": {
+    "url": "https://gitlab.com/qemu-project/qemu.git",
+    "tag": "v11.1.0",
+    "commit": "84f07211cc5b4fc6a371559bf8a5de4fb068e648",
+    "tree": "fa5392837453752737cab781ab70e9475e215e53",
+    "version": "11.1.0"
+  },
+  "downstream": {
+    "commit": "bdd7e58a8014b14a249f53b41901e384aec5c46d",
+    "tree": "6485e8288ae9953f9721002c4f573dffeb9d9fc0",
+    "patch": {
+      "path": "base-port.patch",
+      "sha256": "88a87f76cc737d5c5b2c27789c541057327c43769b27c9c60842dd259f7a8998"
+    }
+  },
+  "licenses": [
+    {
+      "path": "LICENSE",
+      "sha256": "139c64b7a9ae62858ff969aae622ecfcf4f1519655bd92d2e70a1a2fb615690e"
+    },
+    {
+      "path": "COPYING",
+      "sha256": "dd3ce02338c3a48abb6ba59b48809f7108a8bd242cb0cc8be90daafa30707c28"
+    },
+    {
+      "path": "COPYING.LIB",
+      "sha256": "31c90ce76b6f5aab90a205851e71d5c27e31c0aa3d7017a4383b98a6fe3f1faa"
+    }
+  ],
+  "overlay": [
+    {
+      "path": "accel/tcg/tcg-accel-ops-rr.c",
+      "mode": "100644",
+      "sha256": "1c72e4c87336ecf288db1926dfd3ab1bb9a3b0814b870973ac35a8e52cbb7bc9"
+    },
+    {
+      "path": "build_harmonyos_full.sh",
+      "mode": "100755",
+      "sha256": "c2794677f4bba6fe61c267b4d45e677908b5bcd68a7b6ed7cf0a98efdca439f2"
+    },
+    {
+      "path": "build_harmonyos_phone.sh",
+      "mode": "100755",
+      "sha256": "9da090dd3241e4bc2c238bdd2cf925216073e360a8f0082fb85b86ec15388c4a"
+    },
+    {
+      "path": "hw/core/cpu-common.c",
+      "mode": "100644",
+      "sha256": "2fc8e423bc7585bda1c9051fe15ebb39970059ff54d39c70d1144af46b8f1217"
+    },
+    {
+      "path": "include/qemu/main-loop.h",
+      "mode": "100644",
+      "sha256": "c91b7f1088bd7c9adcf1e35931457a0f7d95950a60e5804cc8bd974fba8591a4"
+    },
+    {
+      "path": "include/qemu/timer.h",
+      "mode": "100644",
+      "sha256": "b456a2c50cba24e1af7d785f5c669138a6fb66eaf3d40f36141fe890b9120bbd"
+    },
+    {
+      "path": "include/system/qemu-hmos.h",
+      "mode": "100644",
+      "sha256": "756885c4f1dd1cac6ba103ca8d64f5b368056a9394ec7e020d6b7898d9a7bc23"
+    },
+    {
+      "path": "meson.build",
+      "mode": "100644",
+      "sha256": "f1db2fe5d90f21fa249ccb3be1577f57d13477fd429ed75cb02d4aff942f2bfe"
+    },
+    {
+      "path": "meson_options.txt",
+      "mode": "100644",
+      "sha256": "7c69a2ac725e592f648a07a4864ee60a69d28a3af75b49fb3ab71be6c437384e"
+    },
+    {
+      "path": "os-posix.c",
+      "mode": "100644",
+      "sha256": "f9caef9a1d1998a59673e7b22b0fc9f9a6ad37f79b00f24710f0b7d0a4268a67"
+    },
+    {
+      "path": "qemu_hmos_phone.map",
+      "mode": "100644",
+      "sha256": "64d13654a58e7b22b4919b12c9ad4af44502de3ece8102185564607d50e4390f"
+    },
+    {
+      "path": "qemu_hmos_phone_exports.c",
+      "mode": "100644",
+      "sha256": "9929fc0dc8e65f79554cf5882eba5e2f1d82a22e86138453d669816c2e193610"
+    },
+    {
+      "path": "system/runstate.c",
+      "mode": "100644",
+      "sha256": "7c73978dcfb2a84c53efb6da30d60efd36098632e0f826d26fbf365c6e360387"
+    },
+    {
+      "path": "tests/unit/meson.build",
+      "mode": "100644",
+      "sha256": "843064fcff98add7a4e83d1f5f114c4286d29c6c3531e3dd7c46a7948137f247"
+    },
+    {
+      "path": "tests/unit/test-hmos-main-loop.c",
+      "mode": "100644",
+      "sha256": "088be6b3c3c05464b44e1ac60f55e61ca871d899c8bf4909ce14884acce2f458"
+    },
+    {
+      "path": "util/coroutine-hmos-stack.c",
+      "mode": "100644",
+      "sha256": "3c59d04385e414f7b675559b4b6bc8f873f213056307ca04e41deda4be220488"
+    },
+    {
+      "path": "util/main-loop.c",
+      "mode": "100644",
+      "sha256": "ddba72227da3c74ee67a61c5c79d949d27924baa2a3b4c85866c21e5e010c7af"
+    },
+    {
+      "path": "util/qemu-timer.c",
+      "mode": "100644",
+      "sha256": "f91c47b5a90dd5d28ff6f9b7f3697c3ca4687313615ad2112a117d2e766228fe"
+    },
+    {
+      "path": "util/rcu.c",
+      "mode": "100644",
+      "sha256": "cc05cd29e3cd8d957a06798098e9fdead495364a30f62212e20d2a7ad07700e5"
+    }
+  ],
+  "excludedWorkingTreeChanges": [
+    {
+      "path": "rust/bindings/chardev-sys/build.rs",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "rust/bindings/hwcore-sys/build.rs",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "rust/bindings/migration-sys/build.rs",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "rust/bindings/qom-sys/build.rs",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "rust/bindings/system-sys/build.rs",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "rust/bindings/util-sys/build.rs",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "rust/hw/char/pl011/build.rs",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "subprojects/libvduse/include/atomic.h",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "subprojects/libvduse/include/compiler.h",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "subprojects/libvduse/linux-headers/linux",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "subprojects/libvduse/standard-headers/linux",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "subprojects/libvhost-user/include/atomic.h",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "subprojects/libvhost-user/include/compiler.h",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "subprojects/libvhost-user/standard-headers/linux",
+      "reason": "Local symlink materialization differs; retain immutable Git symlink."
+    },
+    {
+      "path": "target/riscv/tcg/csr.c",
+      "reason": "Unreviewed local RISC-V deletions; retain immutable source."
+    }
+  ],
+  "normalization": "CRLF to LF; unchanged upstream symlinks retained",
+  "runtimeEvidence": {
+    "reentrant": false,
+    "binaryRebuiltFromThisExport": false,
+    "hapMatchedToThisExport": false
+  },
+  "remainingInputs": [
+    "Exact binary-to-source mapping and complete dependency/firmware source bundle.",
+    "GPL-compatible combined-application licensing review, including the in-process phone bridge and LibVNC.",
+    "Clean HarmonyOS builds and device lifecycle acceptance."
+  ],
+  "exportedTree": "bb3ccfd0eecf1f8d822b0858ad80fe1722e72a34",
+  "publicationEdits": [
+    {
+      "path": "build_harmonyos_phone.sh",
+      "retainedNormalizedSha256": "fc515805867bbe83973a36d7f0e153c25c705d2eaa93eaf1c69e887f5b97f6c6",
+      "changes": [
+        "Require an explicit OHOS_SDK_DIR instead of a machine-local fallback.",
+        "Skip git apply for an empty patch when building clean committed source."
+      ]
+    }
+  ]
+}

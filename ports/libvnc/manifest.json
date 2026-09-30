@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "scope": "Aether LibVNC pinned upstream and retained recipe; not a reproduction of shipped static archives",
+  "source": {
+    "url": "https://github.com/LibVNC/libvncserver.git",
+    "commit": "42494999e6492aaab9c1db785ecd293ef10b3aed",
+    "tree": "5aa386a8154f82ca6e7028c28ad96a16b182b0ac"
+  },
+  "recipeMatchesRetainedLock": false,
+  "evidence": [
+    {
+      "path": "COPYING",
+      "sha256": "4d23c8c814e5baf007d854f01d8502e77dc56a41144934e003fb32c4e052d20f"
+    },
+    {
+      "path": "sources.lock.json",
+      "sha256": "2ff2ceb0f8a8145cc920fae19ec06244a87b8c243486d615d072a19f53212db3"
+    },
+    {
+      "path": "tools/build_libvnc_ohos.sh",
+      "sha256": "e49421bc4216e2e9cd72e77f1d9e54467c06f2fbcb1634dc4c34c3dcfcd443eb"
+    }
+  ]
+}
