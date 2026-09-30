@@ -254,50 +254,62 @@ jobs:
           -Dguest_agent=disabled \
           -Dtools=disabled
         
-        # 构建
-        ninja -j$(nproc)
-        
-        # 验证构建结果
-        QEMU_STATIC=$(find . -name "libqemu-aarch64-softmmu.a" -type f -print -quit)
-        if [ -z "$QEMU_STATIC" ]; then
-          OBJ_DIR="./libqemu-aarch64-softmmu.a.p"
-          if [ -d "$OBJ_DIR" ] && find "$OBJ_DIR" -name "*.o" -type f -print -quit | grep -q .; then
-            echo "Meson did not emit an archive; assembling all QEMU target objects with llvm-ar"
-            find . -name "*.o" -type f ! -path "./tests/*" -print0 | xargs -0 "$TOOL_BIN/llvm-ar" rcs libqemu-aarch64-softmmu.a
-            QEMU_STATIC="./libqemu-aarch64-softmmu.a"
-          fi
-        fi
-        if [ -z "$QEMU_STATIC" ]; then
-          echo "❌ QEMU aarch64 static library not found"
-          find . -name "*.a" -maxdepth 3 -print | head -20
+        # Build QEMU's target and reuse Meson's exact executable link graph.
+        ninja -j$(nproc) qemu-system-aarch64
+
+        # Convert the generated executable link command into a PIC shared core.
+        # This keeps Meson's resolved internal archives and target dependencies,
+        # while excluding system/main.c (which supplies the executable main).
+        LINK_CMD=$(ninja -t commands qemu-system-aarch64 | tail -n 1)
+        test -n "$LINK_CMD"
+        export LINK_CMD
+        python3 - <<'PY'
+import os
+import shlex
+import subprocess
+
+raw = os.environ['LINK_CMD']
+argv = shlex.split(raw)
+if not argv:
+    raise SystemExit('empty Meson link command')
+compiler = argv[0]
+args = []
+skip_next = False
+saw_output = False
+for token in argv[1:]:
+    if skip_next:
+        skip_next = False
+        if token == 'qemu-system-aarch64' or token.endswith('/qemu-system-aarch64'):
+            args.append('libqemu_full.so')
+            saw_output = True
+        else:
+            args.append(token)
+        continue
+    if token in ('-pie', '-Wl,-pie'):
+        continue
+    if token.endswith('system_main.c.o') or token.endswith('/system/main.c.o'):
+        continue
+    if token == '-o':
+        args.append(token)
+        skip_next = True
+        continue
+    args.append(token)
+if not saw_output:
+    raise SystemExit('Meson link command output was not qemu-system-aarch64')
+cmd = [compiler, '-shared', '-fPIC', '-Wl,--no-undefined'] + args
+print('Running PIC shared link with Meson graph:', ' '.join(shlex.quote(x) for x in cmd))
+subprocess.run(cmd, check=True)
+PY
+        test -f libqemu_full.so
+        file libqemu_full.so
+        readelf -h libqemu_full.so | grep -q 'Type:[[:space:]]*DYN'
+        if readelf -d libqemu_full.so | grep -q TEXTREL; then
+          echo '❌ shared core contains TEXTREL relocations'
           exit 1
         fi
-        if [ "$QEMU_STATIC" != "./libqemu-aarch64-softmmu.a" ]; then
-          cp "$QEMU_STATIC" libqemu-aarch64-softmmu.a
-        fi
-        echo "✅ QEMU ARM64 build successful: $QEMU_STATIC"
-        
-    - name: Create QEMU shared library
-      run: |
-        echo "=== Creating libqemu_full.so ==="
-        cd third_party/qemu/build
-        $CXX -shared -fPIC -Wl,--no-undefined -Wl,--allow-multiple-definition -Wl,-z,notext \
-          -target aarch64-unknown-linux-ohos --sysroot=$SYSROOT \
-          -Wl,--whole-archive \
-          libqemu-aarch64-softmmu.a \
-          libqemuutil.a \
-          -Wl,--no-whole-archive \
-          -L"$DEPS_PREFIX/lib" -L"$SYSROOT/usr/lib/aarch64-linux-ohos" \
-          -lglib-2.0 -lgio-2.0 -lgobject-2.0 -lpixman-1 -lintl -lz \
-          $(find . -name "libvhost-user*.a" -type f -print -quit) \
-          -lpthread -ldl -lm $("$PKG_CONFIG" --static --libs libcurl) \
-          -o libqemu_full.so
-        if [ ! -f "libqemu_full.so" ]; then
-          echo "❌ Shared library creation failed"
-          exit 1
-        fi
-        $STRIP -S libqemu_full.so
-        echo "✅ libqemu_full.so created (size: $(du -h libqemu_full.so | cut -f1))"
+        readelf -Ws libqemu_full.so | grep -q ' qemu_init$'
+        readelf -Ws libqemu_full.so | grep -q ' qemu_main_loop$'
+        echo "✅ QEMU PIC shared core created (size: $(du -h libqemu_full.so | cut -f1))"
         
     - name: Build HarmonyOS NAPI wrapper
       run: |
