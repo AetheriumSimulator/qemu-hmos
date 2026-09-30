@@ -231,7 +231,13 @@ jobs:
         unzip -tq "$hap"
         # Depending on API/toolchain, Hvigor emits module.json or module.json5.
         unzip -Z1 "$hap" | tee /tmp/hap-entries.txt
-        grep -Eq '(^|/)module\.json5?
+        python3 - "$hap" <<'PY'
+        import pathlib, sys, zipfile
+        with zipfile.ZipFile(sys.argv[1]) as archive:
+            names = archive.namelist()
+        if not any(pathlib.PurePosixPath(name).name in ('module.json', 'module.json5') for name in names):
+            raise SystemExit('HAP has no module manifest')
+        PY
 
     - name: Prepare HAP artifacts
       run: |
