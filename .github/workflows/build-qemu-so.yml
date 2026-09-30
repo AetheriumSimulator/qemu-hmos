@@ -293,7 +293,8 @@ jobs:
                 continue
             args.append(token)
         if not saw_output:
-            raise SystemExit('Meson link command had no output path')
+            args.extend(['-o', 'libqemu_full.so'])
+            saw_output = True
         cmd = [compiler, '-shared', '-fPIC', '-Wl,--no-undefined'] + args
         print('Running PIC shared link with Meson graph:', ' '.join(shlex.quote(x) for x in cmd))
         subprocess.run(cmd, check=True)
