@@ -222,6 +222,7 @@ jobs:
           --cross-prefix=aarch64-unknown-linux-ohos- \
           --cc="$CC" \
           --host-cc="/usr/bin/cc" \
+          --nm="$TOOL_BIN/llvm-nm" \
           --extra-cflags="-target aarch64-unknown-linux-ohos --sysroot=$SYSROOT -Wno-error=typedef-redefinition -Wno-error=macro-redefined" \
           --extra-ldflags="-target aarch64-unknown-linux-ohos --sysroot=$SYSROOT" \
           --enable-tcg \
