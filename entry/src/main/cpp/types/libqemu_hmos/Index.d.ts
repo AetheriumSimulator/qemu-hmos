@@ -94,24 +94,6 @@ export interface QemuModule {
     symFound?: boolean;
     symErr?: string;
   };
-  createRdpClient?(): { id: string };
-  connectRdp?(clientId: string, config: {
-    host: string;
-    port: number;
-    username: string;
-    password: string;
-    width?: number;
-    height?: number;
-  }): number;
-  disconnectRdp?(clientId: string): number;
-  getRdpStatus?(clientId: string): number;
-  destroyRdpClient?(clientId: string): number;
-  // RDP 超时处理
-  rdpCheckTimeout?(): number;           // 返回超时秒数，0表示未超时
-  rdpSetTimeout?(seconds: number): void; // 设置超时时间
-  rdpRequestCancel?(): void;            // 请求取消连接
-  rdpForceCleanup?(): void;             // 强制清理（即使卡住）
-  rdpGetStatusString?(): string;        // 获取状态: disconnected/connecting/connected/timeout/cancelling
   vncAvailable?(): boolean;
   vncCreate?(): number;
   vncConnect?(id: number, host: string, port: number): boolean;
