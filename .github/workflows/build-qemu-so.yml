@@ -182,6 +182,7 @@ jobs:
         # Ubuntu host's GLib installation.
         export OHOS_NDK_HOME="$NDK_DIR"
         export PKG_CONFIG_PATH=""
+        ln -sf llvm-nm "$TOOL_BIN/aarch64-unknown-linux-ohos-nm"
         bash tools/build_ohos_deps.sh
         bash tools/build_openssl_ohos.sh
         bash tools/build_curl_ohos.sh
@@ -222,7 +223,6 @@ jobs:
           --cross-prefix=aarch64-unknown-linux-ohos- \
           --cc="$CC" \
           --host-cc="/usr/bin/cc" \
-          --nm="$TOOL_BIN/llvm-nm" \
           --extra-cflags="-target aarch64-unknown-linux-ohos --sysroot=$SYSROOT -Wno-error=typedef-redefinition -Wno-error=macro-redefined" \
           --extra-ldflags="-target aarch64-unknown-linux-ohos --sysroot=$SYSROOT" \
           --enable-tcg \
