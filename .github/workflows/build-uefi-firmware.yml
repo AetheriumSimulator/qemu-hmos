@@ -99,7 +99,12 @@ jobs:
         echo "TOOL_CHAIN_TAG        = GCC" >> "$CONF_PATH/target.txt"
         echo "BUILD_TARGET          = RELEASE" >> "$CONF_PATH/target.txt"
         
-        # 不创建build_rule.txt，让edk2使用默认构建规则
+        # edksetup.sh does not create this file when CONF_PATH is supplied in
+        # the environment.  The build command always reads CONF/build_rule.txt,
+        # so install the EDK2 template explicitly instead of relying on that
+        # version-dependent setup behavior.
+        test -s BaseTools/Conf/build_rule.template
+        cp BaseTools/Conf/build_rule.template "$CONF_PATH/build_rule.txt"
         
         # 构建BaseTools
         echo "=== Building BaseTools ==="
@@ -114,13 +119,21 @@ jobs:
         # 构建ARM64固件 (使用新版工具链)
         build -a AARCH64 -t GCC -p ArmVirtPkg/ArmVirtQemu.dsc -b RELEASE
         
-        # 检查构建结果
-        if [ ! -f "Build/ArmVirtQemu-AARCH64/RELEASE_GCC/FV/QEMU_EFI.fd" ]; then
+        # EDK2's output directory includes the platform, architecture, target,
+        # and toolchain.  Resolve it from the generated FV rather than
+        # hard-coding one directory spelling, then carry the absolute path to
+        # the artifact step.
+        arm64_firmware="$(find Build -type f -path '*/FV/QEMU_EFI.fd' -print -quit)"
+        if [ -z "$arm64_firmware" ]; then
           echo "❌ ARM64 UEFI firmware not found"
+          echo "=== EDK2 firmware outputs ==="
+          find Build -type f \( -name '*.fd' -o -name '*.FV' \) -print || true
           exit 1
         fi
-        
-        echo "✅ ARM64 UEFI firmware built successfully"
+
+        export ARM64_FIRMWARE_PATH="$WORKSPACE/$arm64_firmware"
+        echo "ARM64_FIRMWARE_PATH=$ARM64_FIRMWARE_PATH" >> "$GITHUB_ENV"
+        echo "✅ ARM64 UEFI firmware built successfully: $ARM64_FIRMWARE_PATH"
         
     - name: Build x86_64 UEFI firmware (OVMF)
       run: |
@@ -129,17 +142,32 @@ jobs:
         source venv/bin/activate
 
         cd third_party/qemu/roms/edk2
+
+        # Each Actions step starts a new shell.  Recreate the EDK2 environment
+        # and configuration before invoking build for the x86_64 platform.
+        export WORKSPACE="$(pwd)"
+        export PACKAGES_PATH="$WORKSPACE"
+        export EDK_TOOLS_PATH="$WORKSPACE/BaseTools"
+        export CONF_PATH="$WORKSPACE/Conf"
+        mkdir -p "$CONF_PATH"
+        test -s BaseTools/Conf/build_rule.template
+        cp BaseTools/Conf/build_rule.template "$CONF_PATH/build_rule.txt"
+        source edksetup.sh
         
         # 构建x86_64固件
         build -a X64 -t GCC -p OvmfPkg/OvmfPkgX64.dsc -b RELEASE
 
-        # 检查构建结果
-        if [ ! -f "Build/OvmfX64/RELEASE_GCC/FV/OVMF_CODE.fd" ]; then
+        x86_64_firmware="$(find Build -type f -path '*/FV/OVMF_CODE.fd' -print -quit)"
+        if [ -z "$x86_64_firmware" ]; then
           echo "❌ x86_64 UEFI firmware not found"
+          echo "=== EDK2 firmware outputs ==="
+          find Build -type f \( -name '*.fd' -o -name '*.FV' \) -print || true
           exit 1
         fi
-        
-        echo "✅ x86_64 UEFI firmware built successfully"
+
+        export X86_64_FIRMWARE_PATH="$WORKSPACE/$x86_64_firmware"
+        echo "X86_64_FIRMWARE_PATH=$X86_64_FIRMWARE_PATH" >> "$GITHUB_ENV"
+        echo "✅ x86_64 UEFI firmware built successfully: $X86_64_FIRMWARE_PATH"
         
     - name: Prepare firmware artifacts
       run: |
@@ -147,11 +175,15 @@ jobs:
         mkdir -p artifacts/firmware
         
         # 复制ARM64固件
-        cp third_party/qemu/roms/edk2/Build/ArmVirtQemu-AARCH64/RELEASE_GCC/FV/QEMU_EFI.fd \
+        test -n "$ARM64_FIRMWARE_PATH"
+        test -s "$ARM64_FIRMWARE_PATH"
+        cp "$ARM64_FIRMWARE_PATH" \
            artifacts/firmware/edk2-aarch64-code.fd
 
         # 复制x86_64固件
-        cp third_party/qemu/roms/edk2/Build/OvmfX64/RELEASE_GCC/FV/OVMF_CODE.fd \
+        test -n "$X86_64_FIRMWARE_PATH"
+        test -s "$X86_64_FIRMWARE_PATH"
+        cp "$X86_64_FIRMWARE_PATH" \
            artifacts/firmware/OVMF_CODE.fd
         
         test -s artifacts/firmware/edk2-aarch64-code.fd
