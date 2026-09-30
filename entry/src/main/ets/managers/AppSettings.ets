@@ -10,7 +10,7 @@ import data_preferences from '@ohos.data.preferences'
 import common from '@ohos.app.ability.common'
 import hilog from '@ohos.hilog'
 
-export type DefaultDisplayMode = 'vnc' | 'rdp'
+export type DefaultDisplayMode = 'vnc'
 
 export interface AppSettingsData {
   defaultMemoryMB: number
@@ -69,7 +69,7 @@ class AppSettings {
     if (typeof patch.defaultCpuCount === 'number') next.defaultCpuCount = patch.defaultCpuCount
     if (typeof patch.defaultMachine === 'string') next.defaultMachine = patch.defaultMachine
     if (typeof patch.autoStartVnc === 'boolean') next.autoStartVnc = patch.autoStartVnc
-    if (patch.defaultDisplay === 'rdp' || patch.defaultDisplay === 'vnc') next.defaultDisplay = patch.defaultDisplay
+    if (patch.defaultDisplay === 'vnc') next.defaultDisplay = 'vnc'
     return next
   }
 
@@ -102,7 +102,8 @@ class AppSettings {
       this.settings.defaultCpuCount = await this.pref.get(KEY_DEFAULT_CPU_COUNT, DEFAULT_SETTINGS.defaultCpuCount) as number
       this.settings.defaultMachine = await this.pref.get(KEY_DEFAULT_MACHINE, DEFAULT_SETTINGS.defaultMachine) as string
       this.settings.autoStartVnc = await this.pref.get(KEY_AUTO_START_VNC, DEFAULT_SETTINGS.autoStartVnc) as boolean
-      this.settings.defaultDisplay = await this.pref.get(KEY_DEFAULT_DISPLAY, DEFAULT_SETTINGS.defaultDisplay) as DefaultDisplayMode
+      // Migrate legacy RDP preference to the only supported VNC display mode.
+      this.settings.defaultDisplay = 'vnc'
     } catch (e) {
       hilog.error(0x0000, 'AppSettings', '加载设置失败: %{public}s', (e as Error).message)
       this.settings = this.cloneSettings(DEFAULT_SETTINGS)
@@ -117,7 +118,7 @@ class AppSettings {
       const disk = Math.max(0, Math.min(2048, Math.floor(this.settings.defaultDiskGB)))
       const cpu = Math.max(1, Math.min(16, Math.floor(this.settings.defaultCpuCount)))
       const machine = (this.settings.defaultMachine || DEFAULT_SETTINGS.defaultMachine).trim() || DEFAULT_SETTINGS.defaultMachine
-      const display: DefaultDisplayMode = (this.settings.defaultDisplay === 'rdp') ? 'rdp' : 'vnc'
+      const display: DefaultDisplayMode = 'vnc'
 
       await this.pref.put(KEY_DEFAULT_MEMORY_MB, mem)
       await this.pref.put(KEY_DEFAULT_DISK_GB, disk)
