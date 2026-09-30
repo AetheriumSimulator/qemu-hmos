@@ -13,20 +13,13 @@ export type CpuCamp = 'aarch64' | 'x86_64' | 'i386' | 'riscv64' | 'other'
 
 /**
  * 虚拟机启动模式
- * - enhanced: 增强启动 - 使用FreeRDP，适用于Windows/支持RDP的Linux（RemoteApp）
  * - standard: 普通启动 - 使用VNC，适用于macOS/不支持RDP的系统
  * - debug: 调试模式 - 仅串口TTL，无图形界面
  */
-export type VMBootMode = 'enhanced' | 'standard' | 'debug'
-
-/** 判断系统是否支持增强启动(RDP) */
-export function supportsEnhancedBoot(systemCamp: SystemCamp): boolean {
-  return systemCamp === 'windows' || systemCamp === 'linux'
-}
+export type VMBootMode = 'standard' | 'debug'
 
 /** 获取系统推荐的默认启动模式 */
 export function getDefaultBootMode(systemCamp: SystemCamp): VMBootMode {
-  if (systemCamp === 'windows') return 'enhanced'
   return 'standard'
 }
 
