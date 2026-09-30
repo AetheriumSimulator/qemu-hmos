@@ -232,6 +232,7 @@ jobs:
         hap='entry/build/default/outputs/default/entry-default-unsigned.hap'
         test -s "$hap"
         unzip -tq "$hap"
+        python3 tools/validate_hap.py "$hap"
 
 
     - name: Prepare HAP artifacts
