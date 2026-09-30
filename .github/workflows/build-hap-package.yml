@@ -230,7 +230,7 @@ jobs:
         test -s "$hap"
         unzip -tq "$hap"
         # Depending on API/toolchain, Hvigor emits module.json or module.json5.
-        unzip -l "$hap" | grep -Eq '(^|/)module\.json5?
+        unzip -l "$hap" | grep -Eq '(^|/)module\.json5?($|[[:space:]])'
 
     - name: Prepare HAP artifacts
       run: |
