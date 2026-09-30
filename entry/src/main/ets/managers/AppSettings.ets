@@ -102,7 +102,7 @@ class AppSettings {
       this.settings.defaultCpuCount = await this.pref.get(KEY_DEFAULT_CPU_COUNT, DEFAULT_SETTINGS.defaultCpuCount) as number
       this.settings.defaultMachine = await this.pref.get(KEY_DEFAULT_MACHINE, DEFAULT_SETTINGS.defaultMachine) as string
       this.settings.autoStartVnc = await this.pref.get(KEY_AUTO_START_VNC, DEFAULT_SETTINGS.autoStartVnc) as boolean
-      // Migrate legacy RDP preference to the only supported VNC display mode.
+      // Normalize legacy display preferences to the only supported VNC mode.
       this.settings.defaultDisplay = 'vnc'
     } catch (e) {
       hilog.error(0x0000, 'AppSettings', '加载设置失败: %{public}s', (e as Error).message)
