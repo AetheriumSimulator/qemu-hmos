@@ -285,7 +285,6 @@ jobs:
           -target aarch64-unknown-linux-ohos --sysroot=$SYSROOT \
           -Wl,--whole-archive \
           libqemu-aarch64-softmmu.a \
-          libqemuutil.a \
           -Wl,--no-whole-archive \
           -lpthread -ldl -lm $("$PKG_CONFIG" --static --libs libcurl) \
           -o libqemu_full.so
