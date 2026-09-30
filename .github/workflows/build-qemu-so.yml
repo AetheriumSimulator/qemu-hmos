@@ -2,7 +2,19 @@ name: Build QEMU SO Libraries for HarmonyOS
 
 on:
   workflow_dispatch:
+    inputs:
+      validation:
+        description: 'Build ephemeral validation artifacts without publishing them'
+        required: false
+        default: false
+        type: boolean
   workflow_call:
+    inputs:
+      validation:
+        description: 'Build ephemeral validation artifacts without publishing them'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   publication-review:
@@ -10,8 +22,8 @@ jobs:
 
   build-qemu-so:
     needs: publication-review
-    if: needs.publication-review.outputs.allowed == 'true'
-    runs-on: self-hosted
+    if: ${{ needs.publication-review.outputs.allowed == 'true' || inputs.validation }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     
     outputs:
@@ -23,13 +35,14 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: true
+        persist-credentials: false
         
     - name: Download and setup HarmonyOS SDK
       run: |
         echo "=== Downloading HarmonyOS SDK ==="
         # 安装必要的工具 (静默更新以避免重复源警告)
         sudo apt-get update --quiet
-        sudo apt-get install -y --quiet unzip file
+        sudo apt-get install -y --quiet unzip file cmake ninja-build python3-venv
 
         # 使用HarmonyOS Next官方下载链接
         SDK_URLS=(
@@ -93,75 +106,49 @@ jobs:
           fi
         fi
         
-        # 查找native目录 - 根据HarmonyOS SDK结构查找
-        NATIVE_DIR=""
-        if [ -d "linux/native" ]; then
-          NATIVE_DIR="linux/native"
-          echo "Found native directory: $NATIVE_DIR"
-        elif [ -d "ohos-sdk/linux/native" ]; then
-          NATIVE_DIR="ohos-sdk/linux/native"
-          echo "Found native directory: $NATIVE_DIR"
-        elif [ -d "native" ]; then
-          # 检查是否为真正的HarmonyOS SDK native目录
-          if [ -d "native/bin" ] && [ -d "native/sysroot" ]; then
-            NATIVE_DIR="native"
-            echo "Found native directory: $NATIVE_DIR"
-          else
-            echo "⚠️ Found native directory but structure incomplete, continuing search..."
+        # Locate the NDK native tree. Current HarmonyOS SDKs put the
+        # cross-tools under native/llvm/bin (not native/bin).
+        NDK_DIR=""
+        for candidate in linux/native ohos-sdk/linux/native native; do
+          if [ -d "$candidate/sysroot" ] && [ -d "$candidate/llvm/bin" ]; then
+            NDK_DIR="$(cd "$candidate" && pwd)"
+            echo "Found HarmonyOS NDK: $NDK_DIR"
+            break
           fi
-        fi
-
-        # 最后的查找，确保不误找源码目录
-        if [ -z "$NATIVE_DIR" ]; then
-          echo "❌ No valid HarmonyOS SDK native directory found"
-          echo "Available directories after extraction:"
-          ls -la | head -20
-          echo ""
-          echo "Looking for native directories:"
-          find . -maxdepth 3 -name "native" -type d | grep -v -E "(qemu|third_party|\.git)" | head -10
-          exit 1
-        fi
-        
-        # 确保native目录存在且包含必要文件
-        if [ ! -d "$NATIVE_DIR/bin" ] || [ ! -d "$NATIVE_DIR/sysroot" ]; then
-          echo "❌ Native directory structure incomplete"
-          echo "Contents of $NATIVE_DIR:"
-          ls -la "$NATIVE_DIR"
+        done
+        if [ -z "$NDK_DIR" ]; then
+          echo "❌ No HarmonyOS NDK with llvm/bin and sysroot found"
+          find . -maxdepth 4 -type d -name native -print
           exit 1
         fi
 
-        NATIVE_DIR_ABS="$(cd "$NATIVE_DIR" && pwd)"
-        export HARMONY_NATIVE_DIR="$NATIVE_DIR_ABS"
-        export SYSROOT="$HARMONY_NATIVE_DIR/sysroot"
-        export CC="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang"
-        export CXX="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang++"
-        export STRIP="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-strip"
+        SYSROOT="$NDK_DIR/sysroot"
+        TOOL_BIN="$NDK_DIR/llvm/bin"
+        CC="$TOOL_BIN/aarch64-unknown-linux-ohos-clang"
+        CXX="$TOOL_BIN/aarch64-unknown-linux-ohos-clang++"
+        STRIP="$TOOL_BIN/llvm-strip"
+        AR="$TOOL_BIN/llvm-ar"
+        RANLIB="$TOOL_BIN/llvm-ranlib"
+        for tool in "$CC" "$CXX" "$AR" "$RANLIB"; do
+          test -x "$tool" || { echo "❌ Missing NDK tool: $tool"; exit 1; }
+        done
 
-        # Persist the SDK location and toolchain for later workflow steps.
+        # Persist paths because every GitHub Actions step gets a new shell.
         {
-          echo "HARMONY_NATIVE_DIR=$HARMONY_NATIVE_DIR"
+          echo "NDK_DIR=$NDK_DIR"
+          echo "OHOS_NDK_HOME=$NDK_DIR"
+          echo "HARMONY_NATIVE_DIR=$NDK_DIR"
           echo "SYSROOT=$SYSROOT"
+          echo "TOOL_BIN=$TOOL_BIN"
           echo "CC=$CC"
           echo "CXX=$CXX"
           echo "STRIP=$STRIP"
+          echo "AR=$AR"
+          echo "RANLIB=$RANLIB"
         } >> "$GITHUB_ENV"
+        echo "$TOOL_BIN" >> "$GITHUB_PATH"
+        export PATH="$TOOL_BIN:$PATH"
 
-        # 如果找不到特定编译器，使用通用clang
-        if [ ! -x "$CC" ]; then
-          CC="$HARMONY_NATIVE_DIR/bin/clang"
-          CXX="$HARMONY_NATIVE_DIR/bin/clang++"
-          echo "CC=$CC" >> "$GITHUB_ENV"
-          echo "CXX=$CXX" >> "$GITHUB_ENV"
-        fi
-
-        # 验证编译器存在
-        if [ ! -x "$CC" ]; then
-          echo "❌ No suitable compiler found in $HARMONY_NATIVE_DIR/bin"
-          echo "Available compilers:"
-          ls -la "$HARMONY_NATIVE_DIR/bin/" | grep -E "(clang|gcc)"
-          exit 1
-        fi
-        
         echo "=== SDK Setup Complete ==="
         echo "SYSROOT: $SYSROOT"
         echo "CC: $CC"
@@ -272,16 +259,12 @@ jobs:
         
         cd entry/src/main/cpp
         
-        # 设置环境变量 - 使用之前确定的NATIVE_DIR
-        : "${HARMONY_NATIVE_DIR:?HarmonyOS SDK native directory was not persisted}"
-        export SYSROOT="$HARMONY_NATIVE_DIR/sysroot"
-        export CC="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang"
-        export CXX="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang++"
-
-        if [ ! -x "$CC" ]; then
-          CC="$HARMONY_NATIVE_DIR/bin/clang"
-          CXX="$HARMONY_NATIVE_DIR/bin/clang++"
-        fi
+        # Reuse the persisted NDK paths from the SDK setup step.
+        : "${NDK_DIR:?HarmonyOS NDK directory was not persisted}"
+        : "${TOOL_BIN:?HarmonyOS NDK tool directory was not persisted}"
+        test -x "$CC"
+        test -x "$CXX"
+        test -f "$NDK_DIR/build/cmake/ohos.toolchain.cmake"
         
         # 创建构建目录
         mkdir -p build
@@ -292,6 +275,7 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE="$HARMONY_NATIVE_DIR/build/cmake/ohos.toolchain.cmake" \
           -DOHOS_ARCH=arm64-v8a \
           -DOHOS_PLATFORM=OHOS \
+          -DOHOS_NDK_HOME="$NDK_DIR" \
           -DCMAKE_BUILD_TYPE=Release
         
         # 构建
@@ -311,6 +295,10 @@ jobs:
         # 复制SO文件
         cp third_party/qemu/build/libqemu_full.so artifacts/libs/arm64-v8a/
         cp entry/src/main/cpp/build/libqemu_hmos.so artifacts/libs/arm64-v8a/
+        test -s artifacts/libs/arm64-v8a/libqemu_full.so
+        test -s artifacts/libs/arm64-v8a/libqemu_hmos.so
+        file artifacts/libs/arm64-v8a/*.so
+        sha256sum artifacts/libs/arm64-v8a/*.so > artifacts/SHA256SUMS
         
         # 创建版本信息
         echo "QEMU SO Libraries Build" > artifacts/VERSION.txt
