@@ -235,7 +235,6 @@ endif()
 set(SOURCES
     napi_init.cpp
     qemu_wrapper.cpp
-    rdp_client.cpp
     third_party/cjson/cJSON.c
     compat_stubs.c
 )
