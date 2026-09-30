@@ -6,11 +6,9 @@
  * 云端 OneDrive ↔ VM 里的 OneDrive 客户端 ↔ 鸿蒙 App 沙箱
  * 
  * 两种传输方式:
- * 1. RDP 驱动器重定向 - 在 RDP 会话中直接访问鸿蒙沙箱目录
- * 2. 共享文件夹 - 用户在 VM 里手动复制到 virtio-9p 挂载点
+ * 共享文件夹 - 用户在 VM 里手动复制到 virtio-9p 挂载点
  */
 
-import { RDPDriveManager } from './RDPDriveManager';
 import fs from '@ohos.file.fs';
 
 // OneDrive 同步状态
@@ -33,7 +31,6 @@ export interface OneDriveFile {
 
 // 传输模式
 export enum TransferMode {
-  RDP_REDIRECT = 'rdp_redirect',    // 通过 RDP 驱动器重定向
   SHARED_FOLDER = 'shared_folder'   // 通过 virtio-9p 共享文件夹
 }
 
@@ -49,11 +46,9 @@ export interface OneDriveConfig {
 export class OneDriveManager {
   private static instance: OneDriveManager;
   private config: OneDriveConfig;
-  private driveManager: RDPDriveManager;
   private cachedFiles: Map<string, OneDriveFile> = new Map();
 
   private constructor() {
-    this.driveManager = RDPDriveManager.getInstance();
     this.config = {
       enabled: true,
       preferredMode: TransferMode.SHARED_FOLDER,
@@ -76,7 +71,7 @@ export class OneDriveManager {
   public async initialize(): Promise<boolean> {
     try {
       // 初始化缓存目录
-      await this.driveManager.initializeOneDriveCache();
+      try { fs.mkdirSync(this.config.cachePath); } catch (_) { /* already exists */ }
       
       // 扫描现有缓存文件
       await this.scanCacheDirectory();
@@ -119,7 +114,8 @@ export class OneDriveManager {
       console.info(`[OneDriveManager] Importing ${fileName} from VM ${vmName}`);
       
       // 从 VM 共享目录复制到 OneDrive 缓存
-      const success = await this.driveManager.copyFromVMSharedToOneDrive(vmName, fileName);
+      const success = false;
+      console.warn(`[OneDriveManager] VM shared-folder import requires manual copy: ${vmName}/${fileName}`);
       
       if (success) {
         // 更新缓存文件列表
@@ -145,7 +141,8 @@ export class OneDriveManager {
       const sourcePath = `${this.config.cachePath}/${fileName}`;
       
       // 复制到 VM 共享目录
-      const success = await this.driveManager.copyToVMShared(vmName, sourcePath, fileName);
+      const success = false;
+      console.warn(`[OneDriveManager] VM shared-folder export requires manual copy: ${vmName}/${fileName}`);
       
       if (success) {
         console.info(`[OneDriveManager] Export successful: ${fileName}`);
@@ -156,15 +153,6 @@ export class OneDriveManager {
       console.error('[OneDriveManager] Export failed:', e);
       return false;
     }
-  }
-
-  /**
-   * 获取 RDP 会话中访问 OneDrive 缓存的路径
-   * 当使用 RDP 驱动器重定向时，在 VM 中的路径
-   */
-  public getRDPDrivePath(): string {
-    // 在 RDP 会话中，重定向的驱动器会显示为 \\tsclient\onedrive
-    return '\\\\tsclient\\onedrive';
   }
 
   /**
@@ -181,24 +169,14 @@ export class OneDriveManager {
   /**
    * 获取 VM 内访问 OneDrive 缓存的说明
    */
-  public getAccessInstructions(mode: TransferMode): string[] {
-    if (mode === TransferMode.RDP_REDIRECT) {
-      return [
-        '1. 通过 RDP 连接到虚拟机',
-        '2. 打开文件资源管理器',
-        '3. 在地址栏输入: \\\\tsclient\\onedrive',
-        '4. 即可访问鸿蒙设备上的 OneDrive 缓存目录',
-        '5. 将 OneDrive 中的文件复制到此处，即可在鸿蒙设备上访问'
-      ];
-    } else {
-      return [
-        '1. 在虚拟机中打开命令提示符（管理员）',
-        '2. 执行: net use O: \\\\10.0.2.4\\shared',
-        '3. 打开 O: 盘即可访问共享文件夹',
-        '4. 将 OneDrive 中的文件复制到 O: 盘',
-        '5. 文件将同步到鸿蒙设备的 OneDrive 缓存目录'
-      ];
-    }
+  public getAccessInstructions(_mode: TransferMode): string[] {
+    return [
+      '1. 在虚拟机中打开命令提示符（管理员）',
+      '2. 执行: net use O: \\10.0.2.4\shared',
+      '3. 打开 O: 盘即可访问共享文件夹',
+      '4. 将 OneDrive 中的文件复制到 O: 盘',
+      '5. 文件将同步到鸿蒙设备的 OneDrive 缓存目录'
+    ];
   }
 
   /**
@@ -222,7 +200,7 @@ export class OneDriveManager {
    */
   public async clearCache(): Promise<boolean> {
     try {
-      const files = await this.driveManager.listOneDriveCacheFiles();
+      const files: string[] = fs.listFileSync(this.config.cachePath);
       for (const file of files) {
         await this.deleteCachedFile(file);
       }
@@ -277,7 +255,7 @@ export class OneDriveManager {
     try {
       this.cachedFiles.clear();
       
-      const files = await this.driveManager.listOneDriveCacheFiles();
+      const files: string[] = fs.listFileSync(this.config.cachePath);
       for (const fileName of files) {
         const filePath = `${this.config.cachePath}/${fileName}`;
         try {
