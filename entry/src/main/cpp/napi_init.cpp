@@ -1942,7 +1942,6 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
     // The bundled core supports only aarch64; use the configured ARM machine.
     {
         std::string machine = config.machine.empty() ? "virt" : config.machine;
-        std::string machine = config.machine.empty() ? "virt" : config.machine;
         HilogPrint(std::string("QEMU: [HW] Machine = ") + machine);
 
         args.push_back("-machine");
