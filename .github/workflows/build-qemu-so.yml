@@ -268,7 +268,7 @@ jobs:
         if grep -q ' -c ' <<<"$LINK_CMD"; then echo '❌ selected compile command, not linker'; exit 1; fi
         export LINK_CMD
         python3 - <<'PY'
-        import os, shlex, subprocess
+        import os, shlex, subprocess, pathlib
         raw = os.environ['LINK_CMD']
         argv = shlex.split(raw)
         if not argv:
@@ -284,6 +284,14 @@ jobs:
                 saw_output = True
                 continue
             if token in ('-pie', '-Wl,-pie'):
+                continue
+            if token.startswith('@'):
+                rsp = pathlib.Path(token[1:])
+                if not rsp.exists():
+                    matches = list(pathlib.Path('.').rglob(rsp.name))
+                    if matches:
+                        token = '@' + str(matches[0])
+                args.append(token)
                 continue
             if token.endswith('system_main.c.o') or token.endswith('/system/main.c.o'):
                 continue
