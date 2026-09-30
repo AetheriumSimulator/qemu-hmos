@@ -67,6 +67,47 @@ static std::map<qemu_vm_handle_t, std::unique_ptr<QemuVmInstance>> g_vm_instance
 static std::mutex g_vm_mutex;
 static bool g_qemu_initialized = false;
 
+static int qemu_vm_stop_locked(qemu_vm_handle_t handle);
+
+// Quote values passed to the legacy qemu-img command line.  VM and snapshot
+// names can come from the UI, so concatenating them into a shell command would
+// otherwise allow whitespace and shell metacharacters to alter the command.
+static std::string shell_quote(const std::string& value) {
+    std::string quoted = "'";
+    for (char c : value) {
+        if (c == '\'') {
+            quoted += "'\\''";
+        } else {
+            quoted += c;
+        }
+    }
+    quoted += "'";
+    return quoted;
+}
+
+static std::string json_escape(const std::string& value) {
+    std::string escaped;
+    escaped.reserve(value.size() + 2);
+    for (unsigned char c : value) {
+        switch (c) {
+            case '\\': escaped += "\\\\"; break;
+            case '"': escaped += "\\\""; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[7];
+                    snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    escaped += buf;
+                } else {
+                    escaped += static_cast<char>(c);
+                }
+        }
+    }
+    return escaped;
+}
+
 // ============================================================================
 // QEMU 库加载（替代 fork/exec）
 // ============================================================================
@@ -205,7 +246,7 @@ static std::string send_qmp_command(const std::string& socket_path, const std::s
     }
     
     // 发送命令
-    std::string cmd_json = "{\"execute\": \"" + command + "\"}\n";
+    std::string cmd_json = "{\"execute\": \"" + json_escape(command) + "\"}\n";
     if (send(sock, cmd_json.c_str(), cmd_json.length(), 0) < 0) {
         close(sock);
         return "";
@@ -250,7 +291,8 @@ static std::string send_hmp_command(const std::string& socket_path, const std::s
     
     // 构建 QMP 包装的 HMP 命令
     std::string cmd_json = "{\"execute\": \"human-monitor-command\", "
-                           "\"arguments\": {\"command-line\": \"" + command + "\"}}\n";
+                           "\"arguments\": {\"command-line\": \"" +
+                           json_escape(command) + "\"}}\n";
     
     if (send(sock, cmd_json.c_str(), cmd_json.length(), 0) < 0) {
         close(sock);
@@ -882,7 +924,7 @@ void qemu_cleanup(void) {
     for (auto& pair : g_vm_instances) {
         auto& instance = pair.second;
         if (instance->state == QEMU_VM_RUNNING) {
-            qemu_vm_stop(pair.first);
+            qemu_vm_stop_locked(pair.first);
         }
     }
     
@@ -981,15 +1023,27 @@ int qemu_vm_start(qemu_vm_handle_t handle) {
     
     // 构建 QEMU 参数列表
     std::vector<std::string> args;
-    args.push_back("qemu-system-aarch64");  // argv[0]
+    const std::string arch = instance->config.arch_type ? instance->config.arch_type : "aarch64";
+    std::string qemu_binary = "qemu-system-aarch64";
+    if (arch == "x86_64") {
+        qemu_binary = "qemu-system-x86_64";
+    } else if (arch == "i386") {
+        qemu_binary = "qemu-system-i386";
+    } else if (arch != "aarch64") {
+        std::cerr << "[QEMU] Unsupported architecture: " << arch << std::endl;
+        return -5;
+    }
+    args.push_back(qemu_binary);  // argv[0]
     
     // 机器类型
     args.push_back("-machine");
-    args.push_back(instance->config.machine_type ? instance->config.machine_type : "virt,gic-version=3");
+    const char* default_machine = arch == "aarch64" ? "virt,gic-version=3" : "pc";
+    args.push_back(instance->config.machine_type ? instance->config.machine_type : default_machine);
     
     // CPU
     args.push_back("-cpu");
-    args.push_back(instance->config.cpu_type ? instance->config.cpu_type : "max");
+    const char* default_cpu = arch == "aarch64" ? "max" : (arch == "x86_64" ? "qemu64" : "qemu32");
+    args.push_back(instance->config.cpu_type ? instance->config.cpu_type : default_cpu);
     
     // SMP
     args.push_back("-smp");
@@ -1069,12 +1123,12 @@ int qemu_vm_start(qemu_vm_handle_t handle) {
     }
 }
 
-int qemu_vm_stop(qemu_vm_handle_t handle) {
+// Stop a VM while g_vm_mutex is already held. Keeping lock ownership
+// explicit avoids recursively locking the non-recursive mutex.
+static int qemu_vm_stop_locked(qemu_vm_handle_t handle) {
     if (!handle) {
         return -1;
     }
-    
-    std::lock_guard<std::mutex> lock(g_vm_mutex);
     
     auto it = g_vm_instances.find(handle);
     if (it == g_vm_instances.end()) {
@@ -1114,6 +1168,15 @@ int qemu_vm_stop(qemu_vm_handle_t handle) {
     instance->is_paused = false;
     std::cerr << "[QEMU] VM stopped" << std::endl;
     return 0;
+}
+
+int qemu_vm_stop(qemu_vm_handle_t handle) {
+    if (!handle) {
+        return -1;
+    }
+
+    std::lock_guard<std::mutex> lock(g_vm_mutex);
+    return qemu_vm_stop_locked(handle);
 }
 
 int qemu_vm_pause(qemu_vm_handle_t handle) {
@@ -1209,7 +1272,7 @@ void qemu_vm_destroy(qemu_vm_handle_t handle) {
     
     // 确保虚拟机已停止
     if (instance->state == QEMU_VM_RUNNING || instance->state == QEMU_VM_PAUSED) {
-        qemu_vm_stop(handle);
+        qemu_vm_stop_locked(handle);
     }
 
     // 等待 QEMU 线程结束（monitor 功能已集成到主线程）
@@ -1256,7 +1319,11 @@ int qemu_create_disk(const char* path, int size_gb, const char* format) {
     }
     
     std::string format_str = format ? format : "qcow2";
-    std::string cmd = "qemu-img create -f " + format_str + " " + path + " " + std::to_string(size_gb) + "G";
+    if (format_str != "qcow2" && format_str != "raw" && format_str != "vmdk") {
+        return -1;
+    }
+    std::string cmd = "qemu-img create -f " + shell_quote(format_str) + " " +
+                      shell_quote(path) + " " + std::to_string(size_gb) + "G";
     
     return system(cmd.c_str());
 }
@@ -1266,7 +1333,8 @@ int qemu_resize_disk(const char* path, int new_size_gb) {
         return -1;
     }
     
-    std::string cmd = "qemu-img resize " + std::string(path) + " " + std::to_string(new_size_gb) + "G";
+    std::string cmd = "qemu-img resize " + shell_quote(path) + " " +
+                      std::to_string(new_size_gb) + "G";
     
     return system(cmd.c_str());
 }
@@ -1484,7 +1552,8 @@ int qemu_create_snapshot(const char* vm_name, const char* snapshot_name) {
         return -1;
     }
     
-    std::string cmd = "qemu-img snapshot -c " + std::string(snapshot_name) + " " + disk_path;
+    std::string cmd = "qemu-img snapshot -c " + shell_quote(snapshot_name) + " " +
+                      shell_quote(disk_path);
     int result = system(cmd.c_str());
     
     if (result == 0) {
@@ -1515,7 +1584,8 @@ int qemu_restore_snapshot(const char* vm_name, const char* snapshot_name) {
         return -1;
     }
     
-    std::string cmd = "qemu-img snapshot -a " + std::string(snapshot_name) + " " + disk_path;
+    std::string cmd = "qemu-img snapshot -a " + shell_quote(snapshot_name) + " " +
+                      shell_quote(disk_path);
     int result = system(cmd.c_str());
     
     if (result == 0) {
@@ -1610,7 +1680,8 @@ int qemu_delete_snapshot(const char* vm_name, const char* snapshot_name) {
         return -1;
     }
     
-    std::string cmd = "qemu-img snapshot -d " + std::string(snapshot_name) + " " + disk_path;
+    std::string cmd = "qemu-img snapshot -d " + shell_quote(snapshot_name) + " " +
+                      shell_quote(disk_path);
     int result = system(cmd.c_str());
     
     if (result == 0) {
