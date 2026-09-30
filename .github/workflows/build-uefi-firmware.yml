@@ -96,6 +96,8 @@ jobs:
         # 设置构建配置 (使用edk2默认配置)
         echo "ACTIVE_PLATFORM       = ArmVirtPkg/ArmVirtQemu.dsc" > "$CONF_PATH/target.txt"
         echo "TARGET_ARCH           = AARCH64" >> "$CONF_PATH/target.txt"
+        echo "TOOL_CHAIN_CONF       = Conf/tools_def.txt" >> "$CONF_PATH/target.txt"
+        echo "BUILD_RULE_CONF       = Conf/build_rule.txt" >> "$CONF_PATH/target.txt"
         echo "TOOL_CHAIN_TAG        = GCC" >> "$CONF_PATH/target.txt"
         echo "BUILD_TARGET          = RELEASE" >> "$CONF_PATH/target.txt"
         
