@@ -166,12 +166,14 @@ jobs:
         path.write_text(text)
         PY
 
-    - name: Install Hvigor 6.0.0 dependencies
+    - name: Install Hvigor 5.18.6 dependencies
       run: |
         set -euxo pipefail
         npm config set @ohos:registry https://repo.harmonyos.com/npm/
         npm install --no-save --ignore-scripts \
-          @ohos/hvigor@6.0.0 @ohos/hvigor-ohos-plugin@6.0.0
+          @ohos/hvigor@5.18.6 @ohos/hvigor-ohos-plugin@5.18.6
+        # Match the Hvigor release bundled for HarmonyOS 5.1.0/API 18.
+        sed -i 's/6\\.0\\.0/5.18.6/g' hvigor-config.json5
         # The package exposes hvigor.js rather than a node_modules/.bin shim.
         # Invoke the pinned CLI directly so this stays deterministic in CI.
         HVIGOR_JS=node_modules/@ohos/hvigor/bin/hvigor.js
