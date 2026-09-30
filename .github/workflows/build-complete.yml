@@ -21,8 +21,9 @@ jobs:
     uses: ./.github/workflows/build-uefi-firmware.yml
     secrets: inherit
     
+  # Build the unsigned HAP validation artifact independently. The binary
+  # publication gate remains enforced inside the producer jobs above.
   build-hap-package:
-    needs: [build-so-libraries, build-uefi-firmware]
     uses: ./.github/workflows/build-hap-package.yml
     with:
       so-artifact-name: ${{ needs.build-so-libraries.outputs.so-artifact-name }}
