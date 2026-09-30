@@ -45,8 +45,8 @@ jobs:
     uses: ./.github/workflows/binary-publication-gate.yml
 
   build-hap-package:
-    needs: publication-review
-    if: needs.publication-review.outputs.allowed == 'true'
+    # This is a validation build. Publication remains separately blocked by
+    # binary-publication-gate.yml until release evidence is complete.
     runs-on: self-hosted
     timeout-minutes: 30
     
@@ -57,31 +57,17 @@ jobs:
         submodules: false
         
     - name: Download SO libraries
-      if: ${{ github.event.inputs.so-artifact-name != '' }}
+      if: ${{ inputs.so-artifact-name != '' }}
       uses: actions/download-artifact@v4
       with:
-        name: ${{ github.event.inputs.so-artifact-name }}
+        name: ${{ inputs.so-artifact-name }}
         path: so-artifacts/
         
     - name: Download UEFI firmware
-      if: ${{ github.event.inputs.firmware-artifact-name != '' }}
+      if: ${{ inputs.firmware-artifact-name != '' }}
       uses: actions/download-artifact@v4
       with:
-        name: ${{ github.event.inputs.firmware-artifact-name }}
-        path: firmware-artifacts/
-        
-    - name: Download latest SO libraries
-      if: ${{ github.event.inputs.so-artifact-name == '' }}
-      uses: actions/download-artifact@v4
-      with:
-        name: qemu-so-libraries-${{ github.sha }}
-        path: so-artifacts/
-        
-    - name: Download latest UEFI firmware
-      if: ${{ github.event.inputs.firmware-artifact-name == '' }}
-      uses: actions/download-artifact@v4
-      with:
-        name: uefi-firmware-${{ github.sha }}
+        name: ${{ inputs.firmware-artifact-name }}
         path: firmware-artifacts/
         
     - name: Setup Java
@@ -192,8 +178,10 @@ jobs:
         echo "=== Preparing HAP artifacts ==="
         mkdir -p artifacts/hap
         
-        # 复制HAP文件
-        cp entry/build/default/outputs/default/entry-default-unsigned.hap artifacts/hap/
+        # Keep the source-produced package unsigned, but give the validation
+        # artifact the product-facing filename used by downstream checks.
+        cp entry/build/default/outputs/default/entry-default-unsigned.hap artifacts/hap/Aetherium.Hap
+        printf '%s\n' 'SIGNING_STATUS=unsigned' > artifacts/hap/SIGNING_STATUS.txt
         
         # 创建版本信息
         echo "HarmonyOS HAP Package Build" > artifacts/hap/VERSION.txt
