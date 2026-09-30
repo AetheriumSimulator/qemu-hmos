@@ -42,7 +42,7 @@ jobs:
         echo "=== Downloading HarmonyOS SDK ==="
         # 安装必要的工具 (静默更新以避免重复源警告)
         sudo apt-get update --quiet
-        sudo apt-get install -y --quiet unzip file cmake ninja-build python3-venv
+        sudo apt-get install -y --quiet unzip file cmake ninja-build pkg-config python3-venv
 
         # 使用HarmonyOS Next官方下载链接
         SDK_URLS=(
@@ -170,7 +170,34 @@ jobs:
         ninja --version
         
         echo "✅ Python environment ready"
-        
+
+    - name: Build HarmonyOS cross dependencies
+      run: |
+        set -euo pipefail
+        source venv/bin/activate
+
+        # QEMU's configure derives the Meson pkg-config binary from
+        # --cross-prefix. Build the target dependencies first so that this
+        # binary resolves target .pc files instead of silently inspecting the
+        # Ubuntu host's GLib installation.
+        export OHOS_NDK_HOME="$NDK_DIR"
+        export PKG_CONFIG_PATH=""
+        bash tools/build_ohos_deps.sh
+
+        DEPS_PREFIX="$GITHUB_WORKSPACE/third_party/deps/install-ohos"
+        PKG_CONFIG_WRAPPER="$GITHUB_WORKSPACE/third_party/deps/.ohos-build/toolchain/aarch64-unknown-linux-ohos-pkg-config"
+        test -x "$PKG_CONFIG_WRAPPER"
+        test -f "$DEPS_PREFIX/lib/pkgconfig/glib-2.0.pc"
+
+        {
+          echo "OHOS_DEPS_PREFIX=$DEPS_PREFIX"
+          echo "PKG_CONFIG=$PKG_CONFIG_WRAPPER"
+          echo "PKG_CONFIG_LIBDIR=$DEPS_PREFIX/lib/pkgconfig:$SYSROOT/usr/lib/pkgconfig"
+          echo "PKG_CONFIG_PATH="
+        } >> "$GITHUB_ENV"
+        echo "Using target pkg-config: $PKG_CONFIG_WRAPPER"
+        "$PKG_CONFIG_WRAPPER" --modversion glib-2.0
+
     - name: Build QEMU static library
       id: build_qemu
       run: |
