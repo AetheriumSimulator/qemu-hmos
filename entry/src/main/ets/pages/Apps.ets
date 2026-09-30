@@ -1,6 +1,5 @@
 import qemu from 'qemu_hmos';
 import router from '@ohos.router';
-import { RDPAuthManager, RDPConnectionStatus } from '../utils/RDPAuthManager';
 
 interface AppInfo {
   name: string;
@@ -21,7 +20,6 @@ struct AppsPage {
   @State error: string = '';
   @State statusMessage: string = '';
 
-  private rdpAuthManager: RDPAuthManager = RDPAuthManager.getInstance();
 
   private async startApp(app: AppInfo) {
     this.loading = true;
@@ -51,8 +49,10 @@ struct AppsPage {
         return;
       }
       
-      // 启动应用
-      await this.launchAppViaRDP(app);
+      // 远程应用执行不可用。
+      this.error = `无法直接启动 ${app.name}：远程应用功能暂不可用，请通过 VNC 手动启动`;
+      this.statusMessage = '正在打开 VNC...';
+      router.pushUrl({ url: 'pages/VNCNativeViewer', params: { vmName: 'default-vm', vncHost: '127.0.0.1', vncPort: 5901 } });
       
     } catch (e) {
       this.error = `启动异常: ${e instanceof Error ? e.message : JSON.stringify(e)}`;
@@ -63,7 +63,7 @@ struct AppsPage {
   }
   
   /**
-   * 等待 VM 就绪（RDP 服务可用）
+   * 等待 VM 就绪（图形服务可用）
    */
   private async waitForVMReady(vmName: string, timeout: number = 60000): Promise<boolean> {
     const startTime = Date.now();
@@ -74,7 +74,7 @@ struct AppsPage {
         // 检查 VM 状态
         const status = qemu.getVmStatus(vmName);
         if (status === 'running') {
-          // 等待 RDP 端口就绪（简化实现）
+          // 等待图形服务初始化
           await new Promise<void>(resolve => setTimeout(resolve, 3000));
           return true;
         }
@@ -88,110 +88,6 @@ struct AppsPage {
     return false;
   }
   
-  private async launchAppViaRDP(app: AppInfo) {
-    this.statusMessage = '正在建立 RDP 连接...';
-    
-    try {
-      // 使用 RDPAuthManager 进行真正的 RDP 连接
-      const session = await this.rdpAuthManager.connectWithCredentials(
-        'default-vm',
-        '127.0.0.1',
-        3390,
-        'Administrator',
-        'password',
-        undefined,
-        true,  // savePassword
-        true   // autoConnect
-      );
-      
-      if (!session || session.status === RDPConnectionStatus.ERROR) {
-        this.error = `RDP 连接失败: ${session?.errorMessage || '未知错误'}`;
-        return;
-      }
-      
-      if (session.status === RDPConnectionStatus.CONNECTED) {
-        this.statusMessage = `正在启动 ${app.name}...`;
-        
-        // 构建应用启动命令
-        const command = this.buildAppCommand(app);
-        
-        // 通过 RDP 执行应用启动命令
-        await this.executeRDPCommand(command);
-        
-        // 跳转到 RDP 查看器页面
-          router.pushUrl({
-            url: 'pages/RDPViewer',
-            params: {
-              vmId: 'default-vm',
-              rdpHost: '127.0.0.1',
-              rdpPort: 3390
-            }
-          });
-      } else {
-        this.error = 'RDP 连接未完成';
-      }
-    } catch (e) {
-      this.error = `应用启动失败: ${e instanceof Error ? e.message : String(e)}`;
-    }
-  }
-
-  private buildAppCommand(app: AppInfo): string {
-    switch (app.name) {
-      case '记事本':
-        return 'notepad.exe';
-      case '计算器':
-        return 'calc.exe';
-      case '画图':
-        return 'mspaint.exe';
-      case '浏览器':
-        return 'msedge.exe';
-      case '文件管理器':
-        return 'explorer.exe';
-      default:
-        return app.cmd || app.name;
-    }
-  }
-
-  /**
-   * 通过 RDP 执行命令
-   * 使用键盘输入模拟：Win+R -> 输入命令 -> Enter
-   */
-  private async executeRDPCommand(command: string): Promise<void> {
-    // 简化实现：仅记录日志，实际键盘输入需要 Native 支持
-    console.info(`[Apps] executeRDPCommand: ${command}`);
-    
-    // 模拟执行延迟
-    await new Promise<void>(resolve => setTimeout(resolve, 500));
-    
-    /* 原 Native 实现（需要 qemu 模块支持 rdpSendKeyEvent）
-    try {
-      // Win+R 打开运行对话框
-      // 等待运行对话框打开
-        await new Promise<void>(resolve => setTimeout(resolve, 500));
-        
-        // 输入命令
-        for (const char of command) {
-          const keyCode = char.charCodeAt(0);
-          await qemuNative.rdpSendKeyEvent(keyCode, true);
-          await qemuNative.rdpSendKeyEvent(keyCode, false);
-          await new Promise<void>(resolve => setTimeout(resolve, 50));
-        }
-        
-        // 按回车执行
-        await new Promise<void>(resolve => setTimeout(resolve, 200));
-        await qemuNative.rdpSendKeyEvent(0xFF0D, true);  // Return down
-        await qemuNative.rdpSendKeyEvent(0xFF0D, false); // Return up
-        
-        console.info(`[Apps] Command executed via RDP: ${command}`);
-    } catch (e) {
-        console.error(`[Apps] Failed to send RDP key events: ${e}`);
-        throw e;
-      }
-    } else {
-      // 降级：记录日志
-      console.warn('[Apps] RDP key input not available, command logged only:', command);
-    }
-  }
 
   build() {
     Column() {
