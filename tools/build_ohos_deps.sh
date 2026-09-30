@@ -90,7 +90,10 @@ python = 'python3'
 
 [properties]
 needs_exe_wrapper = true
-sys_root = '${SYSROOT}'
+# Keep the dependency prefix's absolute pkg-config paths intact.  The
+# compiler still receives --sysroot through the built-in options below; using
+# Meson's sys_root property would prepend that SDK path to our staged prefix
+# and turn /.../install-ohos/include into $SYSROOT/.../install-ohos/include.
 
 [built-in options]
 c_args = ['--target=${CROSS_TRIPLE}', '--sysroot=${SYSROOT}', '-fPIC']
