@@ -96,15 +96,15 @@ endif()
 # 让工具链按默认规则生成平台后缀（不要强制输出到源码树）
 
 # QEMU库路径
-set(QEMU_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/qemu/build")
+set(QEMU_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/qemu/build")
 
 # 检查实际的QEMU构建目录（可能因构建配置而异）
 if(NOT EXISTS "${QEMU_BUILD_DIR}")
     # 尝试其他可能的构建目录
     set(QEMU_BUILD_DIR_CANDIDATES
-        "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/qemu/build_harmonyos_full"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/qemu/build_local_test"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/qemu/build_mac_local"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/qemu/build_harmonyos_full"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/qemu/build_local_test"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/qemu/build_mac_local"
     )
 
     foreach(candidate ${QEMU_BUILD_DIR_CANDIDATES})
@@ -118,7 +118,7 @@ endif()
 
 message(STATUS "Using QEMU build directory: ${QEMU_BUILD_DIR}")
 set(QEMU_INCLUDE_DIRS
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/qemu/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/qemu/include"
     "${QEMU_BUILD_DIR}"
 )
 
