@@ -187,14 +187,17 @@ jobs:
       run: |
         set -euxo pipefail
         if [ -d so-artifacts/libs/arm64-v8a ]; then
-          mkdir -p entry/src/main/libs/arm64-v8a
+          # HarmonyOS packages module-native libraries from entry/libs/<abi>.
+          # Keep the CMake staging path in sync for the prebuilt wrapper.
+          mkdir -p entry/libs/arm64-v8a entry/src/main/libs/arm64-v8a
+          cp -v so-artifacts/libs/arm64-v8a/*.so entry/libs/arm64-v8a/
           cp -v so-artifacts/libs/arm64-v8a/*.so entry/src/main/libs/arm64-v8a/
         fi
         if [ -d firmware-artifacts ]; then
           mkdir -p entry/src/main/resources/rawfile
           cp -v firmware-artifacts/*.fd entry/src/main/resources/rawfile/
         fi
-        find entry/src/main/libs/arm64-v8a -name '*.so' -type f -print
+        find entry/libs/arm64-v8a entry/src/main/libs/arm64-v8a -name '*.so' -type f -print
         find entry/src/main/resources/rawfile -name '*.fd' -type f -print || true
 
     - name: Use prebuilt native libraries for HAP packaging
