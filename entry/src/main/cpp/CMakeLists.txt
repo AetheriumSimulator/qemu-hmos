@@ -564,6 +564,9 @@ target_link_libraries(qemu_hmos
     -lz
 )
 
+# End the source-build-only static-linking block. The compile options,
+# output properties, and prebuilt packaging below handle both modes.
+endif()
 
 # 设置编译选项（只在非预编译模式下）
 if(BUILD_FOR_OHOS AND NOT USE_PREBUILT_LIB)
@@ -712,10 +715,6 @@ if(EXISTS ${QEMU_FULL_SRC})
     message(STATUS "libqemu_full.so will be loaded via dlopen at runtime")
 else()
     message(WARNING "Prebuilt core not found at ${QEMU_FULL_SRC}; libqemu_full.so will not be packaged. You can still place it under src/main/libs/arm64-v8a/ manually or push to files/ at runtime.")
-endif()
-
-# End the source-build-only static-linking block opened above. Prebuilt
-# packaging and diagnostics below must run in both build modes.
 endif()
 
 # ============ 复制架构特定的 QEMU 库（用于多架构支持）============
