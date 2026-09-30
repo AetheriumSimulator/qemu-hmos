@@ -13,7 +13,7 @@ export type CpuCamp = 'aarch64' | 'x86_64' | 'i386' | 'riscv64' | 'other'
 
 /**
  * 虚拟机启动模式
- * - standard: 普通启动 - 使用VNC，适用于macOS/不支持RDP的系统
+ * - standard: 普通启动 - 使用VNC，适用于 macOS 及其他系统
  * - debug: 调试模式 - 仅串口TTL，无图形界面
  */
 export type VMBootMode = 'standard' | 'debug'
