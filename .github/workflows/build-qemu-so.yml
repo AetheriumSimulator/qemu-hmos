@@ -260,7 +260,10 @@ jobs:
         # Convert the generated executable link command into a PIC shared core.
         # This keeps Meson's resolved internal archives and target dependencies,
         # while excluding system/main.c (which supplies the executable main).
-        LINK_CMD=$(ninja -t commands qemu-system-aarch64 | grep -F "system_main.c.o" | grep -v ' -c ' | tail -n 1)
+        LINK_CMD=$(ninja -t commands qemu-system-aarch64 | grep -F "system_main.c.o" | grep -v ' -c ' | tail -n 1 || true)
+        if [ -z "$LINK_CMD" ]; then
+          LINK_CMD=$(ninja -t commands | grep -F 'qemu-system-aarch64' | grep -v ' -c ' | tail -n 1 || true)
+        fi
         test -n "$LINK_CMD"
         if grep -q ' -c ' <<<"$LINK_CMD"; then echo '❌ selected compile command, not linker'; exit 1; fi
         export LINK_CMD
