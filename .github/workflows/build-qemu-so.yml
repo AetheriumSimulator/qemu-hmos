@@ -263,7 +263,8 @@ jobs:
         # compiler file to itself, so replacing it and execing that path would
         # recurse forever (and eventually fail with ENOENT).
         REAL_CC_SLOT="${CC}.meson-real"
-        cp -a "$CC" "$REAL_CC_SLOT"
+        # Dereference SDK symlinks so removing $CC does not leave a dangling slot.
+        cp -L "$CC" "$REAL_CC_SLOT"
         restore_compiler() {
           if [ -e "$REAL_CC_SLOT" ]; then
             rm -f "$CC"
