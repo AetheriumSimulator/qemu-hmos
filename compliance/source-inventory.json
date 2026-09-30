@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "Initial inventory of QEMU, native display and build dependencies; not a complete release SBOM",
+  "scope": "Initial inventory of QEMU and native display/build dependencies; not a complete release SBOM. RDP/FreeRDP has been removed from the application path.",
   "binaryPublication": {
     "status": "blocked",
     "blockers": [
@@ -74,29 +74,6 @@
         {
           "path": "tools/build_libvnc_ohos.sh",
           "sha256": "df524ce011b3dd913e6417a595cf7dae28ccd64ff5c01fad5e5cab2c5cbbb106"
-        }
-      ]
-    },
-    {
-      "id": "freerdp",
-      "origin": "https://github.com/FreeRDP/FreeRDP.git",
-      "status": "provenance-incomplete",
-      "source": {
-        "kind": "vendored-tree",
-        "path": "third_party/freerdp/src",
-        "gitTree": "f4e13ac4302442cacdcc079bb19bdebeceae46fc"
-      },
-      "upstreamRevision": null,
-      "licenseEvidence": [
-        {
-          "path": "third_party/freerdp/src/LICENSE",
-          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
-        }
-      ],
-      "recipes": [
-        {
-          "path": "tools/build_freerdp_ohos.sh",
-          "sha256": "fec899523cf6a95e28dcd867dd0c70d7432bc3c58668b13c0317f7e437367d32"
         }
       ]
     },
