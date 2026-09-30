@@ -269,14 +269,14 @@ jobs:
         trap restore_compiler EXIT
         mv "$CC" "$REAL_CC_SLOT"
         cat > "$CC" <<EOF
-#!/bin/sh
-for arg in "\$@"; do
-  case "\$arg" in
-    @*.rsp) cp "\${arg#@}" "$MESON_RSP" ;;
-  esac
-done
-exec "$REAL_CC" "\$@"
-EOF
+        #!/bin/sh
+        for arg in "\$@"; do
+          case "\$arg" in
+            @*.rsp) cp "\${arg#@}" "$MESON_RSP" ;;
+          esac
+        done
+        exec "$REAL_CC" "\$@"
+        EOF
         chmod +x "$CC"
         ninja -j$(nproc) qemu-system-aarch64
         restore_compiler
