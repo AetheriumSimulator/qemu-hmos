@@ -714,6 +714,10 @@ else()
     message(WARNING "Prebuilt core not found at ${QEMU_FULL_SRC}; libqemu_full.so will not be packaged. You can still place it under src/main/libs/arm64-v8a/ manually or push to files/ at runtime.")
 endif()
 
+# End the source-build-only static-linking block opened above. Prebuilt
+# packaging and diagnostics below must run in both build modes.
+endif()
+
 # ============ 复制架构特定的 QEMU 库（用于多架构支持）============
 # libqemu_aarch64.so, libqemu_x86_64.so, libqemu_i386.so
 set(QEMU_ARCH_LIBS "libqemu_aarch64.so" "libqemu_x86_64.so" "libqemu_i386.so")
