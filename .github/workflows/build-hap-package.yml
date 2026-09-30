@@ -119,7 +119,11 @@ jobs:
         # API 18 is the explicit product target in build-profile.json5. The
         # command-line bundle exposes that SDK as sdk/default/openharmony,
         # rather than as a nested numeric directory.
-        test -d "$sdk_dir/ets"
+        # Hvigor resolves API components below the SDK base directory.
+        # Keep the command-line bundle's versioned layout explicit.
+        for component in ets js native previewer toolchains; do
+          test -d "$sdk_dir/$component"
+        done
         metadata_files=( $(find "$sdk_dir" -type f \
           \( -name 'oh-uni-package.json' -o -name 'package.json' \) -print) )
         test "${#metadata_files[@]}" -gt 0
@@ -133,9 +137,9 @@ jobs:
         mkdir -p "$base_sdk"
         ln -sfn "$sdk_dir" "$base_sdk/18"
         {
-          echo "HOS_SDK_HOME=$sdk_dir"
-          echo "DEVECO_SDK_HOME=$sdk_dir"
-          echo "OHOS_SDK_HOME=$sdk_dir"
+          echo "HOS_SDK_HOME=$base_sdk"
+          echo "DEVECO_SDK_HOME=$base_sdk"
+          echo "OHOS_SDK_HOME=$base_sdk"
           echo "OHOS_BASE_SDK_HOME=$base_sdk"
           echo "HARMONY_NATIVE_DIR=$sdk_dir/native"
           echo "OHOS_NDK_HOME=$sdk_dir/native"
