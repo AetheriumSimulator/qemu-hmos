@@ -377,6 +377,15 @@ jobs:
         test -x "$CXX"
         test -f "$NDK_DIR/build/cmake/ohos.toolchain.cmake"
         
+        # The CMake project consumes the freshly linked QEMU core from the
+        # native module's packaged-library directory. Seed it before configure
+        # so the wrapper links/packages the exact artifact just validated.
+        CORE_SO="$GITHUB_WORKSPACE/third_party/qemu/build/libqemu_full.so"
+        test -s "$CORE_SO"
+        mkdir -p "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a"
+        cp "$CORE_SO" "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_full.so"
+        test -s "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_full.so"
+
         # 创建构建目录
         mkdir -p build
         cd build
@@ -392,11 +401,12 @@ jobs:
         # 构建
         make -j$(nproc)
         
-        if [ ! -f "libqemu_hmos.so" ]; then
-          echo "❌ NAPI wrapper build failed"
+        NAPI_SO="$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_hmos.so"
+        if [ ! -s "$NAPI_SO" ]; then
+          echo "❌ NAPI wrapper build failed: $NAPI_SO is missing"
           exit 1
         fi
-        echo "✅ libqemu_hmos.so created (size: $(du -h libqemu_hmos.so | cut -f1))"
+        echo "✅ libqemu_hmos.so created (size: $(du -h "$NAPI_SO" | cut -f1))"
         
     - name: Prepare SO artifacts
       run: |
@@ -405,7 +415,7 @@ jobs:
         
         # 复制SO文件
         cp third_party/qemu/build/libqemu_full.so artifacts/libs/arm64-v8a/
-        cp entry/src/main/cpp/build/libqemu_hmos.so artifacts/libs/arm64-v8a/
+        cp entry/src/main/libs/arm64-v8a/libqemu_hmos.so artifacts/libs/arm64-v8a/
         test -s artifacts/libs/arm64-v8a/libqemu_full.so
         test -s artifacts/libs/arm64-v8a/libqemu_hmos.so
         file artifacts/libs/arm64-v8a/*.so
