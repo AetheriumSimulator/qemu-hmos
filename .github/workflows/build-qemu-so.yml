@@ -183,6 +183,8 @@ jobs:
         export OHOS_NDK_HOME="$NDK_DIR"
         export PKG_CONFIG_PATH=""
         bash tools/build_ohos_deps.sh
+        bash tools/build_openssl_ohos.sh
+        bash tools/build_curl_ohos.sh
 
         DEPS_PREFIX="$GITHUB_WORKSPACE/third_party/deps/install-ohos"
         PKG_CONFIG_WRAPPER="$GITHUB_WORKSPACE/third_party/deps/.ohos-build/toolchain/aarch64-unknown-linux-ohos-pkg-config"
@@ -269,7 +271,7 @@ jobs:
           libqemu-aarch64-softmmu.a \
           libqemuutil.a \
           -Wl,--no-whole-archive \
-          -lpthread -ldl -lm -lcurl -lssl -lcrypto \
+          -lpthread -ldl -lm $("$PKG_CONFIG" --static --libs libcurl) \
           -o libqemu_full.so
         if [ ! -f "libqemu_full.so" ]; then
           echo "❌ Shared library creation failed"
