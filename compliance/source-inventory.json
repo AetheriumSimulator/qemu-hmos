@@ -169,7 +169,7 @@
       "recipes": [
         {
           "path": "tools/build_openssl_ohos.sh",
-          "sha256": "693a30e832c92f8f6404b591b19f9ebf99adeba76c3b1bf838f0713b26bec0b5"
+          "sha256": "6a4fb73f1c710fbe67d05ba7a8901a25a101557cba5add7028de784e0724f9e4"
         }
       ]
     },
