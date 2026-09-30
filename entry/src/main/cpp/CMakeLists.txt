@@ -459,14 +459,10 @@ if(EXISTS ${QEMU_FULL_SO})
         target_link_libraries(qemu_hmos qemu_full)
         target_link_options(qemu_hmos PRIVATE "-Wl,--as-needed")
         
-        # ============ 确保 libqemu_full.so 被复制到输出目录 ============
-        # HarmonyOS 构建系统需要显式复制依赖库
-        add_custom_command(TARGET qemu_hmos POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${QEMU_FULL_SO}"
-                "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libqemu_full.so"
-            COMMENT "Copying libqemu_full.so to output directory"
-        )
+        # The workflow stages libqemu_full.so in the packaged-library directory
+        # before configuring this wrapper. Do not copy to CMAKE_LIBRARY_OUTPUT_DIRECTORY
+        # here because that variable is defined later in this file (and is empty
+        # during this target's POST_BUILD registration).
     endif()
 else()
     message(WARNING "❌ QEMU core library not found, will use dlopen at runtime")
