@@ -303,39 +303,50 @@ jobs:
         if grep -q ' -c ' <<<"$LINK_CMD"; then echo '❌ selected compile command, not linker'; exit 1; fi
         export LINK_CMD MESON_RSP
         python3 - <<'PY'
-        import os, shlex, subprocess, pathlib
+        import os, pathlib, shlex, subprocess
         raw = os.environ['LINK_CMD']
         argv = shlex.split(raw)
         if not argv:
             raise SystemExit('empty Meson link command')
         compiler = argv[0]
-        args = []
-        skip_next = False
-        saw_output = False
+
+        def clean_link_tokens(tokens):
+            cleaned = []
+            skip_next = False
+            for token in tokens:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if token in ('-pie', '-Wl,-pie'):
+                    continue
+                if token == '-o':
+                    skip_next = True
+                    continue
+                if token.endswith('system_main.c.o') or token.endswith('/system/main.c.o'):
+                    continue
+                cleaned.append(token)
+            return cleaned
+
+        # Meson commonly puts the object list, including system/main.c.o and
+        # the executable -o, in a response file. Filter that file as well as
+        # the visible command so the shared core has no executable entry point.
+        visible_args = []
+        rsp_tokens = []
+        rsp_path = pathlib.Path(os.environ['MESON_RSP'])
         for token in argv[1:]:
-            if skip_next:
-                skip_next = False
-                args.append('libqemu_full.so')
-                saw_output = True
-                continue
-            if token in ('-pie', '-Wl,-pie'):
-                continue
             if token.startswith('@'):
-                # The wrapper captured Meson's transient response file while
-                # Ninja linked the executable; use that stable absolute path.
-                token = '@' + os.environ['MESON_RSP']
-                args.append(token)
-                continue
-            if token.endswith('system_main.c.o') or token.endswith('/system/main.c.o'):
-                continue
-            if token == '-o':
-                args.append(token)
-                skip_next = True
-                continue
-            args.append(token)
-        if not saw_output:
-            args.extend(['-o', 'libqemu_full.so'])
-            saw_output = True
+                if not rsp_path.is_file():
+                    raise SystemExit(f'Meson response file missing: {rsp_path}')
+                rsp_tokens.extend(shlex.split(rsp_path.read_text()))
+            else:
+                visible_args.append(token)
+
+        args = clean_link_tokens(visible_args)
+        if rsp_tokens:
+            shared_rsp = rsp_path.with_name('meson-shared-link.rsp')
+            shared_rsp.write_text(shlex.join(clean_link_tokens(rsp_tokens)))
+            args.append('@' + str(shared_rsp))
+        args.extend(['-o', 'libqemu_full.so'])
         cmd = [compiler, '-shared', '-fPIC', '-Wl,--no-undefined'] + args
         print('Running PIC shared link with Meson graph:', ' '.join(shlex.quote(x) for x in cmd))
         subprocess.run(cmd, check=True)
