@@ -133,14 +133,15 @@ jobs:
           cat /tmp/aetherium-sdk-version.txt || true
           exit 1
         fi
-        base_sdk="$GITHUB_WORKSPACE/sdk"
-        mkdir -p "$base_sdk"
-        ln -sfn "$sdk_dir" "$base_sdk/18"
+        # Hvigor expects the SDK home parent (the directory containing
+        # default/sdk-pkg.json), not the flattened openharmony component.
+        sdk_home="${sdk_dir%/default/openharmony}"
+        test -f "$sdk_home/default/sdk-pkg.json"
         {
-          echo "HOS_SDK_HOME=$base_sdk"
-          echo "DEVECO_SDK_HOME=$base_sdk"
-          echo "OHOS_SDK_HOME=$base_sdk"
-          echo "OHOS_BASE_SDK_HOME=$base_sdk"
+          echo "HOS_SDK_HOME=$sdk_home"
+          echo "DEVECO_SDK_HOME=$sdk_home"
+          echo "OHOS_SDK_HOME=$sdk_home"
+          echo "OHOS_BASE_SDK_HOME=$sdk_home"
           echo "HARMONY_NATIVE_DIR=$sdk_dir/native"
           echo "OHOS_NDK_HOME=$sdk_dir/native"
           echo "HAP_TARGET_API=18"
