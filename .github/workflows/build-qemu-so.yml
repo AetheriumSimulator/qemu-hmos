@@ -22,7 +22,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        submodules: false
+        submodules: true
         
     - name: Download and setup HarmonyOS SDK
       run: |
@@ -129,23 +129,36 @@ jobs:
           ls -la "$NATIVE_DIR"
           exit 1
         fi
-        
-        export SYSROOT="$(pwd)/$NATIVE_DIR/sysroot"
-        export CC="$(pwd)/$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang"
-        export CXX="$(pwd)/$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang++"
-        export STRIP="$(pwd)/$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-strip"
-        
+
+        NATIVE_DIR_ABS="$(cd "$NATIVE_DIR" && pwd)"
+        export HARMONY_NATIVE_DIR="$NATIVE_DIR_ABS"
+        export SYSROOT="$HARMONY_NATIVE_DIR/sysroot"
+        export CC="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang"
+        export CXX="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang++"
+        export STRIP="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-strip"
+
+        # Persist the SDK location and toolchain for later workflow steps.
+        {
+          echo "HARMONY_NATIVE_DIR=$HARMONY_NATIVE_DIR"
+          echo "SYSROOT=$SYSROOT"
+          echo "CC=$CC"
+          echo "CXX=$CXX"
+          echo "STRIP=$STRIP"
+        } >> "$GITHUB_ENV"
+
         # 如果找不到特定编译器，使用通用clang
-        if [ ! -f "$CC" ]; then
-          CC="$(pwd)/$NATIVE_DIR/bin/clang"
-          CXX="$(pwd)/$NATIVE_DIR/bin/clang++"
+        if [ ! -x "$CC" ]; then
+          CC="$HARMONY_NATIVE_DIR/bin/clang"
+          CXX="$HARMONY_NATIVE_DIR/bin/clang++"
+          echo "CC=$CC" >> "$GITHUB_ENV"
+          echo "CXX=$CXX" >> "$GITHUB_ENV"
         fi
-        
+
         # 验证编译器存在
-        if [ ! -f "$CC" ]; then
-          echo "❌ No suitable compiler found in $NATIVE_DIR/bin"
+        if [ ! -x "$CC" ]; then
+          echo "❌ No suitable compiler found in $HARMONY_NATIVE_DIR/bin"
           echo "Available compilers:"
-          ls -la "$NATIVE_DIR/bin/" | grep -E "(clang|gcc)"
+          ls -la "$HARMONY_NATIVE_DIR/bin/" | grep -E "(clang|gcc)"
           exit 1
         fi
         
@@ -172,7 +185,7 @@ jobs:
         echo "✅ Python environment ready"
         
     - name: Build QEMU static library
-      id: build
+      id: build_qemu
       run: |
         echo "=== Building QEMU ==="
         # 激活Python虚拟环境
@@ -208,7 +221,6 @@ jobs:
           --disable-brlapi --disable-spice \
           --disable-plugins \
           --disable-pixman \
-          --disable-system \
           -Dwrap_mode=forcefallback \
           -Ddefault_library=static \
           -Db_staticpic=true \
@@ -261,13 +273,14 @@ jobs:
         cd entry/src/main/cpp
         
         # 设置环境变量 - 使用之前确定的NATIVE_DIR
-        export SYSROOT="$(pwd)/../../../../$NATIVE_DIR/sysroot"
-        export CC="$(pwd)/../../../../$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang"
-        export CXX="$(pwd)/../../../../$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang++"
-        
-        if [ ! -f "$CC" ]; then
-          CC="$(pwd)/../../../../$NATIVE_DIR/bin/clang"
-          CXX="$(pwd)/../../../../$NATIVE_DIR/bin/clang++"
+        : "${HARMONY_NATIVE_DIR:?HarmonyOS SDK native directory was not persisted}"
+        export SYSROOT="$HARMONY_NATIVE_DIR/sysroot"
+        export CC="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang"
+        export CXX="$HARMONY_NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang++"
+
+        if [ ! -x "$CC" ]; then
+          CC="$HARMONY_NATIVE_DIR/bin/clang"
+          CXX="$HARMONY_NATIVE_DIR/bin/clang++"
         fi
         
         # 创建构建目录
@@ -276,7 +289,7 @@ jobs:
         
         # 配置CMake
         cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=../../../../native/cmake/ohos.toolchain.cmake \
+          -DCMAKE_TOOLCHAIN_FILE="$HARMONY_NATIVE_DIR/build/cmake/ohos.toolchain.cmake" \
           -DOHOS_ARCH=arm64-v8a \
           -DOHOS_PLATFORM=OHOS \
           -DCMAKE_BUILD_TYPE=Release
@@ -317,6 +330,7 @@ jobs:
         retention-days: 30
         
     - name: Set outputs
+      id: build
       run: |
         echo "artifact-name=qemu-so-libraries-${{ github.sha }}" >> $GITHUB_OUTPUT
         echo "version=${{ github.sha }}" >> $GITHUB_OUTPUT
