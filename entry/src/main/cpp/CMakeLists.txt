@@ -265,12 +265,13 @@ set(HVIGOR_ENTRY_INTERMEDIATES_LIBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../bu
 set(HVIGOR_ENTRY_STRIPPED_LIBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../build/default/intermediates/stripped_native_libs/default/arm64-v8a")
 
 # 预编译库路径：从 entry/src/main/cpp 向上到 entry/src/main，然后进入 libs/arm64-v8a
-get_filename_component(PREBUILT_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a" ABSOLUTE)
+get_filename_component(PREBUILT_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a" ABSOLUTE)
 set(PREBUILT_LIB_PATH "${PREBUILT_LIB_DIR}/libqemu_hmos.so")
+set(PREBUILT_FULL_LIB_PATH "${PREBUILT_LIB_DIR}/libqemu_full.so")
 
 if(USE_PREBUILT_LIB)
     # 预编译库模式：只检查库是否存在，并复制到 hvigor 期望的位置
-    if(EXISTS ${PREBUILT_LIB_PATH})
+    if(EXISTS ${PREBUILT_LIB_PATH} AND EXISTS ${PREBUILT_FULL_LIB_PATH})
         message(STATUS "✅ Using prebuilt library: ${PREBUILT_LIB_PATH}")
         # 创建一个导入库目标，用于依赖管理
         add_library(qemu_hmos SHARED IMPORTED GLOBAL)
@@ -283,14 +284,20 @@ if(USE_PREBUILT_LIB)
         set(PREBUILT_DST_ENTRY_DIR "${HVIGOR_ENTRY_INTERMEDIATES_LIBS_DIR}")
         set(PREBUILT_DST_APP "${PREBUILT_DST_APP_DIR}/libqemu_hmos.so")
         set(PREBUILT_DST_ENTRY "${PREBUILT_DST_ENTRY_DIR}/libqemu_hmos.so")
+        set(PREBUILT_FULL_DST_APP "${PREBUILT_DST_APP_DIR}/libqemu_full.so")
+        set(PREBUILT_FULL_DST_ENTRY "${PREBUILT_DST_ENTRY_DIR}/libqemu_full.so")
         
         # 使用 file(COPY) 在配置阶段复制
         file(MAKE_DIRECTORY ${PREBUILT_DST_APP_DIR})
         file(MAKE_DIRECTORY ${PREBUILT_DST_ENTRY_DIR})
         file(COPY ${PREBUILT_LIB_PATH} DESTINATION ${PREBUILT_DST_APP_DIR})
         file(COPY ${PREBUILT_LIB_PATH} DESTINATION ${PREBUILT_DST_ENTRY_DIR})
+        file(COPY ${PREBUILT_FULL_LIB_PATH} DESTINATION ${PREBUILT_DST_APP_DIR})
+        file(COPY ${PREBUILT_FULL_LIB_PATH} DESTINATION ${PREBUILT_DST_ENTRY_DIR})
         message(STATUS "✅ Copied prebuilt library to: ${PREBUILT_DST_APP}")
         message(STATUS "✅ Copied prebuilt library to: ${PREBUILT_DST_ENTRY}")
+        message(STATUS "✅ Copied prebuilt QEMU core to: ${PREBUILT_FULL_DST_APP}")
+        message(STATUS "✅ Copied prebuilt QEMU core to: ${PREBUILT_FULL_DST_ENTRY}")
         
         # 同时创建一个自定义目标确保每次构建都复制
         add_custom_target(copy_prebuilt_qemu_hmos ALL
@@ -298,12 +305,14 @@ if(USE_PREBUILT_LIB)
             COMMAND ${CMAKE_COMMAND} -E make_directory ${PREBUILT_DST_ENTRY_DIR}
             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PREBUILT_LIB_PATH} ${PREBUILT_DST_APP}
             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PREBUILT_LIB_PATH} ${PREBUILT_DST_ENTRY}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PREBUILT_FULL_LIB_PATH} ${PREBUILT_FULL_DST_APP}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PREBUILT_FULL_LIB_PATH} ${PREBUILT_FULL_DST_ENTRY}
             COMMENT "Copying prebuilt libqemu_hmos.so to intermediates"
         )
         
         message(STATUS "⚠️  Prebuilt library mode: skipping compile, using pre-built binary")
     else()
-        message(FATAL_ERROR "❌ Prebuilt library not found at ${PREBUILT_LIB_PATH}")
+        message(FATAL_ERROR "❌ Prebuilt libraries not found at ${PREBUILT_LIB_PATH} and ${PREBUILT_FULL_LIB_PATH}")
         message(FATAL_ERROR "   Please run: tools/build_libqemu_hmos.sh")
     endif()
 else()
@@ -355,7 +364,7 @@ endforeach()
 # The NAPI wrapper loads libqemu_full.so via dlopen; only use the
 # static fallback when no validated shared core has been staged.
 if(QEMU_LIBS AND NOT USE_PREBUILT_LIB AND
-   NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libqemu_full.so")
+   NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a/libqemu_full.so")
     target_link_libraries(qemu_hmos
         -Wl,--whole-archive
         ${QEMU_LIBS}
@@ -449,12 +458,12 @@ endif()
 
 # ============ 链接 QEMU 核心库（使用相对名称，让系统自动加载）============
 # HarmonyOS 的命名空间策略阻止了 dlopen，所以改为直接链接依赖
-set(QEMU_FULL_SO "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libqemu_full.so")
+set(QEMU_FULL_SO "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a/libqemu_full.so")
 if(EXISTS ${QEMU_FULL_SO})
     message(STATUS "✅ Found QEMU core library: ${QEMU_FULL_SO}")
     if(NOT USE_PREBUILT_LIB)
         # 使用 -L 和 -l 格式，确保 DT_NEEDED 中只有 "libqemu_full.so"（相对名称）
-        target_link_directories(qemu_hmos PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a")
+        target_link_directories(qemu_hmos PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a")
         target_link_options(qemu_hmos PRIVATE "-Wl,--no-as-needed")
         target_link_libraries(qemu_hmos qemu_full)
         target_link_options(qemu_hmos PRIVATE "-Wl,--as-needed")
@@ -614,11 +623,11 @@ endif()
 if(NOT USE_PREBUILT_LIB)
 set_target_properties(qemu_hmos PROPERTIES
     OUTPUT_NAME "qemu_hmos"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a"
 )
 
 # 确保 libqemu_hmos.so 也被复制到 intermediates 目录（HVIGOR 打包时会从这里读取）
-set(QEMU_HMOS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libqemu_hmos.so")
+set(QEMU_HMOS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a/libqemu_hmos.so")
 set(QEMU_HMOS_DST_APP_DIR "${HVIGOR_APP_INTERMEDIATES_LIBS_DIR}")
 set(QEMU_HMOS_DST_ENTRY_DIR "${HVIGOR_ENTRY_INTERMEDIATES_LIBS_DIR}")
 set(QEMU_HMOS_DST_APP "${QEMU_HMOS_DST_APP_DIR}/libqemu_hmos.so")
@@ -636,7 +645,7 @@ endif()
 
 # ---- Bundle prebuilt QEMU core into native outputs (so Hvigor packs it) ----
 # Copy prebuilt core from cpp folder to Hvigor expected directory
-set(QEMU_FULL_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libqemu_full.so")
+set(QEMU_FULL_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a/libqemu_full.so")
 set(QEMU_FULL_DST_APP_DIR "${HVIGOR_APP_INTERMEDIATES_LIBS_DIR}")
 set(QEMU_FULL_DST_ENTRY_DIR "${HVIGOR_ENTRY_INTERMEDIATES_LIBS_DIR}")
 set(QEMU_FULL_DST_ENTRY_STRIPPED_DIR "${HVIGOR_ENTRY_STRIPPED_LIBS_DIR}")
@@ -645,7 +654,7 @@ set(QEMU_FULL_DST_ENTRY "${QEMU_FULL_DST_ENTRY_DIR}/libqemu_full.so")
 set(QEMU_FULL_DST_ENTRY_STRIPPED "${QEMU_FULL_DST_ENTRY_STRIPPED_DIR}/libqemu_full.so")
 
 # Copy libslirp.so.0 (QEMU networking component - note the .0 suffix!)
-set(SLIRP_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libslirp.so.0")
+set(SLIRP_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a/libslirp.so.0")
 set(SLIRP_DST_APP "${QEMU_FULL_DST_APP_DIR}/libslirp.so.0")
 set(SLIRP_DST_ENTRY "${QEMU_FULL_DST_ENTRY_DIR}/libslirp.so.0")
 set(SLIRP_DST_ENTRY_STRIPPED "${QEMU_FULL_DST_ENTRY_STRIPPED_DIR}/libslirp.so.0")
@@ -665,7 +674,7 @@ if(EXISTS ${SLIRP_SRC})
 endif()
 
 # Copy libintl.so (gettext internationalization library)
-set(INTL_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libintl.so")
+set(INTL_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a/libintl.so")
 set(INTL_DST_APP "${QEMU_FULL_DST_APP_DIR}/libintl.so")
 set(INTL_DST_ENTRY "${QEMU_FULL_DST_ENTRY_DIR}/libintl.so")
 set(INTL_DST_ENTRY_STRIPPED "${QEMU_FULL_DST_ENTRY_STRIPPED_DIR}/libintl.so")
@@ -718,7 +727,7 @@ endif()
 # libqemu_aarch64.so, libqemu_x86_64.so, libqemu_i386.so
 set(QEMU_ARCH_LIBS "libqemu_aarch64.so" "libqemu_x86_64.so" "libqemu_i386.so")
 foreach(ARCH_LIB ${QEMU_ARCH_LIBS})
-    set(ARCH_LIB_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/${ARCH_LIB}")
+    set(ARCH_LIB_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a/${ARCH_LIB}")
     set(ARCH_LIB_DST_APP "${QEMU_FULL_DST_APP_DIR}/${ARCH_LIB}")
     set(ARCH_LIB_DST_ENTRY "${QEMU_FULL_DST_ENTRY_DIR}/${ARCH_LIB}")
     set(ARCH_LIB_DST_ENTRY_STRIPPED "${QEMU_FULL_DST_ENTRY_STRIPPED_DIR}/${ARCH_LIB}")
@@ -777,16 +786,16 @@ else()
     message(STATUS "❌ Core Library: Missing (libqemu_full.so)")
 endif()
 
-message(STATUS "Output Directory: ${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a")
+message(STATUS "Output Directory: ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a")
 message(STATUS "================================================")
 
 # 添加构建验证目标
 add_custom_target(verify_build
     COMMAND ${CMAKE_COMMAND} -E echo "=== Build Verification ==="
     COMMAND ${CMAKE_COMMAND} -E echo "Checking output files..."
-    COMMAND test -f "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libqemu_hmos.so" && echo "✅ libqemu_hmos.so found" || echo "❌ libqemu_hmos.so missing"
+    COMMAND test -f "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a/libqemu_hmos.so" && echo "✅ libqemu_hmos.so found" || echo "❌ libqemu_hmos.so missing"
     COMMAND test -f "${CMAKE_CURRENT_SOURCE_DIR}/../../oh_modules/libqemu_full.so" && echo "✅ libqemu_full.so found in oh_modules" || echo "❌ libqemu_full.so missing in oh_modules"
-    COMMAND test -f "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libqemu_full.so" && echo "✅ libqemu_full.so found in libs" || echo "❌ libqemu_full.so missing in libs"
+    COMMAND test -f "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a/libqemu_full.so" && echo "✅ libqemu_full.so found in libs" || echo "❌ libqemu_full.so missing in libs"
     COMMAND ${CMAKE_COMMAND} -E echo "=== Verification Complete ==="
     DEPENDS qemu_hmos copy_qemu_full
     COMMENT "Verifying that all required files are built and copied correctly"
