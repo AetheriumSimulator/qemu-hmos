@@ -510,6 +510,13 @@ struct VMConfig {
     std::string audioDevice;     // 声卡设备（hda、ac97、none）
 };
 
+// This build ships a single ARM64 QEMU core. x86 guests require separately
+// built cores and must fail explicitly instead of being emitted as ARM
+// command lines with an x86 label.
+static bool IsSupportedQemuArch(const std::string& archType) {
+    return archType.empty() || archType == "aarch64";
+}
+
 // VM状态管理
 static std::map<std::string, std::thread> g_vmThreads;
 static std::map<std::string, std::atomic<bool>*> g_vmRunning;
@@ -1809,6 +1816,10 @@ static bool CreateVirtualDisk(const std::string& diskPath, int sizeGB) {
 // 构建QEMU命令行参数
 static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
     std::vector<std::string> args;
+    if (!IsSupportedQemuArch(config.archType)) {
+        HilogPrint("QEMU: refusing unsupported architecture: " + config.archType);
+        return args;
+    }
     bool scsiControllerAdded = false;
     bool xhciControllerAdded = false;
     bool sataControllerAdded = false;
@@ -1857,14 +1868,8 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
         HilogPrint("QEMU: [HW] SATA controller added: ich9-ahci,id=ahci");
     };
     
-    // 根据架构选择QEMU二进制文件
-    if (config.archType == "x86_64") {
-        args.push_back("qemu-system-x86_64");
-    } else if (config.archType == "i386") {
-        args.push_back("qemu-system-i386");
-    } else {
-        args.push_back("qemu-system-aarch64"); // 默认 aarch64
-    }
+    // The bundled core is ARM64-only; do not advertise an x86 executable.
+    args.push_back("qemu-system-aarch64");
     
     // ============================================================
     // 设置 QEMU 数据目录 (-L 参数)
@@ -1934,20 +1939,9 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
         args.push_back("/data/storage/el2/base/haps/entry/files/qemu_data");
     }
     
-    // 根据架构设置机器类型和CPU
-    // 注意：当前 libqemu_full.so 仅编译了 aarch64 目标
-    // x86_64/i386 需要重新编译 QEMU 才能支持
-    if (config.archType == "x86_64" || config.archType == "i386") {
-        // x86 架构目前不支持，打印警告并回退到 aarch64 virt
-        HilogPrint("QEMU: WARNING - x86/x86_64 architecture is not supported in current build");
-        HilogPrint("QEMU: WARNING - Falling back to aarch64 virt machine");
-        args.push_back("-machine");
-        // Windows on ARM 通常需要 ACPI；对大多数 Linux 也兼容
-        args.push_back("virt,gic-version=3,acpi=on");
-        args.push_back("-cpu");
-        args.push_back("cortex-a72");
-    } else {
-        // aarch64 配置，支持从创建向导传入的 machine
+    // The bundled core supports only aarch64; use the configured ARM machine.
+    {
+        std::string machine = config.machine.empty() ? "virt" : config.machine;
         std::string machine = config.machine.empty() ? "virt" : config.machine;
         HilogPrint(std::string("QEMU: [HW] Machine = ") + machine);
 
@@ -2082,11 +2076,7 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
     if (firmwarePath.empty()) {
         HilogPrint("QEMU: [FIRMWARE] 固件路径为空，开始自动搜索...");
         std::string firmwareFileName;
-    if (config.archType == "x86_64" || config.archType == "i386") {
-            firmwareFileName = "OVMF_CODE.fd"; // x86 UEFI 固件
-    } else {
-            firmwareFileName = "edk2-aarch64-code.fd"; // ARM64 UEFI 固件
-    }
+        firmwareFileName = "edk2-aarch64-code.fd";
     
         std::vector<std::string> searchPaths = {
             // rawfile/ 目录（通过 FirmwareManager 复制到 files）
@@ -3069,21 +3059,19 @@ static std::string g_loaded_arch;
 
 // 根据架构获取 .so 文件名
 static std::string GetQemuLibName(const std::string& archType) {
-    // 支持的架构: aarch64, x86_64, i386
-    if (archType == "x86_64" || archType == "x86-64") {
-        return "libqemu_x86_64.so";
-    } else if (archType == "i386" || archType == "x86" || archType == "i686") {
-        return "libqemu_i386.so";
-    } else {
-        // 默认使用 ARM64
-        return "libqemu_aarch64.so";
-    }
+    if (!IsSupportedQemuArch(archType)) return "";
+    return "libqemu_aarch64.so";
 }
 
 // ============ 诊断：详细追踪 dlopen 过程 ============
 // 支持多架构加载：根据 archType 加载对应的 libqemu_{arch}.so
 static void EnsureQemuCoreLoaded(const std::string& logPath, const std::string& archType = "aarch64")
 {
+    if (!IsSupportedQemuArch(archType)) {
+        WriteLog(logPath, "[QEMU] Unsupported architecture for bundled core: " + archType);
+        HilogPrint("QEMU: unsupported architecture for bundled core: " + archType);
+        return;
+    }
     std::string libName = GetQemuLibName(archType);
     
     // 如果已经加载了相同架构的库，直接返回
@@ -3497,6 +3485,18 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     if (!ok) {
         napi_throw_error(env, nullptr, "Invalid config");
         return retBool;
+    }
+
+    if (!IsSupportedQemuArch(config.archType)) {
+        const std::string message =
+            "Unsupported architecture '" + config.archType +
+            "': this build currently supports aarch64 only";
+        HilogPrint("QEMU: " + message);
+        napi_throw_error(env, nullptr, message.c_str());
+        return retBool;
+    }
+    if (config.archType.empty()) {
+        config.archType = "aarch64";
     }
     
     std::lock_guard<std::mutex> lock(g_vmMutex);
