@@ -705,7 +705,11 @@ if(EXISTS ${QEMU_FULL_SRC})
         COMMENT "Copying prebuilt libqemu_full.so to intermediates (entry/build & build) and oh_modules"
     )
     add_custom_target(copy_qemu_full ALL DEPENDS ${QEMU_FULL_DST_APP} ${QEMU_FULL_DST_ENTRY} ${QEMU_FULL_DST_ENTRY_STRIPPED} ${QEMU_FULL_OH_DST})
-    add_dependencies(qemu_hmos copy_qemu_full)
+    # Imported qemu_hmos targets cannot accept target-level dependencies;
+    # the ALL custom target is sufficient in prebuilt mode.
+    if(NOT USE_PREBUILT_LIB)
+        add_dependencies(qemu_hmos copy_qemu_full)
+    endif()
 
     # 不再链接 libqemu_full.so，而是在运行时通过 dlopen 加载
     # 这样可以避免绝对路径被嵌入到 libqemu_hmos.so 中
