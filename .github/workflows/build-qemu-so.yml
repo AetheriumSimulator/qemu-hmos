@@ -15,6 +15,13 @@ on:
         required: false
         type: boolean
         default: false
+    outputs:
+      so-artifact-name:
+        description: 'Name of the source-built QEMU SO artifact'
+        value: ${{ jobs.build-qemu-so.outputs.so-artifact-name }}
+      so-version:
+        description: 'Source-built QEMU SO version'
+        value: ${{ jobs.build-qemu-so.outputs.so-version }}
 
 jobs:
   publication-review:
