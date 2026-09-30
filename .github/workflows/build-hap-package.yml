@@ -212,6 +212,15 @@ jobs:
         path.write_text(text.replace(old, '"-DUSE_PREBUILT_LIB=ON"'))
         PY
 
+    - name: Install OpenHarmony package dependencies
+      run: |
+        set -euxo pipefail
+        tools_root="${DEVECO_SDK_HOME%/sdk}"
+        test -x "$tools_root/bin/ohpm"
+        echo "$tools_root/bin" >> "$GITHUB_PATH"
+        "$tools_root/bin/ohpm" --version
+        (cd entry && "$tools_root/bin/ohpm" install)
+
     - name: Build unsigned HAP validation artifact
       run: |
         set -euxo pipefail
