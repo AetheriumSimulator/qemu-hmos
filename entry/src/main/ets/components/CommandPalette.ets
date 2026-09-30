@@ -406,7 +406,7 @@ export struct CommandPalette {
       })
       
       // 如果命令需要 VM 名，显示 VM 补全
-        if (['vm.start', 'vm.stop', 'vm.vnc', 'vm.rdp', 'vm.run'].includes(exactCmd.id)) {
+        if (['vm.start', 'vm.stop', 'vm.vnc', 'vm.run'].includes(exactCmd.id)) {
         const vmQuery = args[0]?.toLowerCase() || ''
         for (const vm of this.vmList) {
           if (!vmQuery || vm.name.toLowerCase().includes(vmQuery)) {
@@ -435,7 +435,7 @@ export struct CommandPalette {
             subtitle: cmd.desc + (cmd.shortcut ? ` (${cmd.shortcut})` : ''),
             icon: cmd.icon,
             action: (): void => {
-              if (cmd.id === 'vm.run' || cmd.id === 'vm.start' || cmd.id === 'vm.stop' || cmd.id === 'vm.vnc' || cmd.id === 'vm.rdp') {
+              if (cmd.id === 'vm.run' || cmd.id === 'vm.start' || cmd.id === 'vm.stop' || cmd.id === 'vm.vnc') {
                 // 需要参数的命令，不直接执行，而是补全（displayText 不含 /）
                 this.displayText = `${cmd.id} `
                 this.updateResults()
