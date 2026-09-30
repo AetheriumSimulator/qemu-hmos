@@ -255,7 +255,33 @@ jobs:
           -Dtools=disabled
         
         # Build QEMU's target and reuse Meson's exact executable link graph.
+        # Ninja expands and then removes Meson's response file during the link, so
+        # capture it through a temporary compiler wrapper while the command runs.
+        MESON_RSP="$PWD/meson-link.rsp"
+        REAL_CC="$(readlink -f "$CC")"
+        REAL_CC_SLOT="${CC}.meson-real"
+        restore_compiler() {
+          if [ -e "$REAL_CC_SLOT" ]; then
+            rm -f "$CC"
+            mv "$REAL_CC_SLOT" "$CC"
+          fi
+        }
+        trap restore_compiler EXIT
+        mv "$CC" "$REAL_CC_SLOT"
+        cat > "$CC" <<EOF
+#!/bin/sh
+for arg in "\$@"; do
+  case "\$arg" in
+    @*.rsp) cp "\${arg#@}" "$MESON_RSP" ;;
+  esac
+done
+exec "$REAL_CC" "\$@"
+EOF
+        chmod +x "$CC"
         ninja -j$(nproc) qemu-system-aarch64
+        restore_compiler
+        trap - EXIT
+        test -s "$MESON_RSP"
 
         # Convert the generated executable link command into a PIC shared core.
         # This keeps Meson's resolved internal archives and target dependencies,
@@ -266,7 +292,7 @@ jobs:
         fi
         test -n "$LINK_CMD"
         if grep -q ' -c ' <<<"$LINK_CMD"; then echo '❌ selected compile command, not linker'; exit 1; fi
-        export LINK_CMD
+        export LINK_CMD MESON_RSP
         python3 - <<'PY'
         import os, shlex, subprocess, pathlib
         raw = os.environ['LINK_CMD']
@@ -286,11 +312,9 @@ jobs:
             if token in ('-pie', '-Wl,-pie'):
                 continue
             if token.startswith('@'):
-                rsp = pathlib.Path(token[1:])
-                if not rsp.exists():
-                    matches = list(pathlib.Path('.').rglob(rsp.name))
-                    if matches:
-                        token = '@' + str(matches[0])
+                # The wrapper captured Meson's transient response file while
+                # Ninja linked the executable; use that stable absolute path.
+                token = '@' + os.environ['MESON_RSP']
                 args.append(token)
                 continue
             if token.endswith('system_main.c.o') or token.endswith('/system/main.c.o'):
