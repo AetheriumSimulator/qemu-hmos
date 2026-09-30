@@ -288,7 +288,8 @@ jobs:
           libqemuutil.a \
           -Wl,--no-whole-archive \
           -L"$DEPS_PREFIX/lib" -L"$SYSROOT/usr/lib/aarch64-linux-ohos" \
-          -lglib-2.0 -lgio-2.0 -lgobject-2.0 -lpixman-1 -lintl \
+          -lglib-2.0 -lgio-2.0 -lgobject-2.0 -lpixman-1 -lintl -lz \
+          $(find . -name "libvhost-user*.a" -type f -print -quit) \
           -lpthread -ldl -lm $("$PKG_CONFIG" --static --libs libcurl) \
           -o libqemu_full.so
         if [ ! -f "libqemu_full.so" ]; then
