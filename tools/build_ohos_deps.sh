@@ -66,16 +66,20 @@ mkdir -p "${PREFIX}" "${BUILD_ROOT}" "${TOOLCHAIN_DIR}"
 mkdir -p "${PREFIX}/lib/pkgconfig"
 
 # Ensure previous runs or CI environment do not leak host sysroot hints.
-unset PKG_CONFIG_SYSROOT_DIR
+unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_PATH
+unset CMAKE_PREFIX_PATH CMAKE_INCLUDE_PATH CMAKE_LIBRARY_PATH
 
 PKG_CONFIG_WRAPPER="${TOOLCHAIN_DIR}/${CROSS_TRIPLE}-pkg-config"
 cat >"${PKG_CONFIG_WRAPPER}" <<EOF_SCRIPT
 #!/bin/sh
+# Never inherit build-host search paths or re-root the staged prefix.
+unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_PATH
 export PKG_CONFIG_LIBDIR="${PREFIX}/lib/pkgconfig:${SYSROOT}/usr/lib/pkgconfig"
 exec pkg-config "\$@"
 EOF_SCRIPT
 chmod +x "${PKG_CONFIG_WRAPPER}"
 
+CMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_DIR}/${CROSS_TRIPLE}-toolchain.cmake"
 MESON_CROSS_FILE="${TOOLCHAIN_DIR}/${CROSS_TRIPLE}.ini"
 cat >"${MESON_CROSS_FILE}" <<EOF_SCRIPT
 [binaries]
@@ -90,6 +94,9 @@ python = 'python3'
 
 [properties]
 needs_exe_wrapper = true
+# Meson falls back to CMake for dependencies such as zlib. Its compiler
+# sysroot alone does not constrain find_package() header/library searches.
+cmake_toolchain_file = '${CMAKE_TOOLCHAIN_FILE}'
 # Keep the dependency prefix's absolute pkg-config paths intact.  The
 # compiler still receives --sysroot through the built-in options below; using
 # Meson's sys_root property would prepend that SDK path to our staged prefix
@@ -108,7 +115,6 @@ cpu = 'aarch64'
 endian = 'little'
 EOF_SCRIPT
 
-CMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_DIR}/${CROSS_TRIPLE}-toolchain.cmake"
 cat >"${CMAKE_TOOLCHAIN_FILE}" <<EOF_SCRIPT
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
