@@ -55,6 +55,8 @@ jobs:
         sudo apt-get update --quiet
         sudo apt-get install -y --quiet \
           build-essential \
+          gcc-aarch64-linux-gnu \
+          binutils-aarch64-linux-gnu \
           python3 \
           python3-pip \
           nasm \
@@ -89,6 +91,10 @@ jobs:
         export PACKAGES_PATH="$WORKSPACE"
         export EDK_TOOLS_PATH="$WORKSPACE/BaseTools"
         export CONF_PATH="$WORKSPACE/Conf"
+        # EDK2's GCC AARCH64 definitions use this prefix.  Without it they
+        # fall back to the host x86_64 compiler, which rejects ARM-only flags.
+        export GCC_AARCH64_PREFIX="aarch64-linux-gnu-"
+        command -v "${GCC_AARCH64_PREFIX}gcc"
         
         # 创建必要的目录
         mkdir -p "$CONF_PATH"
