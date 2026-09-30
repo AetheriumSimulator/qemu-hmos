@@ -229,7 +229,33 @@ jobs:
         hap='entry/build/default/outputs/default/entry-default-unsigned.hap'
         test -s "$hap"
         unzip -tq "$hap"
-        unzip -l "$hap" | grep -Eq '(^|/)module\.json$'
+        # Depending on API/toolchain, Hvigor emits module.json or module.json5.
+        unzip -l "$hap" | grep -Eq '(^|/)module\.json5?
+
+    - name: Prepare HAP artifacts
+      run: |
+        set -euxo pipefail
+        mkdir -p artifacts/hap
+        hap='entry/build/default/outputs/default/entry-default-unsigned.hap'
+        cp "$hap" artifacts/hap/Aetherium.Hap
+        printf '%s\n' 'SIGNING_STATUS=unsigned' > artifacts/hap/SIGNING_STATUS.txt
+        printf '%s\n' 'TARGET_SDK_API=18' >> artifacts/hap/SIGNING_STATUS.txt
+        {
+          echo 'HarmonyOS HAP validation artifact'
+          echo 'Signing: unsigned; not installable as a release package'
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+        } > artifacts/hap/VERSION.txt
+        sha256sum artifacts/hap/Aetherium.Hap > artifacts/hap/SHA256SUMS
+        test -s artifacts/hap/Aetherium.Hap
+
+    - name: Upload unsigned HAP validation artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: harmonyos-hap-${{ github.sha }}
+        path: artifacts/hap/
+        retention-days: 30
+
 
     - name: Prepare HAP artifacts
       run: |
