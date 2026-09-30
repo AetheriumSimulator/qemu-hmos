@@ -352,7 +352,10 @@ endforeach()
 # QEMU库检测已在上面完成
 
 # 链接QEMU库（静态库需要 whole-archive，否则会被裁掉）
-if(QEMU_LIBS AND NOT USE_PREBUILT_LIB)
+# The NAPI wrapper loads libqemu_full.so via dlopen; only use the
+# static fallback when no validated shared core has been staged.
+if(QEMU_LIBS AND NOT USE_PREBUILT_LIB AND
+   NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libqemu_full.so")
     target_link_libraries(qemu_hmos
         -Wl,--whole-archive
         ${QEMU_LIBS}
@@ -365,18 +368,10 @@ if(QEMU_LIBS AND NOT USE_PREBUILT_LIB)
         -lssl
         -lcrypto
         -lcurl
-        -lssh
-        -lgmp
         -lglib-2.0
         -lgio-2.0
         -lgobject-2.0
         -lpixman-1
-        -lgnutls
-        -ltasn1
-        -lsasl2
-        -lpam
-        -lbz2
-        -lzstd
     )
 endif()
 
