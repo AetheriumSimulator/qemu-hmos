@@ -923,7 +923,7 @@ void qemu_cleanup(void) {
     // 停止所有虚拟机
     for (auto& pair : g_vm_instances) {
         auto& instance = pair.second;
-        if (instance->state == QEMU_VM_RUNNING) {
+        if (instance->state == QEMU_VM_RUNNING || instance->state == QEMU_VM_PAUSED) {
             qemu_vm_stop_locked(pair.first);
         }
     }
