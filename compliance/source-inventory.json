@@ -96,7 +96,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "8f7426b080b7603d5bb16908fb0e4820ed6e2dbba697f1dec178f3c8422ac57b"
+          "sha256": "dcb8356227d7e778ead093eb79ece473edaa3a516006435ce5c40c481b196b1a"
         }
       ]
     },
@@ -119,7 +119,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "8f7426b080b7603d5bb16908fb0e4820ed6e2dbba697f1dec178f3c8422ac57b"
+          "sha256": "dcb8356227d7e778ead093eb79ece473edaa3a516006435ce5c40c481b196b1a"
         }
       ]
     },
@@ -146,7 +146,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "8f7426b080b7603d5bb16908fb0e4820ed6e2dbba697f1dec178f3c8422ac57b"
+          "sha256": "dcb8356227d7e778ead093eb79ece473edaa3a516006435ce5c40c481b196b1a"
         }
       ]
     },
