@@ -190,6 +190,8 @@ jobs:
         PKG_CONFIG_WRAPPER="$GITHUB_WORKSPACE/third_party/deps/.ohos-build/toolchain/aarch64-unknown-linux-ohos-pkg-config"
         test -x "$PKG_CONFIG_WRAPPER"
         test -f "$DEPS_PREFIX/lib/pkgconfig/glib-2.0.pc"
+        test -f "$DEPS_PREFIX/lib/pkgconfig/pixman-1.pc"
+        "$PKG_CONFIG_WRAPPER" --exists pixman-1 libcurl
 
         {
           echo "OHOS_DEPS_PREFIX=$DEPS_PREFIX"
@@ -236,7 +238,7 @@ jobs:
           --disable-gtk --disable-sdl --disable-curses --disable-vte \
           --disable-brlapi --disable-spice \
           --disable-plugins \
-          --disable-pixman \
+          --enable-pixman \
           -Dwrap_mode=forcefallback \
           -Ddefault_library=static \
           -Db_staticpic=true \
