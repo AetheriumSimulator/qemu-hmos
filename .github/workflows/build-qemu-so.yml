@@ -258,11 +258,14 @@ jobs:
         ninja -j$(nproc)
         
         # 验证构建结果
-        if [ ! -f "libqemu-aarch64-softmmu.a" ]; then
+        QEMU_STATIC=$(find . -name "libqemu-aarch64-softmmu.a" -type f -print -quit)
+        if [ -z "$QEMU_STATIC" ]; then
           echo "❌ QEMU aarch64 static library not found"
+          find . -name "*.a" -maxdepth 3 -print | head -20
           exit 1
         fi
-        echo "✅ QEMU ARM64 build successful"
+        cp "$QEMU_STATIC" libqemu-aarch64-softmmu.a
+        echo "✅ QEMU ARM64 build successful: $QEMU_STATIC"
         
     - name: Create QEMU shared library
       run: |
