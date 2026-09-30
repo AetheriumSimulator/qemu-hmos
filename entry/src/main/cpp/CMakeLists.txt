@@ -352,7 +352,7 @@ endforeach()
 # QEMU库检测已在上面完成
 
 # 链接QEMU库（静态库需要 whole-archive，否则会被裁掉）
-if(QEMU_LIBS)
+if(QEMU_LIBS AND NOT USE_PREBUILT_LIB)
     target_link_libraries(qemu_hmos
         -Wl,--whole-archive
         ${QEMU_LIBS}
@@ -380,8 +380,8 @@ if(QEMU_LIBS)
     )
 endif()
 
-if(BUILD_FOR_OHOS)
-    # 查找并链接必要的库
+if(BUILD_FOR_OHOS AND NOT USE_PREBUILT_LIB)
+    # 查找 and link native OHOS system libraries only for source builds
     # LOG 库在 HarmonyOS NDK 中的实际名称是 libhilog_ndk.z.so
     find_library(LOG_LIB hilog_ndk.z
         PATHS
@@ -457,20 +457,22 @@ endif()
 set(QEMU_FULL_SO "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a/libqemu_full.so")
 if(EXISTS ${QEMU_FULL_SO})
     message(STATUS "✅ Found QEMU core library: ${QEMU_FULL_SO}")
-    # 使用 -L 和 -l 格式，确保 DT_NEEDED 中只有 "libqemu_full.so"（相对名称）
-    target_link_directories(qemu_hmos PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a")
-    target_link_options(qemu_hmos PRIVATE "-Wl,--no-as-needed")
-    target_link_libraries(qemu_hmos qemu_full)
-    target_link_options(qemu_hmos PRIVATE "-Wl,--as-needed")
-    
-    # ============ 确保 libqemu_full.so 被复制到输出目录 ============
-    # HarmonyOS 构建系统需要显式复制依赖库
-    add_custom_command(TARGET qemu_hmos POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QEMU_FULL_SO}"
-            "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libqemu_full.so"
-        COMMENT "Copying libqemu_full.so to output directory"
-    )
+    if(NOT USE_PREBUILT_LIB)
+        # 使用 -L 和 -l 格式，确保 DT_NEEDED 中只有 "libqemu_full.so"（相对名称）
+        target_link_directories(qemu_hmos PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../libs/arm64-v8a")
+        target_link_options(qemu_hmos PRIVATE "-Wl,--no-as-needed")
+        target_link_libraries(qemu_hmos qemu_full)
+        target_link_options(qemu_hmos PRIVATE "-Wl,--as-needed")
+        
+        # ============ 确保 libqemu_full.so 被复制到输出目录 ============
+        # HarmonyOS 构建系统需要显式复制依赖库
+        add_custom_command(TARGET qemu_hmos POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QEMU_FULL_SO}"
+                "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libqemu_full.so"
+            COMMENT "Copying libqemu_full.so to output directory"
+        )
+    endif()
 else()
     message(WARNING "❌ QEMU core library not found, will use dlopen at runtime")
 endif()
