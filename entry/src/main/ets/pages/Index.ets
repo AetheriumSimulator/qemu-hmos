@@ -1942,7 +1942,7 @@ struct Index {
             this.startVM(this.startTargetVM, 'standard')
           }
         })
-      Text(!this.keymapsAvailable ? '缺少 keymaps，无法使用 VNC 图形模式' : '使用 VNC 显示，适合 macOS 及不支持 RDP 的系统')
+      Text(!this.keymapsAvailable ? '缺少 keymaps，无法使用 VNC 图形模式' : '使用 VNC 显示，适合 macOS 及其他系统')
         .fontSize(12)
         .fontColor($r('app.color.text_tertiary'))
         .margin({ bottom: 16 })
