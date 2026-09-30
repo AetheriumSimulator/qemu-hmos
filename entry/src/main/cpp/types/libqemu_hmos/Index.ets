@@ -62,7 +62,6 @@ export interface NativeVMConfig {
   efi_firmware: string;
   shared_dir: string;
   vnc_port: number;
-  rdp_port: number;
   network_mode: string;
   accel_mode: string;
   display_mode: string;
@@ -98,18 +97,6 @@ export interface QemuModule {
     symFound?: boolean;
     symErr?: string;
   };
-  createRdpClient?: () => { id: string };
-  connectRdp?: (clientId: string, config: {
-    host: string;
-    port: number;
-    username: string;
-    password: string;
-    width?: number;
-    height?: number;
-  }) => number;
-  disconnectRdp?: (clientId: string) => number;
-  getRdpStatus?: (clientId: string) => number;
-  destroyRdpClient?: (clientId: string) => number;
   vncAvailable?: () => boolean;
   vncCreate?: () => number;
   vncConnect?: (id: number, host: string, port: number) => boolean;
