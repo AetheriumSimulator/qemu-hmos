@@ -44,13 +44,6 @@ export class NetworkManager {
   private getDefaultPortForwardings(): PortForwarding[] {
     return [
       {
-        name: 'RDP',
-        hostPort: 3390,
-        guestPort: 3389,
-        protocol: 'tcp',
-        description: 'Windows 远程桌面'
-      },
-      {
         name: 'SSH',
         hostPort: 2222,
         guestPort: 22,
