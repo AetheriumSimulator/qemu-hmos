@@ -4,15 +4,27 @@ on:
   push:
     branches: [ main, develop ]
     paths:
-      - 'third_party/qemu-code/roms/edk2/**'
+      - 'third_party/qemu/roms/edk2/**'
       - '.github/workflows/build-uefi-firmware.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'third_party/qemu-code/roms/edk2/**'
+      - 'third_party/qemu/roms/edk2/**'
       - '.github/workflows/build-uefi-firmware.yml'
   workflow_dispatch:
+    inputs:
+      validation:
+        description: 'Build ephemeral validation artifacts without publishing them'
+        required: false
+        default: false
+        type: boolean
   workflow_call:
+    inputs:
+      validation:
+        description: 'Build ephemeral validation artifacts without publishing them'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   publication-review:
@@ -20,8 +32,8 @@ jobs:
 
   build-uefi-firmware:
     needs: publication-review
-    if: needs.publication-review.outputs.allowed == 'true'
-    runs-on: self-hosted
+    if: ${{ needs.publication-review.outputs.allowed == 'true' || inputs.validation }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     
     outputs:
@@ -32,7 +44,8 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        submodules: true
+        submodules: recursive
+        persist-credentials: false
         
     - name: Setup build environment
       run: |
@@ -63,13 +76,13 @@ jobs:
         echo "✅ Build environment ready"
         
     - name: Build ARM64 UEFI firmware
-      id: build
+      id: build_firmware
       run: |
         echo "=== Building ARM64 UEFI firmware ==="
         # 激活Python虚拟环境
         source venv/bin/activate
 
-        cd third_party/qemu-code/roms/edk2
+        cd third_party/qemu/roms/edk2
         
         # 设置环境变量
         export WORKSPACE="$(pwd)"
@@ -115,7 +128,7 @@ jobs:
         # 激活Python虚拟环境
         source venv/bin/activate
 
-        cd third_party/qemu-code/roms/edk2
+        cd third_party/qemu/roms/edk2
         
         # 构建x86_64固件
         build -a X64 -t GCC -p OvmfPkg/OvmfPkgX64.dsc -b RELEASE
@@ -134,13 +147,18 @@ jobs:
         mkdir -p artifacts/firmware
         
         # 复制ARM64固件
-        cp third_party/qemu-code/roms/edk2/Build/ArmVirtQemu-AARCH64/RELEASE_GCC/FV/QEMU_EFI.fd \
+        cp third_party/qemu/roms/edk2/Build/ArmVirtQemu-AARCH64/RELEASE_GCC/FV/QEMU_EFI.fd \
            artifacts/firmware/edk2-aarch64-code.fd
 
         # 复制x86_64固件
-        cp third_party/qemu-code/roms/edk2/Build/OvmfX64/RELEASE_GCC/FV/OVMF_CODE.fd \
+        cp third_party/qemu/roms/edk2/Build/OvmfX64/RELEASE_GCC/FV/OVMF_CODE.fd \
            artifacts/firmware/OVMF_CODE.fd
         
+        test -s artifacts/firmware/edk2-aarch64-code.fd
+        test -s artifacts/firmware/OVMF_CODE.fd
+        file artifacts/firmware/*.fd
+        sha256sum artifacts/firmware/*.fd > artifacts/firmware/SHA256SUMS
+
         # 创建版本信息
         echo "UEFI Firmware Build" > artifacts/firmware/VERSION.txt
         echo "Build Date: $(date)" >> artifacts/firmware/VERSION.txt
@@ -159,6 +177,7 @@ jobs:
         retention-days: 30
         
     - name: Set outputs
+      id: build
       run: |
         echo "artifact-name=uefi-firmware-${{ github.sha }}" >> $GITHUB_OUTPUT
         echo "version=${{ github.sha }}" >> $GITHUB_OUTPUT
