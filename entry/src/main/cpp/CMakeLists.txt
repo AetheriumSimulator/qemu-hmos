@@ -189,14 +189,6 @@ elseif(BUILD_FOR_OHOS)
     if(HAVE_OPENSSL)
         include_directories(${OPENSSL_INCLUDE_DIR})
     endif()
-    
-    # 添加 FreeRDP 头文件路径（如果存在）
-    if(HAVE_FREERDP)
-        include_directories(
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/freerdp/src/include"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/freerdp/src/winpr/include"
-    )
-    endif()
 
     # 库目录
     link_directories(
@@ -507,29 +499,7 @@ else()
     set(HAVE_VNC_CLIENT OFF)
 endif()
 
-# 3. FreeRDP库
-set(FREERDP_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/freerdp/libfreerdp.a")
-set(WINPR_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/freerdp/libwinpr.a")
-if(EXISTS ${FREERDP_LIB_PATH})
-    message(STATUS "✅ Found FreeRDP library: ${FREERDP_LIB_PATH}")
-    set(HAVE_FREERDP ON)
-    if(EXISTS ${WINPR_LIB_PATH})
-        message(STATUS "✅ Found WinPR library: ${WINPR_LIB_PATH}")
-        set(HAVE_WINPR ON)
-    else()
-        message(WARNING "⚠️  WinPR library not found, FreeRDP may have limited functionality")
-        set(WINPR_LIB_PATH "")
-        set(HAVE_WINPR OFF)
-    endif()
-else()
-    message(WARNING "❌ FreeRDP library not found, RDP support will be limited")
-    set(FREERDP_LIB_PATH "")
-    set(WINPR_LIB_PATH "")
-    set(HAVE_FREERDP OFF)
-    set(HAVE_WINPR OFF)
-endif()
-
-# 4. OpenSSL库（静态库）
+# OpenSSL library (static) （静态库）
 # 从 entry/src/main/cpp 向上4级到项目根目录: ../../../../third_party/deps/install-ohos
 set(OPENSSL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/deps/install-ohos")
 set(OPENSSL_CRYPTO_LIB "${OPENSSL_PREFIX}/lib/libcrypto.a")
@@ -575,12 +545,6 @@ endif()
 if(VNC_CLIENT_LIB_PATH)
     list(APPEND STATIC_LIBS_TO_LINK ${VNC_CLIENT_LIB_PATH})
 endif()
-if(FREERDP_LIB_PATH)
-    list(APPEND STATIC_LIBS_TO_LINK ${FREERDP_LIB_PATH})
-endif()
-if(WINPR_LIB_PATH)
-    list(APPEND STATIC_LIBS_TO_LINK ${WINPR_LIB_PATH})
-endif()
 
 # 使用正确的链接顺序：--whole-archive 静态库 --no-whole-archive
 # 添加 --allow-multiple-definition 处理 libvncserver 和 libvncclient 中的重复符号（SHA1, LZO等）
@@ -600,39 +564,6 @@ target_link_libraries(qemu_hmos
     -lz
 )
 
-if(FREERDP_LIB_PATH)
-        
-        # FreeRDP 依赖库
-    target_link_libraries(qemu_hmos 
-        -lpthread
-        -lz
-        -licu          # HarmonyOS 系统 ICU 库，用于 Unicode 转换
-        )
-        
-        # 链接 OpenSSL 静态库（如果存在）
-        #
-        # 重要说明：
-        # - HarmonyOS sysroot 通常不提供 -lssl/-lcrypto（系统 OpenSSL），
-        #   因此在 OHOS 目标下不要做“链接系统库”的回退，否则会直接导致链接失败：
-        #   ld.lld: error: unable to find library -lssl/-lcrypto
-        # - 若需要 TLS/NLA 等能力，请用 tools/build_openssl_ohos.sh 生成
-        #   third_party/deps/install-ohos/lib/libssl.a / libcrypto.a
-        if(HAVE_OPENSSL)
-            target_link_libraries(qemu_hmos
-                ${OPENSSL_SSL_LIB}
-                ${OPENSSL_CRYPTO_LIB}
-            )
-        elseif(NOT BUILD_FOR_OHOS)
-            # 主机侧编译可尝试使用系统 OpenSSL（仅限非 OHOS）
-            target_link_libraries(qemu_hmos
-                -lssl
-                -lcrypto
-            )
-        else()
-            message(WARNING "⚠️  OpenSSL not found for OHOS; skip linking -lssl/-lcrypto. RDP/FreeRDP TLS features may be unavailable until OpenSSL static libs are built.")
-        endif()
-    endif()
-endif()
 
 # 设置编译选项（只在非预编译模式下）
 if(BUILD_FOR_OHOS AND NOT USE_PREBUILT_LIB)
@@ -819,7 +750,6 @@ add_custom_target(debug_info
     COMMAND ${CMAKE_COMMAND} -E echo "NAPI_LIB: ${NAPI_LIB}"
     COMMAND ${CMAKE_COMMAND} -E echo "HAVE_VNC_CLIENT: ${HAVE_VNC_CLIENT}"
     COMMAND ${CMAKE_COMMAND} -E echo "HAVE_VNC_SERVER: ${HAVE_VNC_SERVER}"
-    COMMAND ${CMAKE_COMMAND} -E echo "HAVE_FREERDP: ${HAVE_FREERDP}"
 )
 
 # 构建配置摘要
@@ -838,22 +768,6 @@ if(HAVE_VNC_SERVER)
     message(STATUS "✅ VNC Server: Enabled")
 else()
     message(STATUS "❌ VNC Server: Disabled (missing libvncserver.a)")
-endif()
-
-if(HAVE_FREERDP)
-    message(STATUS "✅ FreeRDP: Enabled")
-    if(HAVE_WINPR)
-        message(STATUS "✅ WinPR: Enabled")
-    else()
-        message(STATUS "⚠️  WinPR: Disabled (missing libwinpr.a)")
-    endif()
-    if(HAVE_OPENSSL)
-        message(STATUS "✅ OpenSSL: Enabled (static)")
-    else()
-        message(STATUS "⚠️  OpenSSL: Using system libraries")
-    endif()
-else()
-    message(STATUS "❌ FreeRDP: Disabled (missing libfreerdp.a)")
 endif()
 
 # 检查核心库
