@@ -258,8 +258,12 @@ jobs:
         # Ninja expands and then removes Meson's response file during the link, so
         # capture it through a temporary compiler wrapper while the command runs.
         MESON_RSP="$PWD/meson-link.rsp"
-        REAL_CC="$(readlink -f "$CC")"
+        # Keep the real compiler at a distinct path while the wrapper captures
+        # Meson's transient response file. readlink -f can resolve a regular
+        # compiler file to itself, so replacing it and execing that path would
+        # recurse forever (and eventually fail with ENOENT).
         REAL_CC_SLOT="${CC}.meson-real"
+        cp -a "$CC" "$REAL_CC_SLOT"
         restore_compiler() {
           if [ -e "$REAL_CC_SLOT" ]; then
             rm -f "$CC"
@@ -267,7 +271,7 @@ jobs:
           fi
         }
         trap restore_compiler EXIT
-        mv "$CC" "$REAL_CC_SLOT"
+        rm -f "$CC"
         cat > "$CC" <<EOF
         #!/bin/sh
         for arg in "\$@"; do
@@ -275,9 +279,13 @@ jobs:
             @*.rsp) cp "\${arg#@}" "$MESON_RSP" ;;
           esac
         done
-        exec "$REAL_CC" "\$@"
+        exec "$REAL_CC_SLOT" "\$@"
         EOF
         chmod +x "$CC"
+        # The wrapper and the preserved compiler must be different paths; this
+        # guards against accidentally reintroducing self-recursive exec.
+        test "$CC" != "$REAL_CC_SLOT"
+        test -x "$REAL_CC_SLOT"
         ninja -j$(nproc) qemu-system-aarch64
         restore_compiler
         trap - EXIT
