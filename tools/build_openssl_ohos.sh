@@ -93,7 +93,7 @@ mkdir -p "${BUILD_DIR}"
 env CC="${CLANG_BIN}" \
     AR="${AR_BIN}" \
     RANLIB="${RANLIB_BIN}" \
-    ./Configure linux-aarch64 \
+    perl Configure linux-aarch64 \
     no-shared \
     no-tests \
     no-docs \
