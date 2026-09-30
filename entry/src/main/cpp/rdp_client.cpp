@@ -12,6 +12,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <pthread.h>
+#include <signal.h>
 #include <atomic>
 #include <chrono>
 #include <thread>
