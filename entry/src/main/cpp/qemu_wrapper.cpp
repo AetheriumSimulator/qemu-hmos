@@ -36,13 +36,12 @@
 // ============================================================================
 
 // QEMU 入口函数类型
-typedef int (*qemu_main_func_t)(int argc, char** argv);
-typedef void (*qemu_cleanup_func_t)(void);
+typedef int (*qemu_hmos_run_func_t)(int argc, char** argv);
 
 // QEMU 库句柄
 static void* g_qemu_lib_handle = nullptr;
-static qemu_main_func_t g_qemu_main_func = nullptr;
-static qemu_cleanup_func_t g_qemu_cleanup_func = nullptr;
+static qemu_hmos_run_func_t g_qemu_hmos_run_func = nullptr;
+static std::atomic_bool g_qemu_session_claimed{false};
 
 // QEMU 虚拟机实例结构（无 fork 版本）
 struct QemuVmInstance {
@@ -148,16 +147,11 @@ static bool load_qemu_library(const std::string& lib_path) {
         return false;
     }
     
-    // 尝试获取 qemu_main 入口点
-    g_qemu_main_func = (qemu_main_func_t)dlsym(g_qemu_lib_handle, "qemu_main");
-    if (!g_qemu_main_func) {
-        // 尝试其他可能的符号名
-        g_qemu_main_func = (qemu_main_func_t)dlsym(g_qemu_lib_handle, "main");
-    }
+    // The embedded phone core exposes one explicit, one-shot ABI entrypoint.
+    // qemu_main is an OBJECT in upstream QEMU, never a callable function.
+    g_qemu_hmos_run_func = reinterpret_cast<qemu_hmos_run_func_t>(dlsym(g_qemu_lib_handle, "qemu_hmos_phone_run"));
     
-    g_qemu_cleanup_func = (qemu_cleanup_func_t)dlsym(g_qemu_lib_handle, "qemu_cleanup");
-    
-    if (!g_qemu_main_func) {
+    if (!g_qemu_hmos_run_func) {
         std::cerr << "[QEMU] Failed to find entry point: " << dlerror() << std::endl;
         dlclose(g_qemu_lib_handle);
         g_qemu_lib_handle = nullptr;
@@ -173,13 +167,10 @@ static bool load_qemu_library(const std::string& lib_path) {
  */
 static void unload_qemu_library() {
     if (g_qemu_lib_handle) {
-        if (g_qemu_cleanup_func) {
-            g_qemu_cleanup_func();
-        }
-        dlclose(g_qemu_lib_handle);
+        // qemu_hmos_phone_run owns core cleanup; never call qemu_cleanup here.
+        // Keep this handle pinned for the process lifetime because the core is one-shot.
         g_qemu_lib_handle = nullptr;
-        g_qemu_main_func = nullptr;
-        g_qemu_cleanup_func = nullptr;
+        g_qemu_hmos_run_func = nullptr;
     }
 }
 
@@ -856,6 +847,7 @@ static std::string build_qemu_command(const qemu_vm_config_t* config) {
  * 在单独线程中调用 qemu_main，替代 fork/exec
  */
 static void qemu_run_thread(QemuVmInstance* instance, std::vector<std::string> args) {
+    bool expected = false;
                 std::ofstream log_file(instance->log_file, std::ios::app);
                 if (log_file.is_open()) {
         log_file << "[" << std::time(nullptr) << "] QEMU thread started" << std::endl;
@@ -878,9 +870,9 @@ static void qemu_run_thread(QemuVmInstance* instance, std::vector<std::string> a
     instance->qemu_exit_code = 0;
     
     // 调用 QEMU 主函数
-    if (g_qemu_main_func) {
-        std::cerr << "[QEMU] Calling qemu_main with " << (argv.size() - 1) << " arguments" << std::endl;
-        instance->qemu_exit_code = g_qemu_main_func(static_cast<int>(argv.size() - 1), argv.data());
+    if (g_qemu_hmos_run_func && g_qemu_session_claimed.compare_exchange_strong(expected, true)) {
+        std::cerr << "[QEMU] Calling qemu_hmos_phone_run with " << (argv.size() - 1) << " arguments" << std::endl;
+        instance->qemu_exit_code = g_qemu_hmos_run_func(static_cast<int>(argv.size() - 1), argv.data());
         std::cerr << "[QEMU] qemu_main returned: " << instance->qemu_exit_code << std::endl;
                     } else {
         std::cerr << "[QEMU] ERROR: qemu_main function not loaded!" << std::endl;
