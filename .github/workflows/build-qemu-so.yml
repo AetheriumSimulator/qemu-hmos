@@ -267,7 +267,7 @@ jobs:
         import os
         import shlex
         import subprocess
-        
+
         raw = os.environ['LINK_CMD']
         argv = shlex.split(raw)
         if not argv:
