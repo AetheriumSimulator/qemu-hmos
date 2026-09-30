@@ -281,12 +281,14 @@ jobs:
       run: |
         echo "=== Creating libqemu_full.so ==="
         cd third_party/qemu/build
-        $CXX -shared -fPIC -Wl,--no-undefined -Wl,--allow-multiple-definition \
+        $CXX -shared -fPIC -Wl,--no-undefined -Wl,--allow-multiple-definition -Wl,-z,notext \
           -target aarch64-unknown-linux-ohos --sysroot=$SYSROOT \
           -Wl,--whole-archive \
           libqemu-aarch64-softmmu.a \
           libqemuutil.a \
           -Wl,--no-whole-archive \
+          -L"$DEPS_PREFIX/lib" -L"$SYSROOT/usr/lib/aarch64-linux-ohos" \\
+          -lglib-2.0 -lgio-2.0 -lgobject-2.0 -lpixman-1 -lintl \\
           -lpthread -ldl -lm $("$PKG_CONFIG" --static --libs libcurl) \
           -o libqemu_full.so
         if [ ! -f "libqemu_full.so" ]; then
