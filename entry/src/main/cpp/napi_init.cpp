@@ -3063,7 +3063,7 @@ static std::string GetQemuLibName(const std::string& archType) {
 }
 
 // ============ 诊断：详细追踪 dlopen 过程 ============
-// 支持多架构加载：根据 archType 加载对应的 libqemu_{arch}.so
+// The current package carries one ARM64 core; reject other architectures before dlopen.
 static void EnsureQemuCoreLoaded(const std::string& logPath, const std::string& archType = "aarch64")
 {
     if (!IsSupportedQemuArch(archType)) {
