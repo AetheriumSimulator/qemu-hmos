@@ -264,10 +264,7 @@ jobs:
         test -n "$LINK_CMD"
         export LINK_CMD
         python3 - <<'PY'
-        import os
-        import shlex
-        import subprocess
-
+        import os, shlex, subprocess
         raw = os.environ['LINK_CMD']
         argv = shlex.split(raw)
         if not argv:
@@ -278,21 +275,21 @@ jobs:
         saw_output = False
         for token in argv[1:]:
             if skip_next:
-        skip_next = False
-        if token == 'qemu-system-aarch64' or token.endswith('/qemu-system-aarch64'):
-            args.append('libqemu_full.so')
-            saw_output = True
-        else:
-            args.append(token)
-        continue
+                skip_next = False
+                if token == 'qemu-system-aarch64' or token.endswith('/qemu-system-aarch64'):
+                    args.append('libqemu_full.so')
+                    saw_output = True
+                else:
+                    args.append(token)
+                continue
             if token in ('-pie', '-Wl,-pie'):
-        continue
+                continue
             if token.endswith('system_main.c.o') or token.endswith('/system/main.c.o'):
-        continue
+                continue
             if token == '-o':
-        args.append(token)
-        skip_next = True
-        continue
+                args.append(token)
+                skip_next = True
+                continue
             args.append(token)
         if not saw_output:
             raise SystemExit('Meson link command output was not qemu-system-aarch64')
