@@ -2,8 +2,6 @@
   "src": [
     "pages/Index",
     "pages/VNCNativeViewer",
-    "pages/RDPViewer",
-    "pages/RDPWindow",
     "pages/ConsoleWindow"
   ]
 }
