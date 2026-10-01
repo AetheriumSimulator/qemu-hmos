@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "Initial inventory of QEMU, native display and build dependencies; not a complete release SBOM",
+  "scope": "Initial inventory of QEMU and native display/build dependencies; not a complete release SBOM. RDP/FreeRDP has been removed from the application path.",
   "binaryPublication": {
     "status": "blocked",
     "blockers": [
@@ -78,29 +78,6 @@
       ]
     },
     {
-      "id": "freerdp",
-      "origin": "https://github.com/FreeRDP/FreeRDP.git",
-      "status": "provenance-incomplete",
-      "source": {
-        "kind": "vendored-tree",
-        "path": "third_party/freerdp/src",
-        "gitTree": "f4e13ac4302442cacdcc079bb19bdebeceae46fc"
-      },
-      "upstreamRevision": null,
-      "licenseEvidence": [
-        {
-          "path": "third_party/freerdp/src/LICENSE",
-          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
-        }
-      ],
-      "recipes": [
-        {
-          "path": "tools/build_freerdp_ohos.sh",
-          "sha256": "fec899523cf6a95e28dcd867dd0c70d7432bc3c58668b13c0317f7e437367d32"
-        }
-      ]
-    },
-    {
       "id": "glib",
       "origin": "https://gitlab.gnome.org/GNOME/glib.git",
       "status": "provenance-incomplete",
@@ -119,7 +96,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "686caca07ce152bb8c734ae3a974c6fa41c344ddb472f8f55b6f301937ea345d"
+          "sha256": "dcb8356227d7e778ead093eb79ece473edaa3a516006435ce5c40c481b196b1a"
         }
       ]
     },
@@ -142,7 +119,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "686caca07ce152bb8c734ae3a974c6fa41c344ddb472f8f55b6f301937ea345d"
+          "sha256": "dcb8356227d7e778ead093eb79ece473edaa3a516006435ce5c40c481b196b1a"
         }
       ]
     },
@@ -169,7 +146,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "686caca07ce152bb8c734ae3a974c6fa41c344ddb472f8f55b6f301937ea345d"
+          "sha256": "dcb8356227d7e778ead093eb79ece473edaa3a516006435ce5c40c481b196b1a"
         }
       ]
     },
@@ -192,7 +169,7 @@
       "recipes": [
         {
           "path": "tools/build_openssl_ohos.sh",
-          "sha256": "693a30e832c92f8f6404b591b19f9ebf99adeba76c3b1bf838f0713b26bec0b5"
+          "sha256": "6a4fb73f1c710fbe67d05ba7a8901a25a101557cba5add7028de784e0724f9e4"
         }
       ]
     },

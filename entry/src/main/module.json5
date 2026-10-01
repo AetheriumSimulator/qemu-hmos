@@ -27,15 +27,23 @@
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
         "orientation": "landscape",
-        "supportWindowMode": ["fullscreen", "floating", "split"],
+        "supportWindowMode": [
+          "fullscreen",
+          "floating",
+          "split"
+        ],
         "maxWindowWidth": 2560,
         "maxWindowHeight": 1600,
         "minWindowWidth": 800,
         "minWindowHeight": 600,
         "skills": [
           {
-            "entities": ["entity.system.home"],
-            "actions": ["action.system.home"]
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "action.system.home"
+            ]
           }
         ],
         "metadata": [
@@ -55,24 +63,11 @@
         "startWindowBackground": "$color:start_window_background",
         "exported": false,
         "orientation": "unspecified",
-        "supportWindowMode": ["fullscreen", "floating", "split"],
-        "maxWindowWidth": 2560,
-        "maxWindowHeight": 1600,
-        "minWindowWidth": 640,
-        "minWindowHeight": 480,
-        "launchType": "multiton"
-      },
-      {
-        "name": "RDPWindowAbility",
-        "srcEntry": "./ets/abilities/RDPWindowAbility.ets",
-        "description": "$string:RDPWindowAbility_desc",
-        "icon": "$media:app_icon",
-        "label": "$string:RDPWindowAbility_label",
-        "startWindowIcon": "$media:app_icon",
-        "startWindowBackground": "$color:start_window_background",
-        "exported": false,
-        "orientation": "unspecified",
-        "supportWindowMode": ["fullscreen", "floating", "split"],
+        "supportWindowMode": [
+          "fullscreen",
+          "floating",
+          "split"
+        ],
         "maxWindowWidth": 2560,
         "maxWindowHeight": 1600,
         "minWindowWidth": 640,
@@ -89,7 +84,11 @@
         "startWindowBackground": "$color:start_window_background",
         "exported": false,
         "orientation": "unspecified",
-        "supportWindowMode": ["fullscreen", "floating", "split"],
+        "supportWindowMode": [
+          "fullscreen",
+          "floating",
+          "split"
+        ],
         "maxWindowWidth": 1200,
         "maxWindowHeight": 900,
         "minWindowWidth": 480,
@@ -106,7 +105,9 @@
         "reason": "$string:permission_read_media_reason",
         "usedScene": {
           "when": "inuse",
-          "abilities": ["EntryAbility"]
+          "abilities": [
+            "EntryAbility"
+          ]
         }
       },
       {
@@ -114,7 +115,9 @@
         "reason": "$string:permission_write_media_reason",
         "usedScene": {
           "when": "inuse",
-          "abilities": ["EntryAbility"]
+          "abilities": [
+            "EntryAbility"
+          ]
         }
       },
       {
@@ -122,7 +125,9 @@
         "reason": "$string:permission_microphone_reason",
         "usedScene": {
           "when": "inuse",
-          "abilities": ["EntryAbility"]
+          "abilities": [
+            "EntryAbility"
+          ]
         }
       },
       {
@@ -130,7 +135,9 @@
         "reason": "$string:permission_write_media_reason",
         "usedScene": {
           "when": "inuse",
-          "abilities": ["EntryAbility"]
+          "abilities": [
+            "EntryAbility"
+          ]
         }
       },
       {

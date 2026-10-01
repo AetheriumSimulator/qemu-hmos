@@ -21,14 +21,6 @@
       "value": "VNC显示"
     },
     {
-      "name": "RDPWindowAbility_desc",
-      "value": "RDP远程桌面窗口"
-    },
-    {
-      "name": "RDPWindowAbility_label",
-      "value": "RDP显示"
-    },
-    {
       "name": "ConsoleWindowAbility_desc",
       "value": "串口控制台窗口"
     },

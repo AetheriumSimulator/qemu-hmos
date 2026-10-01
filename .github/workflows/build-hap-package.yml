@@ -1,215 +1,262 @@
 name: Build HarmonyOS HAP Package
 
 on:
-  push:
-    branches: [ main, develop ]
-    paths:
-      - 'entry/**'
-      - 'AppScope/**'
-      - 'build-profile.json5'
-      - 'hvigorfile.ts'
-      - '.github/workflows/build-hap-package.yml'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'entry/**'
-      - 'AppScope/**'
-      - 'build-profile.json5'
-      - 'hvigorfile.ts'
-      - '.github/workflows/build-hap-package.yml'
   workflow_dispatch:
     inputs:
       so-artifact-name:
-        description: 'SO libraries artifact name'
+        description: 'SO libraries artifact name (optional)'
         required: false
         default: ''
+        type: string
       firmware-artifact-name:
-        description: 'UEFI firmware artifact name'
+        description: 'UEFI firmware artifact name (optional)'
         required: false
         default: ''
+        type: string
   workflow_call:
     inputs:
       so-artifact-name:
-        description: 'SO libraries artifact name'
+        description: 'SO libraries artifact name (optional)'
         required: false
         type: string
         default: ''
       firmware-artifact-name:
-        description: 'UEFI firmware artifact name'
+        description: 'UEFI firmware artifact name (optional)'
         required: false
         type: string
         default: ''
+
+# This workflow only creates an unsigned validation artifact. Release/binary
+# publication remains blocked by binary-publication-gate.yml.
+permissions:
+  contents: read
 
 jobs:
   publication-review:
     uses: ./.github/workflows/binary-publication-gate.yml
 
   build-hap-package:
-    needs: publication-review
-    if: needs.publication-review.outputs.allowed == 'true'
-    runs-on: self-hosted
-    timeout-minutes: 30
-    
+    # The validation build is intentionally independent of the publication
+    # gate. This lets PRs prove that source changes can assemble a HAP while
+    # keeping release publication blocked until source evidence is complete.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
     steps:
+    - name: Require source-built validation artifacts
+      env:
+        SO_ARTIFACT: ${{ inputs.so-artifact-name }}
+        FIRMWARE_ARTIFACT: ${{ inputs.firmware-artifact-name }}
+      run: |
+        set -euxo pipefail
+        test -n "$SO_ARTIFACT" || { echo '❌ Missing QEMU SO validation artifact input'; exit 1; }
+        test -n "$FIRMWARE_ARTIFACT" || { echo '❌ Missing UEFI validation artifact input'; exit 1; }
+
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         submodules: false
-        
+        persist-credentials: false
+
+    - name: Install build prerequisites
+      run: |
+        set -euxo pipefail
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends curl jq unzip zip ca-certificates python3
+
     - name: Download SO libraries
-      if: ${{ github.event.inputs.so-artifact-name != '' }}
+      if: ${{ inputs.so-artifact-name != '' }}
       uses: actions/download-artifact@v4
       with:
-        name: ${{ github.event.inputs.so-artifact-name }}
+        name: ${{ inputs.so-artifact-name }}
         path: so-artifacts/
-        
+
     - name: Download UEFI firmware
-      if: ${{ github.event.inputs.firmware-artifact-name != '' }}
+      if: ${{ inputs.firmware-artifact-name != '' }}
       uses: actions/download-artifact@v4
       with:
-        name: ${{ github.event.inputs.firmware-artifact-name }}
+        name: ${{ inputs.firmware-artifact-name }}
         path: firmware-artifacts/
-        
-    - name: Download latest SO libraries
-      if: ${{ github.event.inputs.so-artifact-name == '' }}
-      uses: actions/download-artifact@v4
-      with:
-        name: qemu-so-libraries-${{ github.sha }}
-        path: so-artifacts/
-        
-    - name: Download latest UEFI firmware
-      if: ${{ github.event.inputs.firmware-artifact-name == '' }}
-      uses: actions/download-artifact@v4
-      with:
-        name: uefi-firmware-${{ github.sha }}
-        path: firmware-artifacts/
-        
+
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
-        distribution: 'zulu'
+        distribution: zulu
         java-version: '17'
-        
-    - name: Set up Node.js
+
+    - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        
-    - name: Get Release Assets
-      id: get_assets
+
+    - name: Download HarmonyOS command-line tools
       run: |
-        # 获取 release 的信息
-        RELEASE_JSON=$(curl -s -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/harmonyos-dev/hos-sdk/releases/latest)
-        
-        # 从 release 的信息中提取需要的 asset URL
-        ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("commandline-tools-linux-2.0.0.2.zip")) | .browser_download_url')
-        
-        # 输出 asset URL
-        echo "Asset URL: $ASSET_URL"
-        
-        # 下载 release asset
-        curl -LJO "$ASSET_URL"
-        
-    - name: Unzip Release Assets
+        set -euxo pipefail
+        # Pin the 5.1.0 command-line bundle, whose embedded SDK is API 18.
+        # The older GitHub hos-sdk 2.0.0.2 archive contains an earlier API and
+        # can silently select the wrong SDK for this project.
+        asset_url='https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip'
+        curl --fail --retry 3 --location --output commandline-tools.zip "$asset_url"
+        rm -rf command-line-tools
+        mkdir -p command-line-tools
+        unzip -q commandline-tools.zip -d command-line-tools
+        find command-line-tools -type d -path '*/sdk/default/openharmony' -print -quit | grep -q .
+
+    - name: Select embedded HarmonyOS SDK API 18
       run: |
-        unzip commandline-tools-linux-2.0.0.2.zip
-        
-    - name: Install HarmonyOS SDK
-      run: |
-        # 设置Java选项处理网络问题
-        export JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS -Duser.country=CN"
-        
-        chmod +x command-line-tools/sdkmanager/bin/sdkmgr
-        
-        # 安装 HarmonyOS SDK
-        command-line-tools/sdkmanager/bin/sdkmgr install toolchains:9 OpenHarmony/toolchains:9 --accept-license
-        
-        # 设置SDK环境变量
-        export HOS_SDK_HOME=$(pwd)/hwsdk
-        echo "HOS_SDK_HOME=$HOS_SDK_HOME" >> $GITHUB_ENV
-        
-        echo "✅ HarmonyOS SDK installed"
-        echo "SDK_HOME: $HOS_SDK_HOME"
-        
-    - name: Create OHPM package.json file
-      run: |
-        npm init -y
-        npm config set @ohos:registry=https://repo.harmonyos.com/npm/
-        npm install @ohos/hvigor@2.4.2 @ohos/hvigor-ohos-plugin@2.4.2
-        
-        # 验证安装
-        node --version
-        npm --version
-        ./node_modules/.bin/hvigor --version
-        
-    - name: Prepare project files
-      run: |
-        echo "=== Preparing project files ==="
-        
-        # 复制SO库文件
-        if [ -d "so-artifacts/libs/arm64-v8a" ]; then
-          mkdir -p entry/src/main/libs/arm64-v8a
-          cp so-artifacts/libs/arm64-v8a/*.so entry/src/main/libs/arm64-v8a/
-          echo "✅ SO libraries copied"
-        else
-          echo "⚠️ SO libraries not found, using existing ones"
-        fi
-        
-        # 复制UEFI固件
-        if [ -d "firmware-artifacts" ]; then
-          mkdir -p entry/src/main/resources/rawfile
-          cp firmware-artifacts/*.fd entry/src/main/resources/rawfile/
-          echo "✅ UEFI firmware copied"
-        else
-          echo "⚠️ UEFI firmware not found, using existing ones"
-        fi
-        
-        # 列出文件
-        echo "=== Project files ==="
-        find entry/src/main/libs -name "*.so" -exec ls -lh {} \;
-        find entry/src/main/resources/rawfile -name "*.fd" -exec ls -lh {} \;
-        
-    - name: Build HarmonyOS HAP
-      run: |
-        echo "=== Building HarmonyOS HAP ==="
-        
-        # 清理之前的构建
-        ./node_modules/.bin/hvigor clean
-        
-        # 构建HAP
-        ./node_modules/.bin/hvigor --mode module -p product=default assembleHap --no-daemon
-        
-        # 检查构建结果
-        if [ ! -f "entry/build/default/outputs/default/entry-default-unsigned.hap" ]; then
-          echo "❌ HAP build failed"
+        set -euxo pipefail
+        # The HarmonyOS command-line tools ship with a matching SDK.  Do not
+        # mix the OpenHarmony ohsdkmgr package coordinates with sdkmgr here.
+        sdk_dir="$(find "$GITHUB_WORKSPACE/command-line-tools" -type d \
+          -path '*/sdk/default/openharmony' -print -quit)"
+        if [ -z "$sdk_dir" ]; then
+          echo '❌ Embedded HarmonyOS SDK root (sdk/default/openharmony) was not found'
+          find command-line-tools -maxdepth 5 -type d | sort | head -100
           exit 1
         fi
-        
-        echo "✅ HAP built successfully"
-        
+        test -d "$sdk_dir/native"
+        test -f "$sdk_dir/native/build/cmake/ohos.toolchain.cmake"
+        # API 18 is the explicit product target in build-profile.json5. The
+        # command-line bundle exposes that SDK as sdk/default/openharmony,
+        # rather than as a nested numeric directory.
+        # Hvigor resolves API components below the SDK base directory.
+        # Keep the command-line bundle's versioned layout explicit.
+        for component in ets js native previewer toolchains; do
+          test -d "$sdk_dir/$component"
+        done
+        metadata_files=( $(find "$sdk_dir" -type f \
+          \( -name 'oh-uni-package.json' -o -name 'package.json' \) -print) )
+        test "${#metadata_files[@]}" -gt 0
+        if ! grep -R -I -E '5\.1\.0|api[^0-9]*18|apiVersion[^0-9]*18' \
+          "${metadata_files[@]}" >/tmp/aetherium-sdk-version.txt; then
+          echo '❌ Embedded SDK metadata does not identify HarmonyOS 5.1.0/API 18'
+          cat /tmp/aetherium-sdk-version.txt || true
+          exit 1
+        fi
+        # Hvigor expects the SDK home parent (the directory containing
+        # default/sdk-pkg.json), not the flattened openharmony component.
+        sdk_home="${sdk_dir%/default/openharmony}"
+        test -f "$sdk_home/default/sdk-pkg.json"
+        base_sdk="$GITHUB_WORKSPACE/sdk"
+        mkdir -p "$base_sdk"
+        ln -sfn "$sdk_dir" "$base_sdk/18"
+        {
+          echo "HOS_SDK_HOME=$sdk_home"
+          echo "DEVECO_SDK_HOME=$sdk_home"
+          echo "OHOS_SDK_HOME=$sdk_home"
+          echo "OHOS_BASE_SDK_HOME=$base_sdk"
+          echo "HARMONY_NATIVE_DIR=$sdk_dir/native"
+          echo "OHOS_NDK_HOME=$sdk_dir/native"
+          echo "HAP_TARGET_API=18"
+        } >> "$GITHUB_ENV"
+        echo "Using embedded HarmonyOS SDK: $sdk_dir"
+
+    - name: Verify project SDK target and configure SDK path
+      run: |
+        set -euxo pipefail
+        grep -Fq '"targetSdkVersion": "5.1.0(18)"' build-profile.json5
+        grep -Fq '"compatibleSdkVersion": "5.0.5(17)"' build-profile.json5
+        python3 - <<'PY'
+        import os
+        import re
+        from pathlib import Path
+        path = Path('hvigor-config.json5')
+        text = path.read_text()
+        sdk = os.environ['DEVECO_SDK_HOME'].replace('\\', '/')
+        text, count = re.subn(r'("sdkDirPath"\s*:\s*")[^"]*(")', rf'\g<1>{sdk}\g<2>', text)
+        if count != 1:
+            raise SystemExit('hvigor-config.json5 must contain exactly one sdkDirPath')
+        path.write_text(text)
+        PY
+
+    - name: Install Hvigor 5.18.6 dependencies
+      run: |
+        set -euxo pipefail
+        npm config set @ohos:registry https://repo.harmonyos.com/npm/
+        npm install --no-save --ignore-scripts \
+          @ohos/hvigor@5.18.6 @ohos/hvigor-ohos-plugin@5.18.6
+        # Match the Hvigor release bundled for HarmonyOS 5.1.0/API 18.
+        sed -i 's/6\\.0\\.0/5.18.6/g' hvigor-config.json5
+        # The package exposes hvigor.js rather than a node_modules/.bin shim.
+        # Invoke the pinned CLI directly so this stays deterministic in CI.
+        HVIGOR_JS=node_modules/@ohos/hvigor/bin/hvigor.js
+        test -f "$HVIGOR_JS"
+        node "$HVIGOR_JS" --version
+
+    - name: Prepare project files
+      run: |
+        set -euxo pipefail
+        if [ -d so-artifacts/libs/arm64-v8a ]; then
+          # HarmonyOS packages module-native libraries from entry/libs/<abi>.
+          # Keep the CMake staging path in sync for the prebuilt wrapper.
+          mkdir -p entry/libs/arm64-v8a entry/src/main/libs/arm64-v8a
+          cp -v so-artifacts/libs/arm64-v8a/*.so entry/libs/arm64-v8a/
+          cp -v so-artifacts/libs/arm64-v8a/*.so entry/src/main/libs/arm64-v8a/
+        fi
+        if [ -d firmware-artifacts ]; then
+          mkdir -p entry/src/main/resources/rawfile
+          cp -v firmware-artifacts/*.fd entry/src/main/resources/rawfile/
+        fi
+        find entry/libs/arm64-v8a entry/src/main/libs/arm64-v8a -name '*.so' -type f -print
+        find entry/src/main/resources/rawfile -name '*.fd' -type f -print || true
+
+    - name: Use prebuilt native libraries for HAP packaging
+      run: |
+        set -euxo pipefail
+        test -s entry/src/main/libs/arm64-v8a/libqemu_hmos.so
+        test -s entry/src/main/libs/arm64-v8a/libqemu_full.so
+        python3 - <<'PY'
+        from pathlib import Path
+        path = Path('entry/build-profile.json5')
+        text = path.read_text()
+        old = '"-DUSE_PREBUILT_LIB=OFF"'
+        if text.count(old) != 1:
+            raise SystemExit('expected exactly one USE_PREBUILT_LIB=OFF argument')
+        path.write_text(text.replace(old, '"-DUSE_PREBUILT_LIB=ON"'))
+        PY
+
+    - name: Install OpenHarmony package dependencies
+      run: |
+        set -euxo pipefail
+        tools_root="${DEVECO_SDK_HOME%/sdk}"
+        test -x "$tools_root/bin/ohpm"
+        echo "$tools_root/bin" >> "$GITHUB_PATH"
+        "$tools_root/bin/ohpm" --version
+        (cd entry && "$tools_root/bin/ohpm" install)
+
+    - name: Build unsigned HAP validation artifact
+      run: |
+        set -euxo pipefail
+        node node_modules/@ohos/hvigor/bin/hvigor.js clean --no-daemon
+        node node_modules/@ohos/hvigor/bin/hvigor.js --mode module -p product=default assembleHap --no-daemon
+        hap='entry/build/default/outputs/default/entry-default-unsigned.hap'
+        test -s "$hap"
+        unzip -tq "$hap"
+        python3 tools/validate_hap.py "$hap"
+
+
     - name: Prepare HAP artifacts
       run: |
-        echo "=== Preparing HAP artifacts ==="
+        set -euxo pipefail
         mkdir -p artifacts/hap
-        
-        # 复制HAP文件
-        cp entry/build/default/outputs/default/entry-default-unsigned.hap artifacts/hap/
-        
-        # 创建版本信息
-        echo "HarmonyOS HAP Package Build" > artifacts/hap/VERSION.txt
-        echo "Build Date: $(date)" >> artifacts/hap/VERSION.txt
-        echo "Commit: ${{ github.sha }}" >> artifacts/hap/VERSION.txt
-        echo "Branch: ${{ github.ref_name }}" >> artifacts/hap/VERSION.txt
-        
-        # 列出文件
-        echo "=== HAP Artifacts Contents ==="
-        find artifacts/hap -type f -exec ls -lh {} \;
-        
-    - name: Upload HAP artifacts
+        hap='entry/build/default/outputs/default/entry-default-unsigned.hap'
+        cp "$hap" artifacts/hap/Aetherium.Hap
+        printf '%s\n' 'SIGNING_STATUS=unsigned' > artifacts/hap/SIGNING_STATUS.txt
+        printf '%s\n' 'TARGET_SDK_API=18' >> artifacts/hap/SIGNING_STATUS.txt
+        {
+          echo 'HarmonyOS HAP validation artifact'
+          echo 'Signing: unsigned; not installable as a release package'
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+        } > artifacts/hap/VERSION.txt
+        sha256sum artifacts/hap/Aetherium.Hap > artifacts/hap/SHA256SUMS
+        test -s artifacts/hap/Aetherium.Hap
+
+    - name: Upload unsigned HAP validation artifact
       uses: actions/upload-artifact@v4
       with:
         name: harmonyos-hap-${{ github.sha }}
         path: artifacts/hap/
         retention-days: 30
-        
-    # Public releases require a version-bound corresponding-source review.
+
+

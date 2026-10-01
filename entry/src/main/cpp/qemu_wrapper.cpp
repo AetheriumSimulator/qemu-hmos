@@ -1,5 +1,4 @@
 #include "qemu_wrapper.h"
-#include "rdp_client.h"
 #include <cstring>
 #include <cstdlib>
 #include <string>
@@ -15,6 +14,7 @@
 #include <vector>
 #include <sys/statvfs.h>
 #include <algorithm>
+#include <cctype>
 #include <ctime>
 #include <chrono>
 #include <sys/socket.h>
@@ -36,13 +36,12 @@
 // ============================================================================
 
 // QEMU 入口函数类型
-typedef int (*qemu_main_func_t)(int argc, char** argv);
-typedef void (*qemu_cleanup_func_t)(void);
+typedef int (*qemu_hmos_run_func_t)(int argc, char** argv);
 
 // QEMU 库句柄
 static void* g_qemu_lib_handle = nullptr;
-static qemu_main_func_t g_qemu_main_func = nullptr;
-static qemu_cleanup_func_t g_qemu_cleanup_func = nullptr;
+static qemu_hmos_run_func_t g_qemu_hmos_run_func = nullptr;
+static std::atomic_bool g_qemu_session_claimed{false};
 
 // QEMU 虚拟机实例结构（无 fork 版本）
 struct QemuVmInstance {
@@ -67,6 +66,65 @@ static std::map<qemu_vm_handle_t, std::unique_ptr<QemuVmInstance>> g_vm_instance
 static std::mutex g_vm_mutex;
 static bool g_qemu_initialized = false;
 
+static int qemu_vm_stop_locked(qemu_vm_handle_t handle);
+
+// Quote values passed to the legacy qemu-img command line.  VM and snapshot
+// names can come from the UI, so concatenating them into a shell command would
+// otherwise allow whitespace and shell metacharacters to alter the command.
+static std::string shell_quote(const std::string& value) {
+    std::string quoted = "'";
+    for (char c : value) {
+        if (c == '\'') {
+            quoted += "'\\''";
+        } else {
+            quoted += c;
+        }
+    }
+    quoted += "'";
+    return quoted;
+}
+
+// HMP snapshot names are parsed as commands, so JSON escaping alone is not
+// sufficient. Keep them narrow until these operations use structured QMP.
+static bool valid_snapshot_name(const char* name) {
+    if (!name || !*name || strlen(name) > 128) return false;
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(name); *p; ++p) {
+        if (!(std::isalnum(*p) || *p == '_' || *p == '-' || *p == '.')) return false;
+    }
+    return true;
+}
+
+// The wrapper currently dlopens one HarmonyOS ARM64 QEMU core. Do not let a
+// caller select an x86 core that is not present and then silently run an ARM
+// guest instead. A different architecture needs a separately built core and
+// an explicit loader path before it can be advertised here.
+static bool supported_dlopen_arch(const char* arch) {
+    return !arch || !*arch || strcmp(arch, "aarch64") == 0;
+}
+
+static std::string json_escape(const std::string& value) {
+    std::string escaped;
+    escaped.reserve(value.size() + 2);
+    for (unsigned char c : value) {
+        switch (c) {
+            case '\\': escaped += "\\\\"; break;
+            case '"': escaped += "\\\""; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[7];
+                    snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    escaped += buf;
+                } else {
+                    escaped += static_cast<char>(c);
+                }
+        }
+    }
+    return escaped;
+}
+
 // ============================================================================
 // QEMU 库加载（替代 fork/exec）
 // ============================================================================
@@ -89,16 +147,11 @@ static bool load_qemu_library(const std::string& lib_path) {
         return false;
     }
     
-    // 尝试获取 qemu_main 入口点
-    g_qemu_main_func = (qemu_main_func_t)dlsym(g_qemu_lib_handle, "qemu_main");
-    if (!g_qemu_main_func) {
-        // 尝试其他可能的符号名
-        g_qemu_main_func = (qemu_main_func_t)dlsym(g_qemu_lib_handle, "main");
-    }
+    // The embedded phone core exposes one explicit, one-shot ABI entrypoint.
+    // qemu_main is an OBJECT in upstream QEMU, never a callable function.
+    g_qemu_hmos_run_func = reinterpret_cast<qemu_hmos_run_func_t>(dlsym(g_qemu_lib_handle, "qemu_hmos_phone_run"));
     
-    g_qemu_cleanup_func = (qemu_cleanup_func_t)dlsym(g_qemu_lib_handle, "qemu_cleanup");
-    
-    if (!g_qemu_main_func) {
+    if (!g_qemu_hmos_run_func) {
         std::cerr << "[QEMU] Failed to find entry point: " << dlerror() << std::endl;
         dlclose(g_qemu_lib_handle);
         g_qemu_lib_handle = nullptr;
@@ -114,13 +167,10 @@ static bool load_qemu_library(const std::string& lib_path) {
  */
 static void unload_qemu_library() {
     if (g_qemu_lib_handle) {
-        if (g_qemu_cleanup_func) {
-            g_qemu_cleanup_func();
-        }
-        dlclose(g_qemu_lib_handle);
+        // qemu_hmos_phone_run owns core cleanup; never call qemu_cleanup here.
+        // Keep this handle pinned for the process lifetime because the core is one-shot.
         g_qemu_lib_handle = nullptr;
-        g_qemu_main_func = nullptr;
-        g_qemu_cleanup_func = nullptr;
+        g_qemu_hmos_run_func = nullptr;
     }
 }
 
@@ -205,7 +255,7 @@ static std::string send_qmp_command(const std::string& socket_path, const std::s
     }
     
     // 发送命令
-    std::string cmd_json = "{\"execute\": \"" + command + "\"}\n";
+    std::string cmd_json = "{\"execute\": \"" + json_escape(command) + "\"}\n";
     if (send(sock, cmd_json.c_str(), cmd_json.length(), 0) < 0) {
         close(sock);
         return "";
@@ -250,7 +300,8 @@ static std::string send_hmp_command(const std::string& socket_path, const std::s
     
     // 构建 QMP 包装的 HMP 命令
     std::string cmd_json = "{\"execute\": \"human-monitor-command\", "
-                           "\"arguments\": {\"command-line\": \"" + command + "\"}}\n";
+                           "\"arguments\": {\"command-line\": \"" +
+                           json_escape(command) + "\"}}\n";
     
     if (send(sock, cmd_json.c_str(), cmd_json.length(), 0) < 0) {
         close(sock);
@@ -421,6 +472,7 @@ extern "C" bool qemu_resume_vm_by_name(const char* vm_name) {
  * 通过 VM 名称创建快照
  */
 extern "C" bool qemu_create_snapshot_by_name(const char* vm_name, const char* snapshot_name) {
+    if (!valid_snapshot_name(snapshot_name)) return false;
     std::string socket = qemu_get_monitor_socket_by_name(vm_name);
     if (socket.empty()) {
         std::cerr << "[QEMU] VM not found: " << (vm_name ? vm_name : "null") << std::endl;
@@ -433,6 +485,7 @@ extern "C" bool qemu_create_snapshot_by_name(const char* vm_name, const char* sn
  * 通过 VM 名称恢复快照
  */
 extern "C" bool qemu_restore_snapshot_by_name(const char* vm_name, const char* snapshot_name) {
+    if (!valid_snapshot_name(snapshot_name)) return false;
     std::string socket = qemu_get_monitor_socket_by_name(vm_name);
     if (socket.empty()) {
         std::cerr << "[QEMU] VM not found: " << (vm_name ? vm_name : "null") << std::endl;
@@ -445,6 +498,7 @@ extern "C" bool qemu_restore_snapshot_by_name(const char* vm_name, const char* s
  * 通过 VM 名称删除快照
  */
 extern "C" bool qemu_delete_snapshot_by_name(const char* vm_name, const char* snapshot_name) {
+    if (!valid_snapshot_name(snapshot_name)) return false;
     std::string socket = qemu_get_monitor_socket_by_name(vm_name);
     if (socket.empty()) {
         std::cerr << "[QEMU] VM not found: " << (vm_name ? vm_name : "null") << std::endl;
@@ -793,6 +847,7 @@ static std::string build_qemu_command(const qemu_vm_config_t* config) {
  * 在单独线程中调用 qemu_main，替代 fork/exec
  */
 static void qemu_run_thread(QemuVmInstance* instance, std::vector<std::string> args) {
+    bool expected = false;
                 std::ofstream log_file(instance->log_file, std::ios::app);
                 if (log_file.is_open()) {
         log_file << "[" << std::time(nullptr) << "] QEMU thread started" << std::endl;
@@ -815,9 +870,9 @@ static void qemu_run_thread(QemuVmInstance* instance, std::vector<std::string> a
     instance->qemu_exit_code = 0;
     
     // 调用 QEMU 主函数
-    if (g_qemu_main_func) {
-        std::cerr << "[QEMU] Calling qemu_main with " << (argv.size() - 1) << " arguments" << std::endl;
-        instance->qemu_exit_code = g_qemu_main_func(static_cast<int>(argv.size() - 1), argv.data());
+    if (g_qemu_hmos_run_func && g_qemu_session_claimed.compare_exchange_strong(expected, true)) {
+        std::cerr << "[QEMU] Calling qemu_hmos_phone_run with " << (argv.size() - 1) << " arguments" << std::endl;
+        instance->qemu_exit_code = g_qemu_hmos_run_func(static_cast<int>(argv.size() - 1), argv.data());
         std::cerr << "[QEMU] qemu_main returned: " << instance->qemu_exit_code << std::endl;
                     } else {
         std::cerr << "[QEMU] ERROR: qemu_main function not loaded!" << std::endl;
@@ -881,8 +936,8 @@ void qemu_cleanup(void) {
     // 停止所有虚拟机
     for (auto& pair : g_vm_instances) {
         auto& instance = pair.second;
-        if (instance->state == QEMU_VM_RUNNING) {
-            qemu_vm_stop(pair.first);
+        if (instance->state == QEMU_VM_RUNNING || instance->state == QEMU_VM_PAUSED) {
+            qemu_vm_stop_locked(pair.first);
         }
     }
     
@@ -894,6 +949,12 @@ qemu_vm_handle_t qemu_vm_create(const qemu_vm_config_t* config) {
     if (!config) {
         return nullptr;
     }
+
+    if (!supported_dlopen_arch(config->arch_type)) {
+        std::cerr << "[QEMU] Unsupported architecture for the bundled core: "
+                  << config->arch_type << std::endl;
+        return nullptr;
+    }
     
     std::lock_guard<std::mutex> lock(g_vm_mutex);
     
@@ -903,6 +964,9 @@ qemu_vm_handle_t qemu_vm_create(const qemu_vm_config_t* config) {
     instance->config = *config;
     if (config->name) {
         instance->config.name = strdup(config->name);
+    }
+    if (config->arch_type) {
+        instance->config.arch_type = strdup(config->arch_type);
     }
     if (config->machine_type) {
         instance->config.machine_type = strdup(config->machine_type);
@@ -954,6 +1018,12 @@ int qemu_vm_start(qemu_vm_handle_t handle) {
     if (instance->state == QEMU_VM_RUNNING) {
         return 0; // 已在运行
     }
+
+    if (!supported_dlopen_arch(instance->config.arch_type)) {
+        std::cerr << "[QEMU] Refusing to start unsupported architecture: "
+                  << instance->config.arch_type << std::endl;
+        return -5;
+    }
     
     // 检查磁盘空间
     size_t required_space = instance->config.disk_size_gb * 1024ULL * 1024ULL * 1024ULL;
@@ -981,15 +1051,18 @@ int qemu_vm_start(qemu_vm_handle_t handle) {
     
     // 构建 QEMU 参数列表
     std::vector<std::string> args;
-    args.push_back("qemu-system-aarch64");  // argv[0]
+    const std::string qemu_binary = "qemu-system-aarch64";
+    args.push_back(qemu_binary);  // argv[0]
     
     // 机器类型
     args.push_back("-machine");
-    args.push_back(instance->config.machine_type ? instance->config.machine_type : "virt,gic-version=3");
+    const char* default_machine = "virt,gic-version=3";
+    args.push_back(instance->config.machine_type ? instance->config.machine_type : default_machine);
     
     // CPU
     args.push_back("-cpu");
-    args.push_back(instance->config.cpu_type ? instance->config.cpu_type : "max");
+    const char* default_cpu = "max";
+    args.push_back(instance->config.cpu_type ? instance->config.cpu_type : default_cpu);
     
     // SMP
     args.push_back("-smp");
@@ -1069,12 +1142,12 @@ int qemu_vm_start(qemu_vm_handle_t handle) {
     }
 }
 
-int qemu_vm_stop(qemu_vm_handle_t handle) {
+// Stop a VM while g_vm_mutex is already held. Keeping lock ownership
+// explicit avoids recursively locking the non-recursive mutex.
+static int qemu_vm_stop_locked(qemu_vm_handle_t handle) {
     if (!handle) {
         return -1;
     }
-    
-    std::lock_guard<std::mutex> lock(g_vm_mutex);
     
     auto it = g_vm_instances.find(handle);
     if (it == g_vm_instances.end()) {
@@ -1114,6 +1187,15 @@ int qemu_vm_stop(qemu_vm_handle_t handle) {
     instance->is_paused = false;
     std::cerr << "[QEMU] VM stopped" << std::endl;
     return 0;
+}
+
+int qemu_vm_stop(qemu_vm_handle_t handle) {
+    if (!handle) {
+        return -1;
+    }
+
+    std::lock_guard<std::mutex> lock(g_vm_mutex);
+    return qemu_vm_stop_locked(handle);
 }
 
 int qemu_vm_pause(qemu_vm_handle_t handle) {
@@ -1209,7 +1291,7 @@ void qemu_vm_destroy(qemu_vm_handle_t handle) {
     
     // 确保虚拟机已停止
     if (instance->state == QEMU_VM_RUNNING || instance->state == QEMU_VM_PAUSED) {
-        qemu_vm_stop(handle);
+        qemu_vm_stop_locked(handle);
     }
 
     // 等待 QEMU 线程结束（monitor 功能已集成到主线程）
@@ -1217,6 +1299,9 @@ void qemu_vm_destroy(qemu_vm_handle_t handle) {
     // 释放配置字符串
     if (instance->config.name) {
         free(const_cast<char*>(instance->config.name));
+    }
+    if (instance->config.arch_type) {
+        free(const_cast<char*>(instance->config.arch_type));
     }
     if (instance->config.machine_type) {
         free(const_cast<char*>(instance->config.machine_type));
@@ -1256,7 +1341,11 @@ int qemu_create_disk(const char* path, int size_gb, const char* format) {
     }
     
     std::string format_str = format ? format : "qcow2";
-    std::string cmd = "qemu-img create -f " + format_str + " " + path + " " + std::to_string(size_gb) + "G";
+    if (format_str != "qcow2" && format_str != "raw" && format_str != "vmdk") {
+        return -1;
+    }
+    std::string cmd = "qemu-img create -f " + shell_quote(format_str) + " " +
+                      shell_quote(path) + " " + std::to_string(size_gb) + "G";
     
     return system(cmd.c_str());
 }
@@ -1266,7 +1355,8 @@ int qemu_resize_disk(const char* path, int new_size_gb) {
         return -1;
     }
     
-    std::string cmd = "qemu-img resize " + std::string(path) + " " + std::to_string(new_size_gb) + "G";
+    std::string cmd = "qemu-img resize " + shell_quote(path) + " " +
+                      std::to_string(new_size_gb) + "G";
     
     return system(cmd.c_str());
 }
@@ -1427,21 +1517,6 @@ int qemu_start_vnc_server(const char* vm_name, int port) {
     return 0;
 }
 
-int qemu_start_rdp_server(const char* vm_name, int port) {
-    if (!vm_name || port <= 0) {
-        return -1;
-    }
-    
-    // RDP 通过 QEMU 内的 Windows 来宾系统提供
-    // 我们只需要设置端口转发 host:port -> guest:3389
-    int result = qemu_forward_port(vm_name, port, 3389);
-    
-    if (result == 0) {
-        std::cerr << "[QEMU] RDP port forward configured: " << port << " -> 3389" << std::endl;
-    }
-    
-    return result;
-}
 
 // ============================================================================
 // 快照管理 - 真正实现
@@ -1464,7 +1539,7 @@ static std::string get_vm_disk_path(const std::string& vm_name) {
 }
 
 int qemu_create_snapshot(const char* vm_name, const char* snapshot_name) {
-    if (!vm_name || !snapshot_name) {
+    if (!vm_name || !valid_snapshot_name(snapshot_name)) {
         return -1;
     }
     
@@ -1484,7 +1559,8 @@ int qemu_create_snapshot(const char* vm_name, const char* snapshot_name) {
         return -1;
     }
     
-    std::string cmd = "qemu-img snapshot -c " + std::string(snapshot_name) + " " + disk_path;
+    std::string cmd = "qemu-img snapshot -c " + shell_quote(snapshot_name) + " " +
+                      shell_quote(disk_path);
     int result = system(cmd.c_str());
     
     if (result == 0) {
@@ -1495,7 +1571,7 @@ int qemu_create_snapshot(const char* vm_name, const char* snapshot_name) {
 }
 
 int qemu_restore_snapshot(const char* vm_name, const char* snapshot_name) {
-    if (!vm_name || !snapshot_name) {
+    if (!vm_name || !valid_snapshot_name(snapshot_name)) {
         return -1;
     }
     
@@ -1515,7 +1591,8 @@ int qemu_restore_snapshot(const char* vm_name, const char* snapshot_name) {
         return -1;
     }
     
-    std::string cmd = "qemu-img snapshot -a " + std::string(snapshot_name) + " " + disk_path;
+    std::string cmd = "qemu-img snapshot -a " + shell_quote(snapshot_name) + " " +
+                      shell_quote(disk_path);
     int result = system(cmd.c_str());
     
     if (result == 0) {
@@ -1557,7 +1634,7 @@ int qemu_list_snapshots(const char* vm_name, char** snapshot_list, int* count) {
         // 方法2: 通过 qemu-img 列出快照
         std::string disk_path = get_vm_disk_path(vm_name);
         if (!disk_path.empty()) {
-            std::string cmd = "qemu-img snapshot -l " + disk_path + " 2>/dev/null";
+            std::string cmd = "qemu-img snapshot -l " + shell_quote(disk_path) + " 2>/dev/null";
             FILE* pipe = popen(cmd.c_str(), "r");
             if (pipe) {
                 char buffer[256];
@@ -1590,7 +1667,7 @@ int qemu_list_snapshots(const char* vm_name, char** snapshot_list, int* count) {
 }
 
 int qemu_delete_snapshot(const char* vm_name, const char* snapshot_name) {
-    if (!vm_name || !snapshot_name) {
+    if (!vm_name || !valid_snapshot_name(snapshot_name)) {
         return -1;
     }
     
@@ -1610,7 +1687,8 @@ int qemu_delete_snapshot(const char* vm_name, const char* snapshot_name) {
         return -1;
     }
     
-    std::string cmd = "qemu-img snapshot -d " + std::string(snapshot_name) + " " + disk_path;
+    std::string cmd = "qemu-img snapshot -d " + shell_quote(snapshot_name) + " " +
+                      shell_quote(disk_path);
     int result = system(cmd.c_str());
     
     if (result == 0) {
@@ -1821,243 +1899,6 @@ void qemu_append_log(const char* vm_name, const char* message) {
         
         file << "[" << timestamp << "] " << message << std::endl;
         file.close();
-    }
-}
-
-// RDP客户端管理接口
-rdp_client_handle_t rdp_client_create(void) {
-    // 创建RDP客户端实例
-    auto* client = new RdpClient();
-    return static_cast<rdp_client_handle_t>(client);
-}
-
-int qemu_rdp_client_connect(rdp_client_handle_t handle, const rdp_connection_config_t* config) {
-    if (!handle || !config) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    
-    // 转换配置
-    RdpConnectionConfig rdp_config;
-    rdp_config.host = config->host ? config->host : "";
-    rdp_config.port = config->port;
-    rdp_config.username = config->username ? config->username : "";
-    rdp_config.password = config->password ? config->password : "";
-    rdp_config.domain = config->domain ? config->domain : "";
-    rdp_config.width = config->width;
-    rdp_config.height = config->height;
-    rdp_config.color_depth = config->color_depth;
-    rdp_config.enable_audio = config->enable_audio != 0;
-    rdp_config.enable_clipboard = config->enable_clipboard != 0;
-    rdp_config.enable_file_sharing = config->enable_file_sharing != 0;
-    rdp_config.shared_folder = config->shared_folder ? config->shared_folder : "";
-    
-    return client->connect(rdp_config) ? 0 : -1;
-}
-
-void qemu_rdp_client_disconnect(rdp_client_handle_t handle) {
-    if (handle) {
-        auto* client = static_cast<RdpClient*>(handle);
-        client->disconnect();
-    }
-}
-
-int rdp_client_is_connected(rdp_client_handle_t handle) {
-    if (!handle) {
-        return 0;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->is_connected() ? 1 : 0;
-}
-
-rdp_connection_state_t rdp_client_get_state(rdp_client_handle_t handle) {
-    if (!handle) {
-        return RDP_ERROR;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    auto state = client->get_connection_state();
-    
-    switch (state) {
-        case RdpConnectionState::DISCONNECTED:
-            return RDP_DISCONNECTED;
-        case RdpConnectionState::CONNECTING:
-            return RDP_CONNECTING;
-        case RdpConnectionState::CONNECTED:
-            return RDP_CONNECTED;
-        case RdpConnectionState::ERROR:
-        default:
-            return RDP_ERROR;
-    }
-}
-
-// RDP显示控制
-int rdp_client_set_resolution(rdp_client_handle_t handle, int width, int height) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->set_resolution(width, height) ? 0 : -1;
-}
-
-int rdp_client_set_color_depth(rdp_client_handle_t handle, int depth) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->set_color_depth(depth) ? 0 : -1;
-}
-
-int rdp_client_enable_fullscreen(rdp_client_handle_t handle, int enable) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->enable_fullscreen(enable != 0) ? 0 : -1;
-}
-
-// RDP输入控制
-int rdp_client_send_mouse_event(rdp_client_handle_t handle, int x, int y, int button, int pressed) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->send_mouse_event(x, y, button, pressed != 0) ? 0 : -1;
-}
-
-int rdp_client_send_keyboard_event(rdp_client_handle_t handle, int key, int pressed) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->send_keyboard_event(key, pressed != 0) ? 0 : -1;
-}
-
-int rdp_client_send_text_input(rdp_client_handle_t handle, const char* text) {
-    if (!handle || !text) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->send_text_input(text) ? 0 : -1;
-}
-
-// RDP剪贴板管理
-int rdp_client_enable_clipboard_sharing(rdp_client_handle_t handle, int enable) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->enable_clipboard_sharing(enable != 0) ? 0 : -1;
-}
-
-int rdp_client_get_clipboard_text(rdp_client_handle_t handle, char** text) {
-    if (!handle || !text) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    std::string clipboard_text = client->get_clipboard_text();
-    
-    if (clipboard_text.empty()) {
-        *text = nullptr;
-        return 0;
-    }
-    
-    *text = new char[clipboard_text.length() + 1];
-    strcpy(*text, clipboard_text.c_str());
-    
-    return 0;
-}
-
-int rdp_client_set_clipboard_text(rdp_client_handle_t handle, const char* text) {
-    if (!handle || !text) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->set_clipboard_text(text) ? 0 : -1;
-}
-
-// RDP文件共享
-int rdp_client_enable_file_sharing(rdp_client_handle_t handle, int enable) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->enable_file_sharing(enable != 0) ? 0 : -1;
-}
-
-int rdp_client_set_shared_folder(rdp_client_handle_t handle, const char* path) {
-    if (!handle || !path) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->set_shared_folder(path) ? 0 : -1;
-}
-
-int rdp_client_get_shared_folder(rdp_client_handle_t handle, char** path) {
-    if (!handle || !path) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    std::string shared_folder = client->get_shared_folder();
-    
-    if (shared_folder.empty()) {
-        *path = nullptr;
-        return 0;
-    }
-    
-    *path = new char[shared_folder.length() + 1];
-    strcpy(*path, shared_folder.c_str());
-    
-    return 0;
-}
-
-// RDP音频控制
-int rdp_client_enable_audio(rdp_client_handle_t handle, int enable) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->enable_audio(enable != 0) ? 0 : -1;
-}
-
-int rdp_client_set_audio_volume(rdp_client_handle_t handle, int volume) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->set_audio_volume(volume) ? 0 : -1;
-}
-
-int rdp_client_get_audio_volume(rdp_client_handle_t handle) {
-    if (!handle) {
-        return -1;
-    }
-    
-    auto* client = static_cast<RdpClient*>(handle);
-    return client->get_audio_volume();
-}
-
-// RDP客户端销毁
-void rdp_client_destroy(rdp_client_handle_t handle) {
-    if (handle) {
-        auto* client = static_cast<RdpClient*>(handle);
-        delete client;
     }
 }
 

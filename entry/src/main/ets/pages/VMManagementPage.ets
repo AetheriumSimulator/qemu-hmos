@@ -486,12 +486,11 @@ export struct VMManagementPage {
    */
   private connectToVM(vm: VMListItem): void {
     router.pushUrl({
-      url: 'pages/RDPViewer',
+      url: 'pages/VNCNativeViewer',
       params: {
-        vmId: vm.id,
         vmName: vm.name,
-        rdpHost: '127.0.0.1',
-        rdpPort: 3390
+        vncHost: '127.0.0.1',
+        vncPort: 5901
       }
     })
   }

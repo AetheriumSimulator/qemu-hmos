@@ -2,7 +2,26 @@ name: Build QEMU SO Libraries for HarmonyOS
 
 on:
   workflow_dispatch:
+    inputs:
+      validation:
+        description: 'Build ephemeral validation artifacts without publishing them'
+        required: false
+        default: false
+        type: boolean
   workflow_call:
+    inputs:
+      validation:
+        description: 'Build ephemeral validation artifacts without publishing them'
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      so-artifact-name:
+        description: 'Name of the source-built QEMU SO artifact'
+        value: ${{ jobs.build-qemu-so.outputs.so-artifact-name }}
+      so-version:
+        description: 'Source-built QEMU SO version'
+        value: ${{ jobs.build-qemu-so.outputs.so-version }}
 
 jobs:
   publication-review:
@@ -10,8 +29,8 @@ jobs:
 
   build-qemu-so:
     needs: publication-review
-    if: needs.publication-review.outputs.allowed == 'true'
-    runs-on: self-hosted
+    if: ${{ needs.publication-review.outputs.allowed == 'true' || inputs.validation }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     
     outputs:
@@ -22,14 +41,15 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        submodules: false
+        submodules: true
+        persist-credentials: false
         
     - name: Download and setup HarmonyOS SDK
       run: |
         echo "=== Downloading HarmonyOS SDK ==="
         # 安装必要的工具 (静默更新以避免重复源警告)
         sudo apt-get update --quiet
-        sudo apt-get install -y --quiet unzip file
+        sudo apt-get install -y --quiet unzip file cmake ninja-build pkg-config python3-venv
 
         # 使用HarmonyOS Next官方下载链接
         SDK_URLS=(
@@ -93,62 +113,49 @@ jobs:
           fi
         fi
         
-        # 查找native目录 - 根据HarmonyOS SDK结构查找
-        NATIVE_DIR=""
-        if [ -d "linux/native" ]; then
-          NATIVE_DIR="linux/native"
-          echo "Found native directory: $NATIVE_DIR"
-        elif [ -d "ohos-sdk/linux/native" ]; then
-          NATIVE_DIR="ohos-sdk/linux/native"
-          echo "Found native directory: $NATIVE_DIR"
-        elif [ -d "native" ]; then
-          # 检查是否为真正的HarmonyOS SDK native目录
-          if [ -d "native/bin" ] && [ -d "native/sysroot" ]; then
-            NATIVE_DIR="native"
-            echo "Found native directory: $NATIVE_DIR"
-          else
-            echo "⚠️ Found native directory but structure incomplete, continuing search..."
+        # Locate the NDK native tree. Current HarmonyOS SDKs put the
+        # cross-tools under native/llvm/bin (not native/bin).
+        NDK_DIR=""
+        for candidate in linux/native ohos-sdk/linux/native native; do
+          if [ -d "$candidate/sysroot" ] && [ -d "$candidate/llvm/bin" ]; then
+            NDK_DIR="$(cd "$candidate" && pwd)"
+            echo "Found HarmonyOS NDK: $NDK_DIR"
+            break
           fi
+        done
+        if [ -z "$NDK_DIR" ]; then
+          echo "❌ No HarmonyOS NDK with llvm/bin and sysroot found"
+          find . -maxdepth 4 -type d -name native -print
+          exit 1
         fi
 
-        # 最后的查找，确保不误找源码目录
-        if [ -z "$NATIVE_DIR" ]; then
-          echo "❌ No valid HarmonyOS SDK native directory found"
-          echo "Available directories after extraction:"
-          ls -la | head -20
-          echo ""
-          echo "Looking for native directories:"
-          find . -maxdepth 3 -name "native" -type d | grep -v -E "(qemu|third_party|\.git)" | head -10
-          exit 1
-        fi
-        
-        # 确保native目录存在且包含必要文件
-        if [ ! -d "$NATIVE_DIR/bin" ] || [ ! -d "$NATIVE_DIR/sysroot" ]; then
-          echo "❌ Native directory structure incomplete"
-          echo "Contents of $NATIVE_DIR:"
-          ls -la "$NATIVE_DIR"
-          exit 1
-        fi
-        
-        export SYSROOT="$(pwd)/$NATIVE_DIR/sysroot"
-        export CC="$(pwd)/$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang"
-        export CXX="$(pwd)/$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang++"
-        export STRIP="$(pwd)/$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-strip"
-        
-        # 如果找不到特定编译器，使用通用clang
-        if [ ! -f "$CC" ]; then
-          CC="$(pwd)/$NATIVE_DIR/bin/clang"
-          CXX="$(pwd)/$NATIVE_DIR/bin/clang++"
-        fi
-        
-        # 验证编译器存在
-        if [ ! -f "$CC" ]; then
-          echo "❌ No suitable compiler found in $NATIVE_DIR/bin"
-          echo "Available compilers:"
-          ls -la "$NATIVE_DIR/bin/" | grep -E "(clang|gcc)"
-          exit 1
-        fi
-        
+        SYSROOT="$NDK_DIR/sysroot"
+        TOOL_BIN="$NDK_DIR/llvm/bin"
+        CC="$TOOL_BIN/aarch64-unknown-linux-ohos-clang"
+        CXX="$TOOL_BIN/aarch64-unknown-linux-ohos-clang++"
+        STRIP="$TOOL_BIN/llvm-strip"
+        AR="$TOOL_BIN/llvm-ar"
+        RANLIB="$TOOL_BIN/llvm-ranlib"
+        for tool in "$CC" "$CXX" "$AR" "$RANLIB"; do
+          test -x "$tool" || { echo "❌ Missing NDK tool: $tool"; exit 1; }
+        done
+
+        # Persist paths because every GitHub Actions step gets a new shell.
+        {
+          echo "NDK_DIR=$NDK_DIR"
+          echo "OHOS_NDK_HOME=$NDK_DIR"
+          echo "HARMONY_NATIVE_DIR=$NDK_DIR"
+          echo "SYSROOT=$SYSROOT"
+          echo "TOOL_BIN=$TOOL_BIN"
+          echo "CC=$CC"
+          echo "CXX=$CXX"
+          echo "STRIP=$STRIP"
+          echo "AR=$AR"
+          echo "RANLIB=$RANLIB"
+        } >> "$GITHUB_ENV"
+        echo "$TOOL_BIN" >> "$GITHUB_PATH"
+        export PATH="$TOOL_BIN:$PATH"
+
         echo "=== SDK Setup Complete ==="
         echo "SYSROOT: $SYSROOT"
         echo "CC: $CC"
@@ -170,9 +177,41 @@ jobs:
         ninja --version
         
         echo "✅ Python environment ready"
-        
+
+    - name: Build HarmonyOS cross dependencies
+      run: |
+        set -euo pipefail
+        source venv/bin/activate
+
+        # QEMU's configure derives the Meson pkg-config binary from
+        # --cross-prefix. Build the target dependencies first so that this
+        # binary resolves target .pc files instead of silently inspecting the
+        # Ubuntu host's GLib installation.
+        export OHOS_NDK_HOME="$NDK_DIR"
+        export PKG_CONFIG_PATH=""
+        ln -sf llvm-nm "$TOOL_BIN/aarch64-unknown-linux-ohos-nm"
+        bash tools/build_ohos_deps.sh
+        bash tools/build_openssl_ohos.sh
+        bash tools/build_curl_ohos.sh
+
+        DEPS_PREFIX="$GITHUB_WORKSPACE/third_party/deps/install-ohos"
+        PKG_CONFIG_WRAPPER="$GITHUB_WORKSPACE/third_party/deps/.ohos-build/toolchain/aarch64-unknown-linux-ohos-pkg-config"
+        test -x "$PKG_CONFIG_WRAPPER"
+        test -f "$DEPS_PREFIX/lib/pkgconfig/glib-2.0.pc"
+        test -f "$DEPS_PREFIX/lib/pkgconfig/pixman-1.pc"
+        "$PKG_CONFIG_WRAPPER" --exists pixman-1 libcurl
+
+        {
+          echo "OHOS_DEPS_PREFIX=$DEPS_PREFIX"
+          echo "PKG_CONFIG=$PKG_CONFIG_WRAPPER"
+          echo "PKG_CONFIG_LIBDIR=$DEPS_PREFIX/lib/pkgconfig:$SYSROOT/usr/lib/pkgconfig"
+          echo "PKG_CONFIG_PATH="
+        } >> "$GITHUB_ENV"
+        echo "Using target pkg-config: $PKG_CONFIG_WRAPPER"
+        "$PKG_CONFIG_WRAPPER" --modversion glib-2.0
+
     - name: Build QEMU static library
-      id: build
+      id: build_qemu
       run: |
         echo "=== Building QEMU ==="
         # 激活Python虚拟环境
@@ -207,8 +246,7 @@ jobs:
           --disable-gtk --disable-sdl --disable-curses --disable-vte \
           --disable-brlapi --disable-spice \
           --disable-plugins \
-          --disable-pixman \
-          --disable-system \
+          --enable-pixman \
           -Dwrap_mode=forcefallback \
           -Ddefault_library=static \
           -Db_staticpic=true \
@@ -223,34 +261,113 @@ jobs:
           -Dguest_agent=disabled \
           -Dtools=disabled
         
-        # 构建
-        ninja -j$(nproc)
-        
-        # 验证构建结果
-        if [ ! -f "libqemu-aarch64-softmmu.a" ]; then
-          echo "❌ QEMU aarch64 static library not found"
+        # Build QEMU's target and reuse Meson's exact executable link graph.
+        # Ninja expands and then removes Meson's response file during the link, so
+        # capture it through a temporary compiler wrapper while the command runs.
+        MESON_RSP="$PWD/meson-link.rsp"
+        # Keep the real compiler at a distinct path while the wrapper captures
+        # Meson's transient response file. readlink -f can resolve a regular
+        # compiler file to itself, so replacing it and execing that path would
+        # recurse forever (and eventually fail with ENOENT).
+        REAL_CC_SLOT="${CC}.meson-real"
+        # Dereference SDK symlinks so removing $CC does not leave a dangling slot.
+        cp -L "$CC" "$REAL_CC_SLOT"
+        restore_compiler() {
+          if [ -e "$REAL_CC_SLOT" ]; then
+            rm -f "$CC"
+            mv "$REAL_CC_SLOT" "$CC"
+          fi
+        }
+        trap restore_compiler EXIT
+        rm -f "$CC"
+        cat > "$CC" <<EOF
+        #!/bin/sh
+        for arg in "\$@"; do
+          case "\$arg" in
+            @*.rsp) cp "\${arg#@}" "$MESON_RSP" ;;
+          esac
+        done
+        exec "$REAL_CC_SLOT" "\$@"
+        EOF
+        chmod +x "$CC"
+        # The wrapper and the preserved compiler must be different paths; this
+        # guards against accidentally reintroducing self-recursive exec.
+        test "$CC" != "$REAL_CC_SLOT"
+        test -x "$REAL_CC_SLOT"
+        ninja -j$(nproc) qemu-system-aarch64
+        restore_compiler
+        trap - EXIT
+        test -s "$MESON_RSP"
+
+        # Convert the generated executable link command into a PIC shared core.
+        # This keeps Meson's resolved internal archives and target dependencies,
+        # while excluding system/main.c (which supplies the executable main).
+        LINK_CMD=$(ninja -t commands qemu-system-aarch64 | grep -F "system_main.c.o" | grep -v ' -c ' | tail -n 1 || true)
+        if [ -z "$LINK_CMD" ]; then
+          LINK_CMD=$(ninja -t commands | grep -F 'qemu-system-aarch64' | grep -v ' -c ' | tail -n 1 || true)
+        fi
+        test -n "$LINK_CMD"
+        if grep -q ' -c ' <<<"$LINK_CMD"; then echo '❌ selected compile command, not linker'; exit 1; fi
+        export LINK_CMD MESON_RSP
+        python3 - <<'PY'
+        import os, pathlib, shlex, subprocess
+        raw = os.environ['LINK_CMD']
+        argv = shlex.split(raw)
+        if not argv:
+            raise SystemExit('empty Meson link command')
+        compiler = argv[0]
+
+        def clean_link_tokens(tokens):
+            cleaned = []
+            skip_next = False
+            for token in tokens:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if token in ('-pie', '-Wl,-pie'):
+                    continue
+                if token == '-o':
+                    skip_next = True
+                    continue
+                if token.endswith('system_main.c.o') or token.endswith('/system/main.c.o'):
+                    continue
+                cleaned.append(token)
+            return cleaned
+
+        # Meson commonly puts the object list, including system/main.c.o and
+        # the executable -o, in a response file. Filter that file as well as
+        # the visible command so the shared core has no executable entry point.
+        visible_args = []
+        rsp_tokens = []
+        rsp_path = pathlib.Path(os.environ['MESON_RSP'])
+        for token in argv[1:]:
+            if token.startswith('@'):
+                if not rsp_path.is_file():
+                    raise SystemExit(f'Meson response file missing: {rsp_path}')
+                rsp_tokens.extend(shlex.split(rsp_path.read_text()))
+            else:
+                visible_args.append(token)
+
+        args = clean_link_tokens(visible_args)
+        if rsp_tokens:
+            shared_rsp = rsp_path.with_name('meson-shared-link.rsp')
+            shared_rsp.write_text(shlex.join(clean_link_tokens(rsp_tokens)))
+            args.append('@' + str(shared_rsp))
+        args.extend(['-o', 'libqemu_full.so'])
+        cmd = [compiler, '-shared', '-fPIC', '-Wl,--no-undefined'] + args
+        print('Running PIC shared link with Meson graph:', ' '.join(shlex.quote(x) for x in cmd))
+        subprocess.run(cmd, check=True)
+        PY
+        test -f libqemu_full.so
+        file libqemu_full.so
+        readelf -h libqemu_full.so | grep -q 'Type:[[:space:]]*DYN'
+        if readelf -d libqemu_full.so | grep -q TEXTREL; then
+          echo '❌ shared core contains TEXTREL relocations'
           exit 1
         fi
-        echo "✅ QEMU ARM64 build successful"
-        
-    - name: Create QEMU shared library
-      run: |
-        echo "=== Creating libqemu_full.so ==="
-        cd third_party/qemu/build
-        $CXX -shared -fPIC -Wl,--no-undefined \
-          -target aarch64-unknown-linux-ohos --sysroot=$SYSROOT \
-          -Wl,--whole-archive \
-          libqemu-aarch64-softmmu.a \
-          libqemuutil.a \
-          -Wl,--no-whole-archive \
-          -lpthread -ldl -lm -lcurl -lssl -lcrypto \
-          -o libqemu_full.so
-        if [ ! -f "libqemu_full.so" ]; then
-          echo "❌ Shared library creation failed"
-          exit 1
-        fi
-        $STRIP -S libqemu_full.so
-        echo "✅ libqemu_full.so created (size: $(du -h libqemu_full.so | cut -f1))"
+        readelf -Ws libqemu_full.so | grep -q ' qemu_init$'
+        readelf -Ws libqemu_full.so | grep -q ' qemu_main_loop$'
+        echo "✅ QEMU PIC shared core created (size: $(du -h libqemu_full.so | cut -f1))"
         
     - name: Build HarmonyOS NAPI wrapper
       run: |
@@ -260,35 +377,52 @@ jobs:
         
         cd entry/src/main/cpp
         
-        # 设置环境变量 - 使用之前确定的NATIVE_DIR
-        export SYSROOT="$(pwd)/../../../../$NATIVE_DIR/sysroot"
-        export CC="$(pwd)/../../../../$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang"
-        export CXX="$(pwd)/../../../../$NATIVE_DIR/bin/aarch64-unknown-linux-ohos-clang++"
+        # Reuse the persisted NDK paths from the SDK setup step.
+        : "${NDK_DIR:?HarmonyOS NDK directory was not persisted}"
+        : "${TOOL_BIN:?HarmonyOS NDK tool directory was not persisted}"
+        test -x "$CC"
+        test -x "$CXX"
+        test -f "$NDK_DIR/build/cmake/ohos.toolchain.cmake"
         
-        if [ ! -f "$CC" ]; then
-          CC="$(pwd)/../../../../$NATIVE_DIR/bin/clang"
-          CXX="$(pwd)/../../../../$NATIVE_DIR/bin/clang++"
-        fi
-        
+        # The CMake project consumes the freshly linked QEMU core from the
+        # native module's packaged-library directory. Seed it before configure
+        # so the wrapper links/packages the exact artifact just validated.
+        CORE_SO="$GITHUB_WORKSPACE/third_party/qemu/build/libqemu_full.so"
+        test -s "$CORE_SO"
+        # HarmonyOS packages module-native libraries from entry/libs/<abi>.
+        # CMake also reads this path when linking the NAPI wrapper.
+        mkdir -p "$GITHUB_WORKSPACE/entry/libs/arm64-v8a" \
+          "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a"
+        cp "$CORE_SO" "$GITHUB_WORKSPACE/entry/libs/arm64-v8a/libqemu_full.so"
+        cp "$CORE_SO" "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_full.so"
+        test -s "$GITHUB_WORKSPACE/entry/libs/arm64-v8a/libqemu_full.so"
+        test -s "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_full.so"
+
         # 创建构建目录
         mkdir -p build
         cd build
         
         # 配置CMake
         cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=../../../../native/cmake/ohos.toolchain.cmake \
+          -DCMAKE_TOOLCHAIN_FILE="$HARMONY_NATIVE_DIR/build/cmake/ohos.toolchain.cmake" \
           -DOHOS_ARCH=arm64-v8a \
           -DOHOS_PLATFORM=OHOS \
+          -DOHOS_NDK_HOME="$NDK_DIR" \
           -DCMAKE_BUILD_TYPE=Release
         
         # 构建
         make -j$(nproc)
         
-        if [ ! -f "libqemu_hmos.so" ]; then
-          echo "❌ NAPI wrapper build failed"
-          exit 1
+        NAPI_SO="$GITHUB_WORKSPACE/entry/libs/arm64-v8a/libqemu_hmos.so"
+        if [ ! -s "$NAPI_SO" ]; then
+          # CMake's output directory may still be the legacy source path.
+          LEGACY_NAPI_SO="$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_hmos.so"
+          test -s "$LEGACY_NAPI_SO"
+          cp "$LEGACY_NAPI_SO" "$NAPI_SO"
         fi
-        echo "✅ libqemu_hmos.so created (size: $(du -h libqemu_hmos.so | cut -f1))"
+        test -s "$NAPI_SO"
+        cp "$NAPI_SO" "$GITHUB_WORKSPACE/entry/src/main/libs/arm64-v8a/libqemu_hmos.so"
+        echo "✅ libqemu_hmos.so created (size: $(du -h "$NAPI_SO" | cut -f1))"
         
     - name: Prepare SO artifacts
       run: |
@@ -297,7 +431,11 @@ jobs:
         
         # 复制SO文件
         cp third_party/qemu/build/libqemu_full.so artifacts/libs/arm64-v8a/
-        cp entry/src/main/cpp/build/libqemu_hmos.so artifacts/libs/arm64-v8a/
+        cp entry/libs/arm64-v8a/libqemu_hmos.so artifacts/libs/arm64-v8a/
+        test -s artifacts/libs/arm64-v8a/libqemu_full.so
+        test -s artifacts/libs/arm64-v8a/libqemu_hmos.so
+        file artifacts/libs/arm64-v8a/*.so
+        sha256sum artifacts/libs/arm64-v8a/*.so > artifacts/SHA256SUMS
         
         # 创建版本信息
         echo "QEMU SO Libraries Build" > artifacts/VERSION.txt
@@ -317,6 +455,7 @@ jobs:
         retention-days: 30
         
     - name: Set outputs
+      id: build
       run: |
         echo "artifact-name=qemu-so-libraries-${{ github.sha }}" >> $GITHUB_OUTPUT
         echo "version=${{ github.sha }}" >> $GITHUB_OUTPUT

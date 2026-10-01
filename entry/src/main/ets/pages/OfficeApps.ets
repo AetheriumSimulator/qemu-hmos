@@ -384,7 +384,7 @@ struct OfficeApps {
 
           Select([
             { value: '档位1: 来宾内安装' },
-            { value: '档位2: RDP驱动器映射' },
+            { value: '档位2: 共享文件夹' },
             { value: '档位3: 高级共享' }
           ])
             .selected((this.oneDriveConfig?.tier || 1) - 1)

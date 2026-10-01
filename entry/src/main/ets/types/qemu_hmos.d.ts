@@ -37,41 +37,6 @@ declare module 'qemu_hmos' {
       symFound?: boolean;
       symErr?: string;
     };
-    
-    // RDP客户端
-    createRdpClient(): { id: string };
-    connectRdp(clientId: string, config: {
-      host: string;
-      port: number;
-      username: string;
-      password: string;
-      width?: number;
-      height?: number;
-    }): number;
-    disconnectRdp(clientId: string): number;
-    getRdpStatus(clientId: string): number;
-    destroyRdpClient(clientId: string): number;
-    
-    // VNC客户端
-    vncAvailable(): boolean;
-    vncCreate(): number;
-    vncConnect(id: number, host: string, port: number): boolean;
-    vncDisconnect(id: number): boolean;
-    vncGetFrame(id: number): {
-      width: number;
-      height: number;
-      pixels: ArrayBuffer;
-    } | null;
-    vncSendPointer(id: number, x: number, y: number, buttonMask: number): boolean;
-    vncSendKey(id: number, keysym: number, down: boolean): boolean;
-    
-    // 测试和诊断
-    testFunction(): boolean;
-    getModuleInfo(): {
-      name: string;
-      version: string;
-      status: string;
-    };
   }
   
   const qemu: QemuModule;

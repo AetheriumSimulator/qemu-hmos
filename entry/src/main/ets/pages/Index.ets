@@ -69,7 +69,6 @@ interface QemuModule {
 }
 
 // (noVNC 已移除)
-interface RDPViewerParams { vmId: string; vmName: string; rdpHost: string; rdpPort: number }
 
 // 支持的架构
 interface ArchOption { id: string; name: string; desc: string; supported: boolean }
@@ -189,7 +188,7 @@ struct Index {
   @State sheetVisible: boolean = false
   @State currentSheet: SheetType = 'none'
   @State startTargetVM: VMMeta | null = null
-  @State keymapsAvailable: boolean = true  // 由 KeymapsManager 结果驱动，用于控制 VNC/RDP 启用状态
+  @State keymapsAvailable: boolean = true  // 由 KeymapsManager 结果驱动，用于控制 VNC 启用状态
   
   // 向导状态
   @State wizardStep: WizardStep = 'mode'
@@ -222,7 +221,7 @@ struct Index {
   @StorageLink('launchShortcutId') launchShortcutId: string = ''
   @State activeShortcutId: string = ''
   @State shortcutSelectedVmId: string = ''
-  @State shortcutMode: 'enhanced' | 'standard' | 'debug' | 'install' = 'standard'
+  @State shortcutMode: 'standard' | 'debug' | 'install' = 'standard'
   
   // 串口控制台状态
   @State consoleVmId: string = ''
@@ -244,7 +243,7 @@ struct Index {
   @State settingsDefaultCpu: number = 4
   @State settingsDefaultMachine: string = 'virt'
   @State settingsAutoStartVnc: boolean = true
-  @State settingsDefaultDisplay: string = 'vnc' // 'vnc' | 'rdp' - 默认显示方式
+  @State settingsDefaultDisplay: string = 'vnc' // 默认显示方式
   
   // VNC 设置（仅原生 VNC）
   @State settingsVncNativePort: number = 5901  // 原生VNC端口 (RFB)
@@ -328,7 +327,7 @@ struct Index {
 
   // ========== VM 状态同步 ==========
   // 说明：
-  // - VNC/RDP 会在新的 Ability 窗口中打开，主窗口不会自动收到状态变化
+  // - VNC 会在新的 Ability 窗口中打开，主窗口不会自动收到状态变化
   // - 这里通过 NAPI 的 getVmStatus 做轮询校准，并写回 VmStore，保证主窗口能看到真实状态
   private startStatusTimer(): void {
     if (this.statusTimerId !== -1) return
@@ -1168,12 +1167,11 @@ struct Index {
    * 启动虚拟机
    * @param vm 虚拟机元数据
    * @param bootMode 启动模式:
-   *   - 'enhanced': 增强启动 (FreeRDP) - Windows/支持RDP的Linux
    *   - 'standard': 普通启动 (VNC) - macOS/其他系统
    *   - 'debug': 调试模式 (串口TTL) - 无图形界面
    *   - 'install': 安装模式 (VNC) - 系统安装时使用
    */
-  private async startVM(vm: VMMeta, bootMode: 'enhanced' | 'standard' | 'debug' | 'install'): Promise<void> {
+  private async startVM(vm: VMMeta, bootMode: 'standard' | 'debug' | 'install'): Promise<void> {
     hilog.info(0x0000, 'INDEX', '>>> startVM 开始: vm=%{public}s, bootMode=%{public}s <<<', vm.name, bootMode)
     try {
       this.isLoading = true
@@ -1192,7 +1190,7 @@ struct Index {
         this.errorMessage = '缺少UEFI固件'; vm.status = 'failed'; return 
       }
       
-      // 非调试模式需要 keymaps（VNC/RDP都需要显示）
+      // 非调试模式需要 keymaps（VNC需要显示）
       let qemuDataDir: string | null = null
       let keymapsAvailable = false
       if (bootMode !== 'debug') {
@@ -1272,12 +1270,6 @@ struct Index {
         nativePort, vncDisplay)
       
       switch (bootMode) {
-        case 'enhanced':
-          // 增强启动：VNC + RDP端口转发，最终通过FreeRDP连接
-          // 使用 0.0.0.0 监听所有接口，允许其他应用连接
-          displayMode = `vnc=0.0.0.0:${vncDisplay}`
-          nographic = false
-          break
         case 'standard':
         case 'install':
           // 普通启动/安装：原生 VNC（RFB）
@@ -1350,10 +1342,6 @@ struct Index {
         
         // 根据启动模式在新窗口中打开对应界面
         switch (bootMode) {
-          case 'enhanced':
-            // 增强启动：在新窗口打开 RDP
-            this.openRDPWindow(vm)
-            break
           case 'standard':
           case 'install':
             // 普通启动/安装：在新窗口打开 VNC
@@ -1490,29 +1478,6 @@ struct Index {
     }).catch((err: Error) => {
       hilog.error(0x0000, 'INDEX', 'VNC 窗口启动失败: %{public}s', err.message)
       this.errorMessage = `无法打开 VNC 窗口: ${err.message}`
-    })
-  }
-
-  /**
-   * 在新窗口中打开 RDP 显示
-   */
-  private openRDPWindow(vm: VMMeta): void {
-    const ctx = getContext(this) as common.UIAbilityContext
-    const want: Want = {
-      bundleName: ctx.abilityInfo.bundleName,
-      abilityName: 'RDPWindowAbility',
-      parameters: {
-        vmName: vm.name,
-        vmId: vm.id,
-        rdpHost: '127.0.0.1',
-        rdpPort: 3390
-      }
-    }
-    ctx.startAbility(want).then(() => {
-      hilog.info(0x0000, 'INDEX', 'RDP 窗口启动成功: %{public}s', vm.name)
-    }).catch((err: Error) => {
-      hilog.error(0x0000, 'INDEX', 'RDP 窗口启动失败: %{public}s', err.message)
-      this.errorMessage = `无法打开 RDP 窗口: ${err.message}`
     })
   }
 
@@ -1963,26 +1928,6 @@ struct Index {
         .margin({ bottom: 16 })
         .width('100%')
 
-      // ========== 增强启动 ==========
-      Button('🚀 增强启动 (FreeRDP)')
-        .type(ButtonType.Capsule)
-        .width('100%').height(48)
-        .backgroundColor(!this.keymapsAvailable ? $r('app.color.sidebar_background') : '#007AFF')
-        .fontColor(!this.keymapsAvailable ? $r('app.color.text_tertiary') : Color.White)
-        .enabled(this.keymapsAvailable)
-        .margin({ bottom: 8 })
-        .onClick((): void => {
-          hilog.info(0x0000, 'INDEX', '>>> 增强启动按钮点击 <<<')
-          if (this.keymapsAvailable && this.startTargetVM) {
-            this.startVM(this.startTargetVM, 'enhanced')
-          }
-        })
-      Text(!this.keymapsAvailable ? '缺少 keymaps，无法使用 RDP/VNC 图形模式' : '使用 RDP 远程桌面，适合 Windows 和支持 xrdp 的 Linux')
-        .fontSize(12)
-        .fontColor($r('app.color.text_tertiary'))
-        .margin({ bottom: 16 })
-        .width('100%')
-
       // ========== 普通启动 ==========
       Button('🖥️ 普通启动 (VNC)')
         .type(ButtonType.Capsule)
@@ -1997,7 +1942,7 @@ struct Index {
             this.startVM(this.startTargetVM, 'standard')
           }
         })
-      Text(!this.keymapsAvailable ? '缺少 keymaps，无法使用 VNC 图形模式' : '使用 VNC 显示，适合 macOS 及不支持 RDP 的系统')
+      Text(!this.keymapsAvailable ? '缺少 keymaps，无法使用 VNC 图形模式' : '使用 VNC 显示，适合 macOS 及其他系统')
         .fontSize(12)
         .fontColor($r('app.color.text_tertiary'))
         .margin({ bottom: 16 })
@@ -3115,12 +3060,7 @@ struct Index {
       Text('启动方式').fontSize(14).fontColor($r('app.color.text_secondary')).margin({ bottom: 8 }).width('100%')
       // 第一行：增强启动 / 普通启动
       Row() {
-        Button('🚀 增强 (RDP)').type(ButtonType.Capsule).height(36).layoutWeight(1)
-          .backgroundColor(this.shortcutMode === 'enhanced' ? '#007AFF' : $r('app.color.sidebar_background'))
-          .fontColor(this.shortcutMode === 'enhanced' ? Color.White : $r('app.color.text_primary'))
-          .onClick((): void => { this.shortcutMode = 'enhanced' })
-        Button('🖥️ 普通 (VNC)').type(ButtonType.Capsule).height(36).layoutWeight(1).margin({ left: 8 })
-          .backgroundColor(this.shortcutMode === 'standard' ? '#FF9500' : $r('app.color.sidebar_background'))
+        Button('🖥️ 普通 (VNC)').type(ButtonType.Capsule).height(36).layoutWeight(1).backgroundColor(this.shortcutMode === 'standard' ? '#FF9500' : $r('app.color.sidebar_background'))
           .fontColor(this.shortcutMode === 'standard' ? Color.White : $r('app.color.text_primary'))
           .onClick((): void => { this.shortcutMode = 'standard' })
       }.width('100%').margin({ bottom: 8 })
@@ -3248,7 +3188,7 @@ struct Index {
                 Text('VNC').fontSize(14).fontColor($r('app.color.text_primary')).margin({ left: 8 })
               }.layoutWeight(1)
             }.width('100%')
-            Text('当前版本仅启用 VNC，RDP 图形模式将于后续版本提供。').fontSize(12).fontColor($r('app.color.text_tertiary')).width('100%').margin({ top: 8 })
+            Text('当前版本使用 VNC 图形模式').fontSize(12).fontColor($r('app.color.text_tertiary')).width('100%').margin({ top: 8 })
           }.padding({ left: 16, right: 16, top: 12, bottom: 12 }).backgroundColor($r('app.color.sidebar_background')).borderRadius(12).margin({ bottom: 8 })
 
           // 安装完成后自动打开显示

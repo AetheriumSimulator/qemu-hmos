@@ -510,6 +510,13 @@ struct VMConfig {
     std::string audioDevice;     // 声卡设备（hda、ac97、none）
 };
 
+// This build ships a single ARM64 QEMU core. x86 guests require separately
+// built cores and must fail explicitly instead of being emitted as ARM
+// command lines with an x86 label.
+static bool IsSupportedQemuArch(const std::string& archType) {
+    return archType.empty() || archType == "aarch64";
+}
+
 // VM状态管理
 static std::map<std::string, std::thread> g_vmThreads;
 static std::map<std::string, std::atomic<bool>*> g_vmRunning;
@@ -562,9 +569,6 @@ static constexpr int SHUTDOWN_CAUSE_HOST = 0;
 static void HilogPrint(const std::string& message);
 static void WriteLog(const std::string& logPath, const std::string& message);
 
-// RDP客户端管理
-static std::map<std::string, rdp_client_handle_t> g_rdp_clients;
-static std::mutex g_rdp_mutex;
 
 // 检测KVM支持
 static bool kvmSupported() {
@@ -1812,6 +1816,10 @@ static bool CreateVirtualDisk(const std::string& diskPath, int sizeGB) {
 // 构建QEMU命令行参数
 static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
     std::vector<std::string> args;
+    if (!IsSupportedQemuArch(config.archType)) {
+        HilogPrint("QEMU: refusing unsupported architecture: " + config.archType);
+        return args;
+    }
     bool scsiControllerAdded = false;
     bool xhciControllerAdded = false;
     bool sataControllerAdded = false;
@@ -1860,14 +1868,8 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
         HilogPrint("QEMU: [HW] SATA controller added: ich9-ahci,id=ahci");
     };
     
-    // 根据架构选择QEMU二进制文件
-    if (config.archType == "x86_64") {
-        args.push_back("qemu-system-x86_64");
-    } else if (config.archType == "i386") {
-        args.push_back("qemu-system-i386");
-    } else {
-        args.push_back("qemu-system-aarch64"); // 默认 aarch64
-    }
+    // The bundled core is ARM64-only; do not advertise an x86 executable.
+    args.push_back("qemu-system-aarch64");
     
     // ============================================================
     // 设置 QEMU 数据目录 (-L 参数)
@@ -1937,20 +1939,8 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
         args.push_back("/data/storage/el2/base/haps/entry/files/qemu_data");
     }
     
-    // 根据架构设置机器类型和CPU
-    // 注意：当前 libqemu_full.so 仅编译了 aarch64 目标
-    // x86_64/i386 需要重新编译 QEMU 才能支持
-    if (config.archType == "x86_64" || config.archType == "i386") {
-        // x86 架构目前不支持，打印警告并回退到 aarch64 virt
-        HilogPrint("QEMU: WARNING - x86/x86_64 architecture is not supported in current build");
-        HilogPrint("QEMU: WARNING - Falling back to aarch64 virt machine");
-        args.push_back("-machine");
-        // Windows on ARM 通常需要 ACPI；对大多数 Linux 也兼容
-        args.push_back("virt,gic-version=3,acpi=on");
-        args.push_back("-cpu");
-        args.push_back("cortex-a72");
-    } else {
-        // aarch64 配置，支持从创建向导传入的 machine
+    // The bundled core supports only aarch64; use the configured ARM machine.
+    {
         std::string machine = config.machine.empty() ? "virt" : config.machine;
         HilogPrint(std::string("QEMU: [HW] Machine = ") + machine);
 
@@ -2085,11 +2075,7 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
     if (firmwarePath.empty()) {
         HilogPrint("QEMU: [FIRMWARE] 固件路径为空，开始自动搜索...");
         std::string firmwareFileName;
-    if (config.archType == "x86_64" || config.archType == "i386") {
-            firmwareFileName = "OVMF_CODE.fd"; // x86 UEFI 固件
-    } else {
-            firmwareFileName = "edk2-aarch64-code.fd"; // ARM64 UEFI 固件
-    }
+        firmwareFileName = "edk2-aarch64-code.fd";
     
         std::vector<std::string> searchPaths = {
             // rawfile/ 目录（通过 FirmwareManager 复制到 files）
@@ -3072,21 +3058,19 @@ static std::string g_loaded_arch;
 
 // 根据架构获取 .so 文件名
 static std::string GetQemuLibName(const std::string& archType) {
-    // 支持的架构: aarch64, x86_64, i386
-    if (archType == "x86_64" || archType == "x86-64") {
-        return "libqemu_x86_64.so";
-    } else if (archType == "i386" || archType == "x86" || archType == "i686") {
-        return "libqemu_i386.so";
-    } else {
-        // 默认使用 ARM64
-        return "libqemu_aarch64.so";
-    }
+    if (!IsSupportedQemuArch(archType)) return "";
+    return "libqemu_aarch64.so";
 }
 
 // ============ 诊断：详细追踪 dlopen 过程 ============
-// 支持多架构加载：根据 archType 加载对应的 libqemu_{arch}.so
+// The current package carries one ARM64 core; reject other architectures before dlopen.
 static void EnsureQemuCoreLoaded(const std::string& logPath, const std::string& archType = "aarch64")
 {
+    if (!IsSupportedQemuArch(archType)) {
+        WriteLog(logPath, "[QEMU] Unsupported architecture for bundled core: " + archType);
+        HilogPrint("QEMU: unsupported architecture for bundled core: " + archType);
+        return;
+    }
     std::string libName = GetQemuLibName(archType);
     
     // 如果已经加载了相同架构的库，直接返回
@@ -3500,6 +3484,18 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     if (!ok) {
         napi_throw_error(env, nullptr, "Invalid config");
         return retBool;
+    }
+
+    if (!IsSupportedQemuArch(config.archType)) {
+        const std::string message =
+            "Unsupported architecture '" + config.archType +
+            "': this build currently supports aarch64 only";
+        HilogPrint("QEMU: " + message);
+        napi_throw_error(env, nullptr, message.c_str());
+        return retBool;
+    }
+    if (config.archType.empty()) {
+        config.archType = "aarch64";
     }
     
     std::lock_guard<std::mutex> lock(g_vmMutex);
@@ -4226,251 +4222,15 @@ static napi_value TakeScreenshot(napi_env env, napi_callback_info info) {
 }
 
 // 创建RDP客户端
-static napi_value CreateRdpClient(napi_env env, napi_callback_info info) {
-    (void)info;  // 添加
-    napi_value result;
-    napi_create_object(env, &result);
-    
-    // 生成唯一的客户端ID
-    static int client_counter = 0;
-    std::string client_id = "rdp_client_" + std::to_string(++client_counter);
-    
-    // 创建RDP客户端
-    rdp_client_handle_t client = rdp_client_create();
-    
-    // 存储客户端句柄
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        g_rdp_clients[client_id] = client;
-    }
-    
-    // 设置客户端ID
-    napi_value id_value;
-    napi_create_string_utf8(env, client_id.c_str(), NAPI_AUTO_LENGTH, &id_value);
-    napi_set_named_property(env, result, "id", id_value);
-    
-    return result;
-}
 
 // 连接RDP
-static napi_value ConnectRdp(napi_env env, napi_callback_info info) {
-    size_t argc = 2;
-    napi_value argv[2];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc < 2) {
-        napi_throw_error(env, nullptr, "Missing parameters: clientId and config");
-        return nullptr;
-    }
-    
-    // 获取客户端ID
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-    
-    // 获取配置对象
-    napi_value config = argv[1];
-    
-    // 解析配置参数
-    rdp_connection_config_t rdp_config = {};
-    
-    // 主机地址
-    std::string hostStr;
-    napi_value host_value;
-    if (napi_get_named_property(env, config, "host", &host_value) == napi_ok) {
-        NapiGetStringUtf8(env, host_value, hostStr);
-        if (!hostStr.empty()) rdp_config.host = hostStr.c_str();
-    }
-    
-    // 端口
-    napi_value port_value;
-    if (napi_get_named_property(env, config, "port", &port_value) == napi_ok) {
-        int32_t port;
-        if (napi_get_value_int32(env, port_value, &port) == napi_ok) {
-            rdp_config.port = port;
-        }
-    }
-    
-    // 用户名
-    std::string usernameStr;
-    napi_value username_value;
-    if (napi_get_named_property(env, config, "username", &username_value) == napi_ok) {
-        NapiGetStringUtf8(env, username_value, usernameStr);
-        if (!usernameStr.empty()) rdp_config.username = usernameStr.c_str();
-    }
-    
-    // 密码
-    std::string passwordStr;
-    napi_value password_value;
-    if (napi_get_named_property(env, config, "password", &password_value) == napi_ok) {
-        NapiGetStringUtf8(env, password_value, passwordStr);
-        if (!passwordStr.empty()) rdp_config.password = passwordStr.c_str();
-    }
-    
-    // 显示设置
-    napi_value width_value;
-    if (napi_get_named_property(env, config, "width", &width_value) == napi_ok) {
-        int32_t width;
-        if (napi_get_value_int32(env, width_value, &width) == napi_ok) {
-            rdp_config.width = width;
-        }
-    }
-    
-    napi_value height_value;
-    if (napi_get_named_property(env, config, "height", &height_value) == napi_ok) {
-        int32_t height;
-        if (napi_get_value_int32(env, height_value, &height) == napi_ok) {
-            rdp_config.height = height;
-        }
-    }
-    
-    // 查找客户端
-    rdp_client_handle_t client = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        if (g_rdp_clients.find(client_id) != g_rdp_clients.end()) {
-            client = g_rdp_clients[client_id];
-        }
-    }
-    
-    if (!client) {
-        napi_throw_error(env, nullptr, "RDP client not found");
-        return nullptr;
-    }
-    
-    // 尝试连接
-    int result = qemu_rdp_client_connect(client, &rdp_config);
-    
-    napi_value result_value;
-    napi_create_int32(env, result, &result_value);
-    
-    return result_value;
-}
 
 // 断开RDP连接
-static napi_value DisconnectRdp(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc < 1) {
-        napi_throw_error(env, nullptr, "Missing client ID parameter");
-        return nullptr;
-    }
-    
-    // 获取客户端ID
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-    
-    // 查找并断开客户端
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        if (g_rdp_clients.find(client_id) != g_rdp_clients.end()) {
-            qemu_rdp_client_disconnect(g_rdp_clients[client_id]);
-        }
-    }
-    
-    napi_value result;
-    napi_create_int32(env, 0, &result);
-    return result;
-}
 
 // 获取RDP连接状态
-static napi_value GetRdpStatus(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc < 1) {
-        napi_throw_error(env, nullptr, "Missing client ID parameter");
-        return nullptr;
-    }
-    
-    // 获取客户端ID
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-    
-    // 查找客户端
-    rdp_client_handle_t client = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        if (g_rdp_clients.find(client_id) != g_rdp_clients.end()) {
-            client = g_rdp_clients[client_id];
-        }
-    }
-    
-    if (!client) {
-        napi_throw_error(env, nullptr, "RDP client not found");
-        return nullptr;
-    }
-    
-    // 获取状态
-    rdp_connection_state_t state = rdp_client_get_state(client);
-    
-    napi_value result;
-    napi_create_int32(env, static_cast<int32_t>(state), &result);
-    
-    return result;
-}
 
 // 发送 RDP 键盘事件（供 ArkTS 虚拟键盘使用）
 // key: 目前沿用 X11 keysym（与 VNC 一致），后续如需可在 native 内做 scanCode 映射
-static napi_value RdpSendKey(napi_env env, napi_callback_info info) {
-    size_t argc = 3;
-    napi_value argv[3];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-
-    if (argc < 3) {
-        napi_throw_error(env, nullptr, "Missing parameters: clientId, key, down");
-        return nullptr;
-    }
-
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-
-    int32_t key = 0;
-    if (napi_get_value_int32(env, argv[1], &key) != napi_ok) {
-        napi_throw_error(env, nullptr, "Failed to get key");
-        return nullptr;
-    }
-
-    bool down = false;
-    if (napi_get_value_bool(env, argv[2], &down) != napi_ok) {
-        napi_throw_error(env, nullptr, "Failed to get down");
-        return nullptr;
-    }
-
-    rdp_client_handle_t client = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        auto it = g_rdp_clients.find(client_id);
-        if (it != g_rdp_clients.end()) {
-            client = it->second;
-        }
-    }
-
-    if (!client) {
-        napi_throw_error(env, nullptr, "RDP client not found");
-        return nullptr;
-    }
-
-    int ret = rdp_client_send_keyboard_event(client, static_cast<int>(key), down ? 1 : 0);
-
-    napi_value result;
-    napi_create_int32(env, ret, &result);
-    return result;
-}
 
 // 检测核心库存在性（真实检测，不加载到全局）
 // ============ 诊断工具：追踪 dlopen 崩溃位置 ============
@@ -4564,97 +4324,18 @@ static napi_value CheckCoreLib(napi_env env, napi_callback_info info) {
 }
 
 // 销毁RDP客户端
-static napi_value DestroyRdpClient(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc < 1) {
-        napi_throw_error(env, nullptr, "Missing client ID parameter");
-        return nullptr;
-    }
-    
-    // 获取客户端ID
-    std::string client_id;
-    if (!NapiGetStringUtf8(env, argv[0], client_id)) {
-        napi_throw_error(env, nullptr, "Failed to get client ID");
-        return nullptr;
-    }
-    
-    // 查找并销毁客户端
-    {
-        std::lock_guard<std::mutex> lock(g_rdp_mutex);
-        if (g_rdp_clients.find(client_id) != g_rdp_clients.end()) {
-            rdp_client_destroy(g_rdp_clients[client_id]);
-            g_rdp_clients.erase(client_id);
-        }
-    }
-    
-    napi_value result;
-    napi_create_int32(env, 0, &result);
-    return result;
-}
 
 // ================== RDP 超时处理和强制关闭 ==================
 
 // 检查 RDP 连接是否超时（返回超时秒数，0表示未超时）
-static napi_value RdpCheckTimeout(napi_env env, napi_callback_info info) {
-    (void)info;
-    int timeout_sec = rdp_check_timeout();
-    napi_value result;
-    napi_create_int32(env, timeout_sec, &result);
-    return result;
-}
 
 // 设置 RDP 超时时间（秒）
-static napi_value RdpSetTimeout(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc >= 1) {
-        int32_t seconds = 30;
-        napi_get_value_int32(env, argv[0], &seconds);
-        rdp_set_timeout(seconds);
-    }
-    
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
-}
 
 // 请求取消 RDP 连接
-static napi_value RdpRequestCancel(napi_env env, napi_callback_info info) {
-    (void)info;
-    rdp_request_cancel();
-    HilogPrint("RDP cancel requested");
-    
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
-}
 
 // 强制清理 RDP 连接（即使线程卡住也能清理）
-static napi_value RdpForceCleanup(napi_env env, napi_callback_info info) {
-    (void)info;
-    HilogPrint("RDP force cleanup initiated");
-    rdp_force_cleanup();
-    HilogPrint("RDP force cleanup completed");
-    
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
-}
 
 // 获取 RDP 状态字符串 (disconnected/connecting/connected/timeout/cancelling)
-static napi_value RdpGetStatusString(napi_env env, napi_callback_info info) {
-    (void)info;
-    const char* status = rdp_get_status_string();
-    
-    napi_value result;
-    napi_create_string_utf8(env, status, strlen(status), &result);
-    return result;
-}
 
 // ----------------------------- Native VNC (LibVNCClient) -----------------------------
 #ifdef LIBVNC_HAVE_CLIENT
@@ -5179,8 +4860,10 @@ static napi_value VncConnect(napi_env env, napi_callback_info info) {
         }
     }
 
-    // 正在连接：立即返回 false（避免阻塞 UI 线程）
+    // 正在连接：请求已经接受，保持 true 语义，避免 ArkTS 把异步连接
+    // 误判成一次明确失败。
     if (s->connecting.load()) {
+        napi_get_boolean(env, true, &out);
         return out;
     }
 
@@ -5194,11 +4877,15 @@ static napi_value VncConnect(napi_env env, napi_callback_info info) {
         }).detach();
     } catch (...) {
         s->connecting.store(false);
+        return out;
     }
 #else
     (void)host; (void)port;
-    // Client lib not available
+    // Do not report an accepted connection when the native client was not
+    // compiled into this build; ArkTS treats this result as availability.
+    return out;
 #endif
+    napi_get_boolean(env, true, &out);
     return out;
 }
 
@@ -5395,14 +5082,13 @@ static napi_value VncGetInfo(napi_env env, napi_callback_info info) {
 #if defined(__OHOS__)
     // OHOS: 优先读取 rfbClient 的实时宽高（SetDesktopSize 后会立刻更新），
     // 避免仅靠 GotFrameBufferUpdate 导致宽高同步滞后 -> 坐标映射偏移 -> “点不了”。
-    rfbClient* cl = nullptr;
     {
         std::lock_guard<std::mutex> lk(s->lifecycle_mtx);
-        cl = s->client;
-    }
-    if (cl) {
-        w = cl->width;
-        h = cl->height;
+        rfbClient* cl = s->client;
+        if (cl) {
+            w = cl->width;
+            h = cl->height;
+        }
     }
 #endif
 #if defined(__OHOS__)
@@ -5451,11 +5137,8 @@ static napi_value VncSendPointer(napi_env env, napi_callback_info info) {
     auto it = g_vnc_sessions.find(id);
     if (it == g_vnc_sessions.end()) return out;
     auto& s = it->second;
-    rfbClient* cl = nullptr;
-    {
-        std::lock_guard<std::mutex> lk(s->lifecycle_mtx);
-        cl = s->client;
-    }
+    std::lock_guard<std::mutex> lk(s->lifecycle_mtx);
+    rfbClient* cl = s->client;
     if (!cl) return out;
     const rfbBool ok = SendPointerEvent(cl, x, y, mask);
     napi_get_boolean(env, ok ? true : false, &out);
@@ -5479,11 +5162,8 @@ static napi_value VncSendKey(napi_env env, napi_callback_info info) {
     auto it = g_vnc_sessions.find(id);
     if (it == g_vnc_sessions.end()) return out;
     auto& s = it->second;
-    rfbClient* cl = nullptr;
-    {
-        std::lock_guard<std::mutex> lk(s->lifecycle_mtx);
-        cl = s->client;
-    }
+    std::lock_guard<std::mutex> lk(s->lifecycle_mtx);
+    rfbClient* cl = s->client;
     if (!cl) return out;
     SendKeyEvent(cl, (rfbKeySym)keysym, down ? TRUE : FALSE);
     napi_get_boolean(env, true, &out);
@@ -5880,18 +5560,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         { "restoreSnapshot", 0, RestoreSnapshot, 0, 0, 0, napi_default, 0 },
         { "listSnapshots", 0, ListSnapshots, 0, 0, 0, napi_default, 0 },
         { "deleteSnapshot", 0, DeleteSnapshot, 0, 0, 0, napi_default, 0 },
-        { "createRdpClient", 0, CreateRdpClient, 0, 0, 0, napi_default, 0 },
-        { "connectRdp", 0, ConnectRdp, 0, 0, 0, napi_default, 0 },
-        { "disconnectRdp", 0, DisconnectRdp, 0, 0, 0, napi_default, 0 },
-        { "getRdpStatus", 0, GetRdpStatus, 0, 0, 0, napi_default, 0 },
-        { "destroyRdpClient", 0, DestroyRdpClient, 0, 0, 0, napi_default, 0 },
-        { "rdpSendKey", 0, RdpSendKey, 0, 0, 0, napi_default, 0 },
         // RDP 超时处理
-        { "rdpCheckTimeout", 0, RdpCheckTimeout, 0, 0, 0, napi_default, 0 },
-        { "rdpSetTimeout", 0, RdpSetTimeout, 0, 0, 0, napi_default, 0 },
-        { "rdpRequestCancel", 0, RdpRequestCancel, 0, 0, 0, napi_default, 0 },
-        { "rdpForceCleanup", 0, RdpForceCleanup, 0, 0, 0, napi_default, 0 },
-        { "rdpGetStatusString", 0, RdpGetStatusString, 0, 0, 0, napi_default, 0 },
         // Native VNC (client)
         { "vncAvailable", 0, VncAvailable, 0, 0, 0, napi_default, 0 },
         { "vncCreate", 0, VncCreate, 0, 0, 0, napi_default, 0 },
@@ -5931,18 +5600,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         { "getVmLogs", GetVmLogs, 0 },
         { "getVmStatus", GetVmStatus, 0 },
         { "checkCoreLib", CheckCoreLib, 0 },
-        { "createRdpClient", CreateRdpClient, 0 },
-        { "connectRdp", ConnectRdp, 0 },
-        { "disconnectRdp", DisconnectRdp, 0 },
-        { "getRdpStatus", GetRdpStatus, 0 },
-        { "destroyRdpClient", DestroyRdpClient, 0 },
-        { "rdpSendKey", RdpSendKey, 0 },
         // RDP 超时处理
-        { "rdpCheckTimeout", RdpCheckTimeout, 0 },
-        { "rdpSetTimeout", RdpSetTimeout, 0 },
-        { "rdpRequestCancel", RdpRequestCancel, 0 },
-        { "rdpForceCleanup", RdpForceCleanup, 0 },
-        { "rdpGetStatusString", RdpGetStatusString, 0 },
         // Native VNC (client)
         { "vncAvailable", VncAvailable, 0 },
         { "vncCreate", VncCreate, 0 },

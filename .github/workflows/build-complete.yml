@@ -3,6 +3,8 @@ name: Complete Build Pipeline
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -11,18 +13,25 @@ jobs:
 
   build-so-libraries:
     needs: publication-review
-    if: needs.publication-review.outputs.allowed == 'true'
+    if: ${{ needs.publication-review.outputs.allowed == 'true' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/build-qemu-so.yml
+    with:
+      validation: true
     secrets: inherit
     
   build-uefi-firmware:
     needs: publication-review
-    if: needs.publication-review.outputs.allowed == 'true'
+    if: ${{ needs.publication-review.outputs.allowed == 'true' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/build-uefi-firmware.yml
+    with:
+      validation: true
     secrets: inherit
     
+  # Build the unsigned HAP validation artifact independently. The binary
+  # publication gate remains enforced inside the producer jobs above.
   build-hap-package:
     needs: [build-so-libraries, build-uefi-firmware]
+    if: ${{ always() && needs.build-so-libraries.result == 'success' && needs.build-uefi-firmware.result == 'success' }}
     uses: ./.github/workflows/build-hap-package.yml
     with:
       so-artifact-name: ${{ needs.build-so-libraries.outputs.so-artifact-name }}
