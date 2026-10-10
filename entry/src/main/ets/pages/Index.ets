@@ -52,6 +52,14 @@ interface ScanResult {
   error?: string
 }
 
+interface QemuLastError {
+  code: number
+  name: string
+  stage: string
+  message: string
+  vmName: string
+}
+
 interface QemuModule {
   version: () => string
   enableJit: () => boolean
@@ -60,7 +68,7 @@ interface QemuModule {
   stopVm: (name: string) => boolean
   getVmStatus?: (name: string) => string
   getVmLogs: (name: string, startLine?: number) => string[]
-  getLastError?: () => { code: number, name: string, stage: string, message: string, vmName: string }
+  getLastError?: () => QemuLastError
   checkCoreLib?: () => CoreDiag
   getDeviceCapabilities?: () => DeviceCapabilities
   getSupportedDevices?: () => SupportedDevices

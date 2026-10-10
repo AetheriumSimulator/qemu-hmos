@@ -1,5 +1,13 @@
 // 全局类型声明文件
 declare module 'qemu_hmos' {
+  interface QemuLastError {
+    code: number;
+    name: string;
+    stage: string;
+    message: string;
+    vmName: string;
+  }
+
   interface QemuModule {
     // 基础功能
     version(): string;
@@ -21,6 +29,7 @@ declare module 'qemu_hmos' {
     stopVm(vmName: string): boolean;
     getVmStatus(vmName: string): string;
     getVmLogs(vmName: string, startLine?: number): string[];
+    getLastError?(): QemuLastError;
     getDeviceCapabilities?(): {
       kvmSupported: boolean;
       jitSupported: boolean;

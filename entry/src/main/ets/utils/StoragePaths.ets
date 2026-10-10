@@ -74,6 +74,16 @@ export interface VmLogExportResult {
   path?: string
 }
 
+interface StorageErrorLike {
+  code?: number | string
+  message?: string
+}
+
+interface StorageErrorDetails {
+  code: string
+  message: string
+}
+
 export class StoragePaths {
   // 内部沙箱基础路径（不暴露给文件管理）
   static readonly INTERNAL_BASE = '/data/storage/el2/base/haps/entry/files'
@@ -307,8 +317,9 @@ export class StoragePaths {
       
       return appDir
     } catch (e) {
-      hilog.error(0x0000, 'STORAGE', '获取公开目录失败: %{public}s', (e as Error).message)
-      throw e
+      const details = StoragePaths.errorDetails(e as Error)
+      hilog.error(0x0000, 'STORAGE', '获取公开目录失败: %{public}s', details.message)
+      throw new Error(`${details.code}: ${details.message}`)
     }
   }
   
@@ -506,14 +517,14 @@ export class StoragePaths {
     }
   }
 
-  private static errorDetails(error: unknown): { code: string, message: string } {
-    const candidate = error as { code?: number | string, message?: string }
+  private static errorDetails(error: Error): StorageErrorDetails {
+    const candidate = error as StorageErrorLike
     const code = candidate && candidate.code !== undefined ? String(candidate.code) : ''
     const message = candidate && candidate.message ? candidate.message : String(error)
     return { code, message }
   }
 
-  private static isMissingError(error: unknown): boolean {
+  private static isMissingError(error: Error): boolean {
     const details = StoragePaths.errorDetails(error)
     const value = `${details.code} ${details.message}`.toLowerCase()
     return value.includes('enoent') || value.includes('13900002') ||
@@ -521,7 +532,7 @@ export class StoragePaths {
       value.includes('does not exist') || value.includes('不存在')
   }
 
-  private static isPermissionError(error: unknown): boolean {
+  private static isPermissionError(error: Error): boolean {
     const details = StoragePaths.errorDetails(error)
     const value = `${details.code} ${details.message}`.toLowerCase()
     return value.includes('eacces') || value.includes('eperm') ||
@@ -548,8 +559,8 @@ export class StoragePaths {
     try {
       await fs.access(src)
     } catch (e) {
-      const details = StoragePaths.errorDetails(e)
-      const stage: VmLogExportStage = StoragePaths.isMissingError(e) ? 'source_missing' : 'source_permission'
+      const details = StoragePaths.errorDetails(e as Error)
+      const stage: VmLogExportStage = StoragePaths.isMissingError(e as Error) ? 'source_missing' : 'source_permission'
       const message = stage === 'source_missing'
         ? '源日志不存在，请先启动虚拟机并重试'
         : '无法读取源日志，请检查应用文件权限'
@@ -562,11 +573,11 @@ export class StoragePaths {
     try {
       appDir = await StoragePaths.getPublicAppDir()
     } catch (e) {
-      const stage: VmLogExportStage = StoragePaths.isPermissionError(e) ? 'target_permission' : 'target_directory'
+      const stage: VmLogExportStage = StoragePaths.isPermissionError(e as Error) ? 'target_permission' : 'target_directory'
       const message = stage === 'target_permission'
         ? '无法写入导出目录，请授予存储权限'
         : '无法准备导出目录，请检查存储空间和目录状态'
-      const details = StoragePaths.errorDetails(e)
+      const details = StoragePaths.errorDetails(e as Error)
       hilog.error(0x0000, 'STORAGE', '导出阶段=%{public}s code=%{public}s detail=%{public}s',
         stage, `VM_LOG_${stage.toUpperCase()}`, details.message)
       return StoragePaths.exportFailure(stage, message)
@@ -576,9 +587,9 @@ export class StoragePaths {
     try {
       await fs.access(logsDir)
     } catch (e) {
-      if (!StoragePaths.isMissingError(e)) {
-        const details = StoragePaths.errorDetails(e)
-        const stage: VmLogExportStage = StoragePaths.isPermissionError(e) ? 'target_permission' : 'target_directory'
+      if (!StoragePaths.isMissingError(e as Error)) {
+        const details = StoragePaths.errorDetails(e as Error)
+        const stage: VmLogExportStage = StoragePaths.isPermissionError(e as Error) ? 'target_permission' : 'target_directory'
         const message = stage === 'target_permission'
           ? '无法访问导出目录，请检查存储权限'
           : '无法访问导出目录，请检查目录状态'
@@ -589,11 +600,11 @@ export class StoragePaths {
       try {
         await fs.mkdir(logsDir)
       } catch (mkdirError) {
-        const stage: VmLogExportStage = StoragePaths.isPermissionError(mkdirError) ? 'target_permission' : 'target_directory'
+        const stage: VmLogExportStage = StoragePaths.isPermissionError(mkdirError as Error) ? 'target_permission' : 'target_directory'
         const message = stage === 'target_permission'
           ? '无法创建导出目录，请授予存储权限'
           : '无法创建导出目录，请检查存储空间和目录状态'
-        const details = StoragePaths.errorDetails(mkdirError)
+        const details = StoragePaths.errorDetails(mkdirError as Error)
         hilog.error(0x0000, 'STORAGE', '导出阶段=%{public}s code=%{public}s detail=%{public}s',
           stage, `VM_LOG_${stage.toUpperCase()}`, details.message)
         return StoragePaths.exportFailure(stage, message)
@@ -606,7 +617,7 @@ export class StoragePaths {
     try {
       await fs.copyFile(src, dst)
     } catch (e) {
-      const details = StoragePaths.errorDetails(e)
+      const details = StoragePaths.errorDetails(e as Error)
       hilog.error(0x0000, 'STORAGE', '导出阶段=copy_failed code=VM_LOG_COPY_FAILED detail=%{public}s', details.message)
       return StoragePaths.exportFailure('copy_failed', '复制日志失败，请重试或检查存储空间')
     }

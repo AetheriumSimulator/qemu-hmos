@@ -25,6 +25,7 @@ export interface QemuAPI {
   stopVm(name: string): boolean;
   getVmLogs(name: string, startLine?: number): string[];
   getVmStatus(name: string): string;
+  getLastError?: () => QemuLastError;
   // Diagnostics and testing (optional)
   testFunction?: () => boolean;
   checkCoreLib?: () => CoreDiag;
@@ -36,6 +37,14 @@ export interface QemuAPI {
   vncGetFrame?: (id: number) => VncFrame | null;
   vncSendPointer?: (id: number, x: number, y: number, buttonMask: number) => boolean;
   vncSendKey?: (id: number, keysym: number, down: boolean) => boolean;
+}
+
+export interface QemuLastError {
+  code: number;
+  name: string;
+  stage: string;
+  message: string;
+  vmName: string;
 }
 
 // VNC frame shape for native client

@@ -76,6 +76,7 @@ export interface QemuModule {
   stopVm(name: string): boolean;
   getVmLogs(name: string, startLine?: number): string[];
   getVmStatus(name: string): string;
+  getLastError?(): QemuLastError;
   getDeviceCapabilities?(): DeviceCapabilities;
   getSupportedDevices?(): SupportedDevices;
   scanQemuDevices?(): ScanResult;           // 同步版本（返回缓存或提示）
