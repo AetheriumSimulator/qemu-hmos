@@ -60,6 +60,7 @@ interface QemuModule {
   stopVm: (name: string) => boolean
   getVmStatus?: (name: string) => string
   getVmLogs: (name: string, startLine?: number) => string[]
+  getLastError?: () => { code: number, name: string, stage: string, message: string, vmName: string }
   checkCoreLib?: () => CoreDiag
   getDeviceCapabilities?: () => DeviceCapabilities
   getSupportedDevices?: () => SupportedDevices
@@ -836,24 +837,37 @@ struct Index {
     try {
       const ctx = getContext(this) as common.UIAbilityContext
       let exportedCount = 0
+      const failures: string[] = []
       
       // 遍历所有 VM 导出日志
       for (const vm of this.vms) {
         const result = await StoragePaths.exportVmLog(ctx, vm.name)
-        if (result) {
+        if (result.ok && result.path) {
           exportedCount++
-          hilog.info(0x0000, 'INDEX', '导出日志: %{public}s -> %{public}s', vm.name, result)
+          hilog.info(0x0000, 'INDEX', '导出日志成功 code=%{public}s: %{public}s -> %{public}s',
+            result.code, vm.name, result.path)
+        } else {
+          failures.push(`${vm.name}: ${result.code} ${result.message}`)
+          hilog.warn(0x0000, 'INDEX', '导出日志失败阶段=%{public}s code=%{public}s vm=%{public}s message=%{public}s',
+            result.stage, result.code, vm.name, result.message)
         }
       }
       
       if (exportedCount > 0) {
         promptAction.showToast({
-          message: `已导出 ${exportedCount} 个日志，可在应用内查看`,
+          message: failures.length > 0
+            ? `已导出 ${exportedCount} 个日志；${failures[0]}`
+            : `已导出 ${exportedCount} 个日志，可在应用内查看`,
           duration: 3000
+        })
+      } else if (failures.length > 0) {
+        promptAction.showToast({
+          message: `日志导出失败：${failures[0]}`,
+          duration: 3500
         })
       } else {
         promptAction.showToast({
-          message: '没有可导出的日志',
+          message: '没有可导出的 VM',
           duration: 2000
         })
       }

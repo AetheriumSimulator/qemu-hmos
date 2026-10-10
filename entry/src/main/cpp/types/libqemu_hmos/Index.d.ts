@@ -19,6 +19,14 @@ export interface VMStatus {
   logPath: string;
 }
 
+export interface QemuLastError {
+  code: number;
+  name: string;
+  stage: string;
+  message: string;
+  vmName: string;
+}
+
 export interface DeviceCapabilities {
   kvmSupported: boolean;
   jitSupported: boolean;

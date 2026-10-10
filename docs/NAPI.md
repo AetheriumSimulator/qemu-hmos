@@ -33,8 +33,12 @@ This project uses OHOS N-API on device and a minimal host-only shim for local bu
    - `hdc install -r ./entry/build/outputs/hap/*.hap`
 2) Launch via DevEco or app icon.
 3) Watch logs:
-   - `hdc shell hilog -x | grep QEMU_TEST`
+   - Continuous capture: `hdc shell hilog > issue34-hilog.txt`
+   - Snapshot only: `hdc shell hilog -x | grep QEMU_TEST`
 4) Exercise N-API from `Index.ets` (e.g., `enableJit`, `kvmSupported`, `startVm`).
+
+`startVm` returns `false` for a short startup failure; call `getLastError()` to
+read the stable numeric code, stage, and message. `CORE_LIB_MISSING` is code `1`.
 
 If you see crashes around N-API symbol resolution, confirm the build is a device build (`USE_FAKE_NAPI=OFF`) and that the module name `qemu_hmos` matches ArkTS import.
 

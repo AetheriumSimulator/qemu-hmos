@@ -518,20 +518,7 @@ static bool IsSupportedQemuArch(const std::string& archType) {
 }
 
 // VM状态管理
-static std::map<std::string, std::thread> g_vmThreads;
-static std::map<std::string, std::atomic<bool>*> g_vmRunning;
-static std::map<std::string, std::vector<std::string>> g_vmLogBuffers;
-static std::map<std::string, std::mutex> g_vmLogMutexes;
-static std::mutex g_vmMutex;
-
-// 全局变量用于控制VM运行状态
-// 使用显式构造避免静态初始化问题
-static std::atomic<bool> g_qemu_shutdown_requested(false);
-static std::string g_current_vm_name;
-static std::string g_current_log_path;
-static std::string g_current_arch_type;  // 当前 VM 的架构类型 (aarch64, x86_64, i386)
-
-// VM 启动错误码
+// Stable error codes exposed through getLastError(). Keep numeric values stable.
 enum class VmStartError {
     SUCCESS = 0,
     CORE_LIB_MISSING = 1,
@@ -539,8 +526,42 @@ enum class VmStartError {
     LOOP_CRASHED = 3,
     DISK_CREATE_FAILED = 4,
     CONFIG_FAILED = 5,
-    ALREADY_RUNNING = 6
+    ALREADY_RUNNING = 6,
+    NATIVE_MODULE_MISSING = 7
 };
+
+static std::map<std::string, std::thread> g_vmThreads;
+static std::map<std::string, std::atomic<bool>*> g_vmRunning;
+static std::map<std::string, std::vector<std::string>> g_vmLogBuffers;
+static std::map<std::string, std::mutex> g_vmLogMutexes;
+static std::map<std::string, std::string> g_vmStates;
+static std::mutex g_vmMutex;
+static std::mutex g_vmStateMutex;
+static std::condition_variable g_vmStartupCv;
+
+struct VmStartupState {
+    bool completed = false;
+    bool success = false;
+    int exitCode = 0;
+    std::string message;
+};
+static std::map<std::string, VmStartupState> g_vmStartupStates;
+
+struct VmLastError {
+    VmStartError code = VmStartError::SUCCESS;
+    std::string stage = "none";
+    std::string message;
+    std::string vmName;
+};
+static VmLastError g_lastError;
+static std::mutex g_lastErrorMutex;
+
+// 全局变量用于控制VM运行状态
+// 使用显式构造避免静态初始化问题
+static std::atomic<bool> g_qemu_shutdown_requested(false);
+static std::string g_current_vm_name;
+static std::string g_current_log_path;
+static std::string g_current_arch_type;  // 当前 VM 的架构类型 (aarch64, x86_64, i386)
 
 // Promise 回调数据结构
 struct VmStartCallbackData {
@@ -568,6 +589,11 @@ static constexpr int SHUTDOWN_CAUSE_HOST = 0;
 // 前向声明 - 日志函数
 static void HilogPrint(const std::string& message);
 static void WriteLog(const std::string& logPath, const std::string& message);
+static void SetLastError(VmStartError code, const std::string& stage,
+                         const std::string& message, const std::string& vmName = "",
+                         const std::string& logPath = "");
+static void SetVmStartupResult(const std::string& vmName, bool success, int exitCode,
+                               const std::string& message);
 
 
 // 检测KVM支持
@@ -1647,6 +1673,10 @@ static bool CreateVmPerfenceFile(const VMConfig& config)
 // 更新VM状态
 static bool UpdateVMStatus(const std::string& vmName, const std::string& status) {
     try {
+        {
+            std::lock_guard<std::mutex> stateLock(g_vmStateMutex);
+            g_vmStates[vmName] = status;
+        }
         std::string vmDir = "/data/storage/el2/base/haps/entry/files/vms/" + vmName;
         std::string statusPath = vmDir + "/vm_status.txt";
         
@@ -2940,6 +2970,55 @@ static void WriteLog(const std::string& logPath, const std::string& message) {
     }
 }
 
+static const char* VmStartErrorName(VmStartError code)
+{
+    switch (code) {
+        case VmStartError::SUCCESS: return "OK";
+        case VmStartError::CORE_LIB_MISSING: return "CORE_LIB_MISSING";
+        case VmStartError::INIT_FAILED: return "INIT_FAILED";
+        case VmStartError::LOOP_CRASHED: return "LOOP_CRASHED";
+        case VmStartError::DISK_CREATE_FAILED: return "DISK_CREATE_FAILED";
+        case VmStartError::CONFIG_FAILED: return "CONFIG_FAILED";
+        case VmStartError::ALREADY_RUNNING: return "ALREADY_RUNNING";
+        case VmStartError::NATIVE_MODULE_MISSING: return "NATIVE_MODULE_MISSING";
+    }
+    return "UNKNOWN";
+}
+
+static void SetLastError(VmStartError code, const std::string& stage,
+                         const std::string& message, const std::string& vmName,
+                         const std::string& logPath)
+{
+    {
+        std::lock_guard<std::mutex> lock(g_lastErrorMutex);
+        g_lastError.code = code;
+        g_lastError.stage = stage;
+        g_lastError.message = message;
+        g_lastError.vmName = vmName;
+    }
+
+    const std::string diagnostic = std::string("[ERROR][") + VmStartErrorName(code) +
+        "][" + stage + "] " + message;
+    HilogPrint("QEMU: " + diagnostic);
+    if (!logPath.empty()) {
+        WriteLog(logPath, diagnostic);
+    }
+}
+
+static void SetVmStartupResult(const std::string& vmName, bool success, int exitCode,
+                               const std::string& message)
+{
+    {
+        std::lock_guard<std::mutex> lock(g_vmStateMutex);
+        VmStartupState& state = g_vmStartupStates[vmName];
+        state.completed = true;
+        state.success = success;
+        state.exitCode = exitCode;
+        state.message = message;
+    }
+    g_vmStartupCv.notify_all();
+}
+
 // 动态加载 QEMU 核心库并调用其 API
 //
 // 注意：在 OHOS 侧，我们用 dlopen + dlsym 访问 QEMU 核心入口。
@@ -3064,19 +3143,19 @@ static std::string GetQemuLibName(const std::string& archType) {
 
 // ============ 诊断：详细追踪 dlopen 过程 ============
 // The current package carries one ARM64 core; reject other architectures before dlopen.
-static void EnsureQemuCoreLoaded(const std::string& logPath, const std::string& archType = "aarch64")
+static bool EnsureQemuCoreLoaded(const std::string& logPath, const std::string& archType = "aarch64")
 {
     if (!IsSupportedQemuArch(archType)) {
         WriteLog(logPath, "[QEMU] Unsupported architecture for bundled core: " + archType);
         HilogPrint("QEMU: unsupported architecture for bundled core: " + archType);
-        return;
+        return false;
     }
     std::string libName = GetQemuLibName(archType);
     
     // 如果已经加载了相同架构的库，直接返回
     if (g_qemu_core_qemu_init && g_loaded_arch == archType) {
         HilogPrint("QEMU: Library already loaded for arch: " + archType);
-        return;
+        return true;
     }
     
     // 如果加载了不同架构的库，需要先卸载
@@ -3098,7 +3177,7 @@ static void EnsureQemuCoreLoaded(const std::string& logPath, const std::string& 
         g_loaded_arch.clear();
     }
     
-    if (g_qemu_core_qemu_init) return;
+    if (g_qemu_core_qemu_init) return true;
     
     OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, "QEMU_LOAD", "========== 开始加载 %s ==========", libName.c_str());
     OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, "QEMU_LOAD", "目标架构: %s", archType.c_str());
@@ -3160,7 +3239,7 @@ static void EnsureQemuCoreLoaded(const std::string& logPath, const std::string& 
                     // 所有尝试都失败了
                     WriteLog(logPath, "[QEMU] Core library not loaded. Aborting start.");
                     WriteLog(logPath, "[QEMU] Please ensure " + libName + " is properly installed in the app bundle.");
-                    return;
+                    return false;
                 }
             } else {
                 HilogPrint("QEMU: Successfully loaded from self dir");
@@ -3247,9 +3326,16 @@ static void EnsureQemuCoreLoaded(const std::string& logPath, const std::string& 
     if (!g_qemu_core_shutdown) {
         WriteLog(logPath, "[QEMU] dlsym qemu_system_shutdown_request failed (optional)");
     }
+
+    if (!g_qemu_core_qemu_init || !g_qemu_core_main_loop) {
+        WriteLog(logPath, "[QEMU] Required core symbols are missing; startup will fail with CORE_LIB_MISSING");
+        HilogPrint("QEMU: required core symbols are missing");
+        return false;
+    }
+    return true;
 }
 
-static int QemuCoreMainOrStub(int argc, char** argv)
+static int QemuCoreMainOrStub(int argc, char** argv, const std::string& vmName)
 {
     // 提取日志路径用于记录
     std::string logPath;
@@ -3266,8 +3352,8 @@ static int QemuCoreMainOrStub(int argc, char** argv)
 
     // 使用全局变量中保存的架构类型
     std::string archType = g_current_arch_type.empty() ? "aarch64" : g_current_arch_type;
-    EnsureQemuCoreLoaded(logPath, archType);
-    if (g_qemu_core_qemu_init && g_qemu_core_main_loop) {
+    const bool coreLoaded = EnsureQemuCoreLoaded(logPath, archType);
+    if (coreLoaded && g_qemu_core_qemu_init && g_qemu_core_main_loop) {
         WriteLog(logPath, "[QEMU] Core library loaded, initializing QEMU...");
         HilogPrint("QEMU: Core library loaded successfully");
         
@@ -3332,6 +3418,8 @@ static int QemuCoreMainOrStub(int argc, char** argv)
             std::string msg = "QEMU called exit(" + std::to_string(code) + ") during init/mainloop; converted to failure to avoid appspawn crash";
             HilogPrint("QEMU: [FATAL] " + msg);
             WriteLog(logPath, "[QEMU] [FATAL] " + msg);
+            SetVmStartupResult(vmName, false, code, msg);
+            SetLastError(VmStartError::INIT_FAILED, "core_init", msg, vmName, logPath);
             return (code == 0) ? -1 : code;
         }
 
@@ -3353,6 +3441,8 @@ static int QemuCoreMainOrStub(int argc, char** argv)
                     "QEMU core requested exit(" + std::to_string(coreExit) + ") during qemu_init; converted to failure to avoid appspawn crash";
                 HilogPrint("QEMU: [FATAL] " + msg);
                 WriteLog(logPath, "[QEMU] [FATAL] " + msg);
+                SetVmStartupResult(vmName, false, coreExit, msg);
+                SetLastError(VmStartError::INIT_FAILED, "core_init", msg, vmName, logPath);
                 return coreExit;
             }
         }
@@ -3361,6 +3451,9 @@ static int QemuCoreMainOrStub(int argc, char** argv)
             ">>> qemu_init 返回成功！<<<");
         
         g_qemu_initialized = true;
+
+        UpdateVMStatus(vmName, "running");
+        SetVmStartupResult(vmName, true, 0, "qemu_init completed");
         
         HilogPrint("QEMU: qemu_init completed, entering main loop...");
         WriteLog(logPath, "[QEMU] qemu_init completed, entering qemu_main_loop...");
@@ -3408,6 +3501,9 @@ static int QemuCoreMainOrStub(int argc, char** argv)
     WriteLog(logPath, "[QEMU] VM启动完成，等待操作系统引导...");
     
     // 无核心库，立即失败，避免误导UI
+    const std::string message = "QEMU core library is missing or required symbols are unavailable";
+    SetVmStartupResult(vmName, false, -1, message);
+    SetLastError(VmStartError::CORE_LIB_MISSING, "core_load", message, vmName, logPath);
     return -1;
 }
 
@@ -3475,6 +3571,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     napi_get_boolean(env, false, &retBool);
 
     if (argc < 1) {
+        SetLastError(VmStartError::CONFIG_FAILED, "config", "No config provided");
         napi_throw_error(env, nullptr, "No config provided");
         return retBool;
     }
@@ -3482,6 +3579,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     bool ok = false;
     VMConfig config = ParseVMConfig(env, argv[0], ok);
     if (!ok) {
+        SetLastError(VmStartError::CONFIG_FAILED, "config", "Invalid VM config");
         napi_throw_error(env, nullptr, "Invalid config");
         return retBool;
     }
@@ -3491,6 +3589,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
             "Unsupported architecture '" + config.archType +
             "': this build currently supports aarch64 only";
         HilogPrint("QEMU: " + message);
+        SetLastError(VmStartError::CONFIG_FAILED, "config", message, config.name, config.logPath);
         napi_throw_error(env, nullptr, message.c_str());
         return retBool;
     }
@@ -3498,12 +3597,12 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
         config.archType = "aarch64";
     }
     
-    std::lock_guard<std::mutex> lock(g_vmMutex);
+    std::unique_lock<std::mutex> lock(g_vmMutex);
     
     // 检查VM是否已在运行
     if (g_vmRunning.find(config.name) != g_vmRunning.end() && g_vmRunning[config.name]->load()) {
         HilogPrint("QEMU: VM '" + config.name + "' is already running");
-        napi_throw_error(env, nullptr, "VM is already running");
+        SetLastError(VmStartError::ALREADY_RUNNING, "state", "VM is already running", config.name, config.logPath);
         return retBool;
     }
     
@@ -3512,7 +3611,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     // 创建VM目录结构
     if (!CreateVMDirectory(config.name)) {
         WriteLog(config.logPath, "Failed to create VM directory for: " + config.name);
-        napi_throw_error(env, nullptr, "Failed to create VM directory");
+        SetLastError(VmStartError::CONFIG_FAILED, "vm_directory", "Failed to create VM directory", config.name, config.logPath);
         return retBool;
     }
     WriteLog(config.logPath, "VM directory created for: " + config.name);
@@ -3520,7 +3619,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     // 创建VM配置文件
     if (!CreateVMConfigFile(config)) {
         WriteLog(config.logPath, "Failed to create VM config file for: " + config.name);
-        napi_throw_error(env, nullptr, "Failed to create VM config file");
+        SetLastError(VmStartError::CONFIG_FAILED, "vm_config", "Failed to create VM config file", config.name, config.logPath);
         return retBool;
     }
     WriteLog(config.logPath, "VM config file created for: " + config.name);
@@ -3541,7 +3640,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
         if (!CreateVirtualDisk(config.diskPath, config.diskSizeGB)) {
             WriteLog(config.logPath, "Failed to create virtual disk");
             UpdateVMStatus(config.name, "failed");
-            napi_throw_error(env, nullptr, "Failed to create virtual disk");
+            SetLastError(VmStartError::DISK_CREATE_FAILED, "disk", "Failed to create virtual disk", config.name, config.logPath);
             return retBool;
         }
         WriteLog(config.logPath, "Virtual disk created successfully");
@@ -3553,8 +3652,8 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     if (FileExists(config.diskPath) && IsQcow2FileQuick(config.diskPath)) {
         if (!PreflightQcow2RefcountTable(config.diskPath)) {
             UpdateVMStatus(config.name, "failed");
-            napi_throw_error(env, nullptr,
-                             "Disk image is corrupt (qcow2 refcount table invalid). 请到「磁盘空间管理 → 新建/覆盖」重建磁盘后再启动。");
+            SetLastError(VmStartError::CONFIG_FAILED, "disk_preflight",
+                         "Disk image is corrupt (qcow2 refcount table invalid)", config.name, config.logPath);
             return retBool;
         }
     }
@@ -3597,13 +3696,15 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     // 启动前确保核心库可用（根据架构加载对应的 .so）
     std::string archType = config.archType.empty() ? "aarch64" : config.archType;
     WriteLog(config.logPath, "[QEMU] Loading QEMU core for architecture: " + archType);
-    EnsureQemuCoreLoaded(config.logPath, archType);
-    if (!g_qemu_core_qemu_init || !g_qemu_core_main_loop) {
+    const bool coreLoaded = EnsureQemuCoreLoaded(config.logPath, archType);
+    if (!coreLoaded || !g_qemu_core_qemu_init || !g_qemu_core_main_loop) {
         WriteLog(config.logPath, "[QEMU] Core library not loaded. Aborting start.");
         std::string libName = GetQemuLibName(archType);
         WriteLog(config.logPath, "[QEMU] Please ensure " + libName + " is properly installed in the app bundle.");
+        WriteLog(config.logPath, "[QEMU] Core library missing, running stub diagnostics is available in this log.");
         UpdateVMStatus(config.name, "failed");
-        napi_throw_error(env, nullptr, (libName + " not found or failed to load. Please check app installation.").c_str());
+        const std::string message = libName + " not found or required symbols failed to load";
+        SetLastError(VmStartError::CORE_LIB_MISSING, "core_load", message, config.name, config.logPath);
         return retBool;
     }
 
@@ -3613,8 +3714,12 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     }
     g_vmRunning[config.name]->store(true);
     
-    // 更新VM状态为运行中
-    UpdateVMStatus(config.name, "running");
+    // Mark the VM as starting until qemu_init completes successfully.
+    UpdateVMStatus(config.name, "starting");
+    {
+        std::lock_guard<std::mutex> stateLock(g_vmStateMutex);
+        g_vmStartupStates[config.name] = VmStartupState{};
+    }
     
     // 保存 vmName 用于在回调中使用
     std::string vmName = config.name;
@@ -3631,14 +3736,29 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
         WriteLog(config.logPath, "VM thread started");
         // 这里也通过 Hilog 打一条，方便在设备上直接看到 VM 主线程已启动
         HilogPrint("QEMU: VM thread started for VM '" + vmName + "'");
-        int exitCode = QemuCoreMainOrStub(static_cast<int>(cargs.size()), cargs.data());
+        int exitCode = QemuCoreMainOrStub(static_cast<int>(cargs.size()), cargs.data(), vmName);
         WriteLog(config.logPath, "VM exited with code: " + std::to_string(exitCode));
 
         // 退出后释放捕获器，恢复文件描述符并释放 JS 回调
         g_logCapture.reset();
         
-        // 更新VM状态为已停止
-        UpdateVMStatus(config.name, "stopped");
+        // A non-zero runtime exit is a failure. Only a clean zero exit is stopped.
+        if (exitCode == 0) {
+            UpdateVMStatus(config.name, "stopped");
+        } else {
+            UpdateVMStatus(config.name, "failed");
+            bool startupFailed = false;
+            {
+                std::lock_guard<std::mutex> stateLock(g_vmStateMutex);
+                auto stateIt = g_vmStartupStates.find(vmName);
+                startupFailed = stateIt != g_vmStartupStates.end() && stateIt->second.completed &&
+                    !stateIt->second.success;
+            }
+            if (!startupFailed) {
+                SetLastError(VmStartError::LOOP_CRASHED, "runtime",
+                             "VM exited with code " + std::to_string(exitCode), vmName, config.logPath);
+            }
+        }
         g_vmRunning[config.name]->store(false);
         
         // 通知 ArkTS 层 VM 已退出
@@ -3647,6 +3767,36 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
         NotifyVmStartResult(vmName, error, exitCode, errorMsg);
     });
 
+    // Wait briefly for qemu_init to either complete or fail so a short startup
+    // failure is reported synchronously to ArkTS instead of being shown as running.
+    lock.unlock();
+    VmStartupState startup;
+    bool startupReady = false;
+    {
+        std::unique_lock<std::mutex> stateLock(g_vmStateMutex);
+        startupReady = g_vmStartupCv.wait_for(stateLock, std::chrono::milliseconds(1500), [&]() {
+            auto it = g_vmStartupStates.find(config.name);
+            return it != g_vmStartupStates.end() && it->second.completed;
+        });
+        auto it = g_vmStartupStates.find(config.name);
+        if (it != g_vmStartupStates.end()) {
+            startup = it->second;
+        }
+    }
+
+    if (!startupReady) {
+        const std::string message = "VM startup timed out before qemu_init completed";
+        UpdateVMStatus(config.name, "failed");
+        SetLastError(VmStartError::INIT_FAILED, "startup_timeout", message, config.name, config.logPath);
+        return retBool;
+    }
+    if (!startup.success) {
+        UpdateVMStatus(config.name, "failed");
+        SetLastError(VmStartError::INIT_FAILED, "core_init", startup.message, config.name, config.logPath);
+        return retBool;
+    }
+
+    SetLastError(VmStartError::SUCCESS, "startup", "VM startup completed", config.name, config.logPath);
     napi_get_boolean(env, true, &retBool);
     return retBool;
 }
@@ -3780,7 +3930,15 @@ static napi_value StopVm(napi_env env, napi_callback_info info) {
                     it->second->store(false);
                 }
             }
-            UpdateVMStatus(vmName, "stopped");
+            bool runtimeFailed = false;
+            {
+                std::lock_guard<std::mutex> stateLock(g_vmStateMutex);
+                auto stateIt = g_vmStates.find(vmName);
+                runtimeFailed = stateIt != g_vmStates.end() && stateIt->second == "failed";
+            }
+            if (!runtimeFailed) {
+                UpdateVMStatus(vmName, "stopped");
+            }
             WriteLog(logPath, "[STOP] VM stopped (non-blocking stop handler done)");
         }).detach();
     }
@@ -4075,17 +4233,20 @@ static napi_value GetVmStatus(napi_env env, napi_callback_info info) {
     }
     
     std::string status = "stopped";
-    
-    // 加锁访问 g_vmRunning，避免数据竞争
     {
+        std::lock_guard<std::mutex> stateLock(g_vmStateMutex);
+        auto stateIt = g_vmStates.find(vmName);
+        if (stateIt != g_vmStates.end()) {
+            status = stateIt->second;
+        }
+    }
+
+    // Preserve explicit startup/failure states even when QMP is not ready.
+    if (status != "starting" && status != "preparing" && status != "failed" && status != "stopping") {
         std::lock_guard<std::mutex> lock(g_vmMutex);
-        // 首先检查本地运行状态标志
         auto it = g_vmRunning.find(vmName);
         if (it != g_vmRunning.end() && it->second && it->second->load()) {
-            // VM 线程在运行，尝试通过 QMP 获取真实状态
             status = QueryVmStatusViaQmp(vmName);
-            
-            // 如果 QMP 查询失败但线程还在运行，返回 running
             if (status == "stopped" || status == "unknown") {
                 status = "running";
             }
@@ -4094,6 +4255,37 @@ static napi_value GetVmStatus(napi_env env, napi_callback_info info) {
 
     napi_value result;
     napi_create_string_utf8(env, status.c_str(), NAPI_AUTO_LENGTH, &result);
+    return result;
+}
+
+// Return the last stable startup/runtime diagnostic without throwing so ArkTS
+// can present a deterministic code and message to the user.
+static napi_value GetLastError(napi_env env, napi_callback_info info) {
+    (void)info;
+    VmLastError snapshot;
+    {
+        std::lock_guard<std::mutex> lock(g_lastErrorMutex);
+        snapshot = g_lastError;
+    }
+
+    napi_value result;
+    napi_create_object(env, &result);
+    napi_value code;
+    napi_create_int32(env, static_cast<int32_t>(snapshot.code), &code);
+    napi_set_named_property(env, result, "code", code);
+
+    napi_value name;
+    napi_create_string_utf8(env, VmStartErrorName(snapshot.code), NAPI_AUTO_LENGTH, &name);
+    napi_set_named_property(env, result, "name", name);
+    napi_value stage;
+    napi_create_string_utf8(env, snapshot.stage.c_str(), NAPI_AUTO_LENGTH, &stage);
+    napi_set_named_property(env, result, "stage", stage);
+    napi_value message;
+    napi_create_string_utf8(env, snapshot.message.c_str(), NAPI_AUTO_LENGTH, &message);
+    napi_set_named_property(env, result, "message", message);
+    napi_value vmName;
+    napi_create_string_utf8(env, snapshot.vmName.c_str(), NAPI_AUTO_LENGTH, &vmName);
+    napi_set_named_property(env, result, "vmName", vmName);
     return result;
 }
 
@@ -5547,6 +5739,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         { "stopVm", 0, StopVm, 0, 0, 0, napi_default, 0 },
         { "getVmLogs", 0, GetVmLogs, 0, 0, 0, napi_default, 0 },
         { "getVmStatus", 0, GetVmStatus, 0, 0, 0, napi_default, 0 },
+        { "getLastError", 0, GetLastError, 0, 0, 0, napi_default, 0 },
         { "checkCoreLib", 0, CheckCoreLib, 0, 0, 0, napi_default, 0 },
         { "getDeviceCapabilities", 0, GetDeviceCapabilities, 0, 0, 0, napi_default, 0 },
         { "getSupportedDevices", 0, GetSupportedDevices, 0, 0, 0, napi_default, 0 },
@@ -5599,6 +5792,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         { "stopVm", StopVm, 0 },
         { "getVmLogs", GetVmLogs, 0 },
         { "getVmStatus", GetVmStatus, 0 },
+        { "getLastError", GetLastError, 0 },
         { "checkCoreLib", CheckCoreLib, 0 },
         // RDP 超时处理
         // Native VNC (client)

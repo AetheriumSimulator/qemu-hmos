@@ -57,6 +57,23 @@ interface StorageStatsResult {
   totalSize: number
 }
 
+/** Stable diagnostics returned by exportVmLog for UI and support logs. */
+export type VmLogExportStage =
+  | 'success'
+  | 'source_missing'
+  | 'source_permission'
+  | 'target_directory'
+  | 'target_permission'
+  | 'copy_failed'
+
+export interface VmLogExportResult {
+  ok: boolean
+  stage: VmLogExportStage
+  code: string
+  message: string
+  path?: string
+}
+
 export class StoragePaths {
   // 内部沙箱基础路径（不暴露给文件管理）
   static readonly INTERNAL_BASE = '/data/storage/el2/base/haps/entry/files'
@@ -242,7 +259,7 @@ export class StoragePaths {
    * 获取公共 Downloads 目录下的应用子目录
    * 需要先调用 requestMediaPermissions 获取权限
    */
-  static async getPublicAppDir(context?: common.UIAbilityContext): Promise<string | null> {
+  static async getPublicAppDir(context?: common.UIAbilityContext): Promise<string> {
     try {
       // 尝试获取外部 Downloads 目录
       let downloadsDir: string | null = null
@@ -291,7 +308,7 @@ export class StoragePaths {
       return appDir
     } catch (e) {
       hilog.error(0x0000, 'STORAGE', '获取公开目录失败: %{public}s', (e as Error).message)
-      return null
+      throw e
     }
   }
   
@@ -489,39 +506,113 @@ export class StoragePaths {
     }
   }
 
+  private static errorDetails(error: unknown): { code: string, message: string } {
+    const candidate = error as { code?: number | string, message?: string }
+    const code = candidate && candidate.code !== undefined ? String(candidate.code) : ''
+    const message = candidate && candidate.message ? candidate.message : String(error)
+    return { code, message }
+  }
+
+  private static isMissingError(error: unknown): boolean {
+    const details = StoragePaths.errorDetails(error)
+    const value = `${details.code} ${details.message}`.toLowerCase()
+    return value.includes('enoent') || value.includes('13900002') ||
+      value.includes('no such file') || value.includes('not found') ||
+      value.includes('does not exist') || value.includes('不存在')
+  }
+
+  private static isPermissionError(error: unknown): boolean {
+    const details = StoragePaths.errorDetails(error)
+    const value = `${details.code} ${details.message}`.toLowerCase()
+    return value.includes('eacces') || value.includes('eperm') ||
+      value.includes('13900013') || value.includes('13900012') ||
+      value.includes('permission') || value.includes('denied') ||
+      value.includes('not permitted') || value.includes('readonly')
+  }
+
+  private static exportFailure(stage: VmLogExportStage, message: string): VmLogExportResult {
+    return {
+      ok: false,
+      stage,
+      code: `VM_LOG_${stage.toUpperCase()}`,
+      message
+    }
+  }
+
   /**
    * 导出指定 VM 的 qemu.log 到公共 Download/com.cloudshin.aetherengine/日志 目录
-   * 返回导出后的完整路径，失败时返回 null
+   * 返回带稳定阶段码的结果，供 UI 显示可操作的错误信息。
    */
-  static async exportVmLog(context: common.Context, vmName: string): Promise<string | null> {
+  static async exportVmLog(context: common.Context, vmName: string): Promise<VmLogExportResult> {
+    const src = StoragePaths.getVmLogPath(vmName)
     try {
-      const src = StoragePaths.getVmLogPath(vmName)
-      await fs.access(src) // 确认源文件存在
-
-      const appDir = await StoragePaths.getPublicAppDir()
-      if (!appDir) {
-        hilog.error(0x0000, 'STORAGE', '无法获取公共目录')
-        return null
-      }
-      
-      const logsDir = `${appDir}/logs`
-      try {
-        await fs.access(logsDir)
-      } catch (_) {
-        await fs.mkdir(logsDir)
-      }
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const safeName = vmName.replace(/[^\w.-]/g, '_')
-      const dst = `${logsDir}/${safeName}-${timestamp}.log`
-      await fs.copyFile(src, dst)
-      
-      hilog.info(0x0000, 'STORAGE', '日志已导出: %{public}s', dst)
-      return dst
+      await fs.access(src)
     } catch (e) {
-      hilog.error(0x0000, 'STORAGE', '导出 qemu.log 失败: %{public}s', (e as Error).message)
-      return null
+      const details = StoragePaths.errorDetails(e)
+      const stage: VmLogExportStage = StoragePaths.isMissingError(e) ? 'source_missing' : 'source_permission'
+      const message = stage === 'source_missing'
+        ? '源日志不存在，请先启动虚拟机并重试'
+        : '无法读取源日志，请检查应用文件权限'
+      hilog.error(0x0000, 'STORAGE', '导出阶段=%{public}s code=%{public}s path=%{public}s detail=%{public}s',
+        stage, `VM_LOG_${stage.toUpperCase()}`, src, details.message)
+      return StoragePaths.exportFailure(stage, message)
     }
+
+    let appDir: string
+    try {
+      appDir = await StoragePaths.getPublicAppDir()
+    } catch (e) {
+      const stage: VmLogExportStage = StoragePaths.isPermissionError(e) ? 'target_permission' : 'target_directory'
+      const message = stage === 'target_permission'
+        ? '无法写入导出目录，请授予存储权限'
+        : '无法准备导出目录，请检查存储空间和目录状态'
+      const details = StoragePaths.errorDetails(e)
+      hilog.error(0x0000, 'STORAGE', '导出阶段=%{public}s code=%{public}s detail=%{public}s',
+        stage, `VM_LOG_${stage.toUpperCase()}`, details.message)
+      return StoragePaths.exportFailure(stage, message)
+    }
+
+    const logsDir = `${appDir}/logs`
+    try {
+      await fs.access(logsDir)
+    } catch (e) {
+      if (!StoragePaths.isMissingError(e)) {
+        const details = StoragePaths.errorDetails(e)
+        const stage: VmLogExportStage = StoragePaths.isPermissionError(e) ? 'target_permission' : 'target_directory'
+        const message = stage === 'target_permission'
+          ? '无法访问导出目录，请检查存储权限'
+          : '无法访问导出目录，请检查目录状态'
+        hilog.error(0x0000, 'STORAGE', '导出阶段=%{public}s code=%{public}s detail=%{public}s',
+          stage, `VM_LOG_${stage.toUpperCase()}`, details.message)
+        return StoragePaths.exportFailure(stage, message)
+      }
+      try {
+        await fs.mkdir(logsDir)
+      } catch (mkdirError) {
+        const stage: VmLogExportStage = StoragePaths.isPermissionError(mkdirError) ? 'target_permission' : 'target_directory'
+        const message = stage === 'target_permission'
+          ? '无法创建导出目录，请授予存储权限'
+          : '无法创建导出目录，请检查存储空间和目录状态'
+        const details = StoragePaths.errorDetails(mkdirError)
+        hilog.error(0x0000, 'STORAGE', '导出阶段=%{public}s code=%{public}s detail=%{public}s',
+          stage, `VM_LOG_${stage.toUpperCase()}`, details.message)
+        return StoragePaths.exportFailure(stage, message)
+      }
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const safeName = vmName.replace(/[^\w.-]/g, '_')
+    const dst = `${logsDir}/${safeName}-${timestamp}.log`
+    try {
+      await fs.copyFile(src, dst)
+    } catch (e) {
+      const details = StoragePaths.errorDetails(e)
+      hilog.error(0x0000, 'STORAGE', '导出阶段=copy_failed code=VM_LOG_COPY_FAILED detail=%{public}s', details.message)
+      return StoragePaths.exportFailure('copy_failed', '复制日志失败，请重试或检查存储空间')
+    }
+
+    hilog.info(0x0000, 'STORAGE', '导出阶段=success code=VM_LOG_SUCCESS path=%{public}s', dst)
+    return { ok: true, stage: 'success', code: 'VM_LOG_SUCCESS', message: '日志导出成功', path: dst }
   }
 
   /**

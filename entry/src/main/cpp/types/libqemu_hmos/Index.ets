@@ -75,6 +75,7 @@ export interface QemuModule {
   stopVm(name: string): boolean;
   getVmLogs(name: string, startLine?: number): string[];
   getVmStatus?(name: string): string;
+  getLastError?(): QemuLastError;
   getDeviceCapabilities?(): DeviceCapabilities;
   getSupportedDevices?(): SupportedDevices;
   pauseVm?(name: string): boolean;
@@ -109,6 +110,14 @@ export interface QemuModule {
   getSupportedDevices?: () => SupportedDevices;
 }
 
+export interface QemuLastError {
+  code: number;
+  name: string;
+  stage: string;
+  message: string;
+  vmName: string;
+}
+
 function createStub(): QemuModule {
   const warn = (method: string) => console.warn(`[qemu_hmos] ${method} ignored: native module missing`);
   return {
@@ -119,6 +128,13 @@ function createStub(): QemuModule {
     stopVm: () => { warn('stopVm'); return false; },
     getVmLogs: () => [],
     getVmStatus: () => 'stopped',
+    getLastError: () => ({
+      code: 7,
+      name: 'NATIVE_MODULE_MISSING',
+      stage: 'module_load',
+      message: 'native module is unavailable',
+      vmName: ''
+    }),
     getDeviceCapabilities: () => ({
       kvmSupported: false,
       jitSupported: false,

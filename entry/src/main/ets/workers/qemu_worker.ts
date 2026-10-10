@@ -55,6 +55,14 @@ interface QemuWorkerResponse {
   data?: Record<string, unknown>
 }
 
+interface QemuLastError {
+  code: number
+  name: string
+  stage: string
+  message: string
+  vmName: string
+}
+
 const workerPort = worker.workerPort
 const qemuNative = qemu
 
@@ -184,7 +192,10 @@ function startVM(config?: WorkerVMConfig): QemuWorkerResponse {
   })
 
   if (!success) {
-    return fail('启动虚拟机失败，请检查 native 日志')
+    const diagnostic = qemuNative.getLastError?.() as QemuLastError | undefined
+    return fail(diagnostic
+      ? `${diagnostic.name}(${diagnostic.code}) [${diagnostic.stage}]: ${diagnostic.message}`
+      : '启动虚拟机失败，请检查 native 日志')
   }
 
   const vmId = params.name

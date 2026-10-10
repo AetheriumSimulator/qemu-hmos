@@ -21,7 +21,15 @@ Hvigor will package native libs from `src/main/libs/<abi>/` automatically. Using
   - Failure: `[QEMU] dlopen libqemu_full.so failed: <reason>`
   - Fallback: `[QEMU] Core library missing, running stub loop`
 
-Use: `hdc shell hilog -x | grep QEMU` to check logs.
+For an Issue #34 reproduction, start continuous capture before launching the VM:
+
+```sh
+hdc shell hilog > issue34-hilog.txt
+```
+
+Use `hdc shell hilog -x | grep QEMU` only for a one-time snapshot. Do not add
+`-r` to the default capture command; it changes the hilog output mode and can
+hide the startup window being diagnosed.
 
 ## Notes
 

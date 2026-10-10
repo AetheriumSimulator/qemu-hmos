@@ -38,10 +38,19 @@ interface NativeQemuModule {
   startVm: (config: NativeVmConfig) => boolean
   stopVm?: (name: string) => boolean
   getVmStatus?: (name: string) => string
+  getLastError?: () => QemuLastError
   writeToVmConsole?: (data: string) => void
   setConsoleCallback?: (callback: (data: string) => void) => void
   // 通过 QMP screendump 获取 VM 截图
   takeScreenshot?: (vmName: string, outputPath: string) => boolean
+}
+
+interface QemuLastError {
+  code: number
+  name: string
+  stage: string
+  message: string
+  vmName: string
 }
 
 let nativeQemu: NativeQemuModule | null = null
@@ -123,6 +132,9 @@ export interface VMStartResult {
   success: boolean
   vmId?: string
   message: string
+  errorCode?: number
+  errorName?: string
+  errorStage?: string
   vncPort?: number
   rdpPort?: number
   sshPort?: number
@@ -402,7 +414,16 @@ export class QemuVMManager {
           const success: boolean = native.startVm(nativeConfig)
 
           if (!success) {
-            return { success: false, message: 'NAPI startVm 返回 false' }
+            const diagnostic = native.getLastError?.()
+            return {
+              success: false,
+              message: diagnostic
+                ? `${diagnostic.name}(${diagnostic.code}) [${diagnostic.stage}]: ${diagnostic.message}`
+                : 'NAPI startVm 返回 false',
+              errorCode: diagnostic?.code,
+              errorName: diagnostic?.name,
+              errorStage: diagnostic?.stage
+            }
           }
 
           return {
@@ -414,7 +435,16 @@ export class QemuVMManager {
             sshPort: 2222
           }
         } catch (err) {
-          return { success: false, message: `直接 NAPI 启动失败: ${err}` }
+          const diagnostic = native.getLastError?.()
+          return {
+            success: false,
+            message: diagnostic
+              ? `${diagnostic.name}(${diagnostic.code}) [${diagnostic.stage}]: ${diagnostic.message}`
+              : `直接 NAPI 启动失败: ${err}`,
+            errorCode: diagnostic?.code,
+            errorName: diagnostic?.name,
+            errorStage: diagnostic?.stage
+          }
         }
       }
 
@@ -443,7 +473,10 @@ export class QemuVMManager {
     } catch (error) {
       const result: VMStartResult = {
         success: false,
-        message: `启动失败: ${error}`
+        message: `NATIVE_MODULE_MISSING(7) [module_load]: 启动失败: ${error}`,
+        errorCode: 7,
+        errorName: 'NATIVE_MODULE_MISSING',
+        errorStage: 'module_load'
       }
       return result
     }
