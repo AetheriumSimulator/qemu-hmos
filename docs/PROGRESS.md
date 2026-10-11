@@ -227,7 +227,8 @@
 验证方法：
 
 1. 构建并安装 HAP（Debug）：`hvigor assembleDebug` → `hdc install -r ./entry/build/outputs/hap/*.hap`
-2. 启动应用后，查看日志：`hdc shell hilog -x | grep QEMU`，应看到：
+2. 启动应用前持续采集日志：`hdc shell hilog > issue34-hilog.txt`，应看到：
+   `hdc shell hilog -x | grep QEMU` 仅用于一次性快照，不默认使用 `-r`。
    - `QEMU: NAPI module constructor running, registering libqemu_hmos.so`
    - `QEMU: NAPI Init function called!`
 3. 进入首页后，`qemu.version/enableJit/kvmSupported` 的日志应正常打印；执行 `startVm` 失败时也会写入更详细的 `dlopen/dlsym` 失败信息。

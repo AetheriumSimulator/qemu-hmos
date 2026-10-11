@@ -19,6 +19,14 @@ export interface VMStatus {
   logPath: string;
 }
 
+export interface QemuLastError {
+  code: number;
+  name: string;
+  stage: string;
+  message: string;
+  vmName: string;
+}
+
 export interface DeviceCapabilities {
   kvmSupported: boolean;
   jitSupported: boolean;
@@ -68,6 +76,7 @@ export interface QemuModule {
   stopVm(name: string): boolean;
   getVmLogs(name: string, startLine?: number): string[];
   getVmStatus(name: string): string;
+  getLastError?(): QemuLastError;
   getDeviceCapabilities?(): DeviceCapabilities;
   getSupportedDevices?(): SupportedDevices;
   scanQemuDevices?(): ScanResult;           // 同步版本（返回缓存或提示）
