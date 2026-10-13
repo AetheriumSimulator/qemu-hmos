@@ -89,3 +89,38 @@ reviewed implementation of the release verification, not a cosmetic flag change.
 Updating an indexed dependency, patch, recipe or license also requires refreshing
 its evidence in the inventory after review. SHA-256 values are calculated over
 Git blob bytes (LF), not platform-dependent working-tree line endings.
+
+## Runner-local build validation
+
+The complete workflow now separates source/publication review from build
+validation. PRs (including forks), main pushes and non-tag manual runs perform
+SDK → dependencies/QEMU/NAPI → UEFI → unsigned API 18 HAP assembly and payload
+validation sequentially on one ephemeral GitHub-hosted runner. The three legacy
+build workflow entry points call this same pipeline. Tags only run review.
+
+SO, firmware and HAP bytes stay in the runner workspace; there are no validation
+artifact uploads/downloads, caches, inherited secrets, signing or Release steps.
+Public Actions artifacts are a distribution surface even when called validation
+or unsigned. Renaming an artifact or reducing retention does not make it private.
+The source-only review returns `allowed=false`; its success does not certify a
+binary release. The earlier statement that all binary-producing jobs are skipped
+is superseded only for runner-local validation, not for publication.
+
+Each build summary records the checkout/event SHA, individual stage outcomes and,
+only after successful assembly and payload validation, the unsigned HAP size and
+SHA-256. A skipped or failed build is not HAP evidence. Hosted runners have no
+connected device: deploy and device smoke are explicitly not executed. This
+refactor does not supply clean native/HAP build evidence until its actual CI run
+succeeds, and does not supply any device acceptance evidence.
+
+Formal distributable HAP signing and GitHub Release remain unavailable pending
+combined-distribution license review, version-matched corresponding source and
+rebuild evidence, exact dependency provenance and complete firmware evidence.
+No flag or manual input enables publication. Phone-core/API 20 is separate work.
+
+Workflow topology and publication regressions can be checked with:
+
+```sh
+python -m pip install 'PyYAML==6.0.2'
+python -m unittest discover -s tools -p 'test_workflow_guards.py' -v
+```
