@@ -92,11 +92,17 @@ class WorkflowGuardTests(unittest.TestCase):
                 for step in job.get('steps', []):
                     if 'upload-artifact' not in step.get('uses', ''):
                         continue
-                    # Validation artifacts are internal, short-retention outputs and may
-                    # upload after a successful build even while publication is blocked.
-                    self.assertIs(job, self.job)
                     self.assertEqual(job['needs'], 'publication-review')
-                    self.assertIn("needs.publication-review.result == 'success'", job['if'])
+                    if job is self.job:
+                        # Validation artifacts are internal, short-retention outputs and may
+                        # upload after a successful build even while publication is blocked.
+                        self.assertIn("needs.publication-review.result == 'success'", job['if'])
+                    else:
+                        # Other artifact sinks remain publication-gated and unreachable
+                        # while allowed=false.
+                        for event, ref in [('pull_request', 'refs/pull/1/merge'), ('push', 'refs/heads/main'),
+                                           ('push', 'refs/tags/v1'), ('workflow_dispatch', 'refs/heads/main')]:
+                            self.assertFalse(condition(job['if'], event, ref, allowed='false'))
                     self.assertEqual(workflow['jobs']['publication-review']['uses'],
                                      './.github/workflows/binary-publication-gate.yml')
         validation_transport_steps = [s for s in self.job['steps']
@@ -157,7 +163,7 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertIn('sha256sum', identity['run'])
         summary = next(s for s in self.job['steps'] if s.get('name') == 'Validation evidence')
         self.assertEqual(summary['if'], '${{ always() }}')
-        for marker in ('git rev-parse HEAD', '$GITHUB_SHA', 'Validation artifact: uploaded only for this run.', 'not executed'):
+        for marker in ('git rev-parse HEAD', '$GITHUB_SHA', 'unsigned HAP uploaded as a 7-day validation artifact', 'not executed'):
             self.assertIn(marker, summary['run'])
         for job in self.complete['jobs'].values():
             for step in job.get('steps', []):
