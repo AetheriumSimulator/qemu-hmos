@@ -5,6 +5,20 @@ log() {
   printf '[ohos-deps] %s\n' "$*"
 }
 
+# Dependency submodules are fetched from public mirrors; tolerate transient
+# 5xx responses without masking a persistent failure.
+retry_network() {
+  local attempt=1 max_attempts=4
+  until "$@"; do
+    if (( attempt >= max_attempts )); then
+      return 1
+    fi
+    log "network fetch failed (attempt ${attempt}/${max_attempts}); retrying"
+    sleep $((attempt * 5))
+    attempt=$((attempt + 1))
+  done
+}
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
 DEPS_ROOT="${REPO_ROOT}/third_party/deps"
@@ -232,7 +246,7 @@ build_glib() {
       done
       if ((${#git_initialise[@]})); then
         log "initialising GLib nested subprojects: ${git_initialise[*]}"
-        git -C "${src}" submodule update --init --recursive "${git_initialise[@]}"
+        retry_network git -C "${src}" -c http.version=HTTP/1.1 submodule update --init --recursive "${git_initialise[@]}"
       fi
     fi
 
@@ -244,10 +258,13 @@ build_glib() {
     done
     if ((${#still_missing[@]})); then
       log "downloading GLib Meson wraps: ${still_missing[*]}"
-      if ! (cd "${src}" && meson subprojects download "${still_missing[@]}"); then
+      pushd "${src}" >/dev/null
+      if ! retry_network meson subprojects download "${still_missing[@]}"; then
+        popd >/dev/null
         log "error: failed to seed GLib subprojects ${still_missing[*]}. Provide them manually or allow downloads."
         exit 1
       fi
+      popd >/dev/null
     fi
   fi
 
