@@ -1,0 +1,167 @@
+name: Build and validate uefi locally
+description: Runner-local outputs only; no upload, cache, signing or release.
+runs:
+  using: composite
+  steps:
+  - name: Setup build environment
+    run: |
+      echo "=== Setting up UEFI build environment ==="
+
+      # 安装必要的工具 (静默更新以避免重复源警告)
+      sudo apt-get update --quiet
+      sudo apt-get install -y --quiet \
+        build-essential \
+        gcc-aarch64-linux-gnu \
+        binutils-aarch64-linux-gnu \
+        python3 \
+        python3-pip \
+        nasm \
+        iasl \
+        uuid-dev \
+        libssl-dev \
+        libffi-dev \
+        python3-dev \
+        git \
+        wget \
+        curl
+
+      # 安装Python依赖 (使用虚拟环境避免PEP 668限制)
+      python3 -m venv .ci-venv-uefi
+      source .ci-venv-uefi/bin/activate
+      pip install --upgrade pip
+      pip install edk2-basetools
+
+      echo "✅ Build environment ready"
+    shell: bash
+  - name: Build ARM64 UEFI firmware
+    id: build_firmware
+    run: |
+      echo "=== Building ARM64 UEFI firmware ==="
+      # 激活Python虚拟环境
+      source .ci-venv-uefi/bin/activate
+
+      cd third_party/qemu/roms/edk2
+
+      # 设置环境变量
+      export WORKSPACE="$(pwd)"
+      export PACKAGES_PATH="$WORKSPACE"
+      export EDK_TOOLS_PATH="$WORKSPACE/BaseTools"
+      export CONF_PATH="$WORKSPACE/Conf"
+      # EDK2's GCC AARCH64 definitions use this prefix.  Without it they
+      # fall back to the host x86_64 compiler, which rejects ARM-only flags.
+      export GCC_AARCH64_PREFIX="aarch64-linux-gnu-"
+      command -v "${GCC_AARCH64_PREFIX}gcc"
+
+      # 创建必要的目录
+      mkdir -p "$CONF_PATH"
+
+      # 设置构建配置 (使用edk2默认配置)
+      echo "ACTIVE_PLATFORM       = ArmVirtPkg/ArmVirtQemu.dsc" > "$CONF_PATH/target.txt"
+      echo "TARGET_ARCH           = AARCH64" >> "$CONF_PATH/target.txt"
+      echo "TOOL_CHAIN_CONF       = Conf/tools_def.txt" >> "$CONF_PATH/target.txt"
+      echo "BUILD_RULE_CONF       = Conf/build_rule.txt" >> "$CONF_PATH/target.txt"
+      echo "TOOL_CHAIN_TAG        = GCC" >> "$CONF_PATH/target.txt"
+      echo "BUILD_TARGET          = RELEASE" >> "$CONF_PATH/target.txt"
+
+      # edksetup.sh does not create this file when CONF_PATH is supplied in
+      # the environment.  The build command always reads CONF/build_rule.txt,
+      # so install the EDK2 template explicitly instead of relying on that
+      # version-dependent setup behavior.
+      test -s BaseTools/Conf/build_rule.template
+      cp BaseTools/Conf/build_rule.template "$CONF_PATH/build_rule.txt"
+
+      # 构建BaseTools
+      echo "=== Building BaseTools ==="
+      cd BaseTools
+      make -j$(nproc)
+      cd ..
+
+      # 构建UEFI固件
+      echo "=== Building UEFI firmware ==="
+      source edksetup.sh
+
+      # 构建ARM64固件 (使用新版工具链)
+      build -a AARCH64 -t GCC -p ArmVirtPkg/ArmVirtQemu.dsc -b RELEASE
+
+      # EDK2's output directory includes the platform, architecture, target,
+      # and toolchain.  Resolve it from the generated FV rather than
+      # hard-coding one directory spelling, then carry the absolute path to
+      # the artifact step.
+      arm64_firmware="$(find Build -type f -path '*/FV/QEMU_EFI.fd' -print -quit)"
+      if [ -z "$arm64_firmware" ]; then
+        echo "❌ ARM64 UEFI firmware not found"
+        echo "=== EDK2 firmware outputs ==="
+        find Build -type f \( -name '*.fd' -o -name '*.FV' \) -print || true
+        exit 1
+      fi
+
+      export ARM64_FIRMWARE_PATH="$WORKSPACE/$arm64_firmware"
+      echo "ARM64_FIRMWARE_PATH=$ARM64_FIRMWARE_PATH" >> "$GITHUB_ENV"
+      echo "✅ ARM64 UEFI firmware built successfully: $ARM64_FIRMWARE_PATH"
+    shell: bash
+  - name: Build x86_64 UEFI firmware (OVMF)
+    run: |
+      echo "=== Building x86_64 UEFI firmware (OVMF) ==="
+      # 激活Python虚拟环境
+      source .ci-venv-uefi/bin/activate
+
+      cd third_party/qemu/roms/edk2
+
+      # Each Actions step starts a new shell.  Recreate the EDK2 environment
+      # and configuration before invoking build for the x86_64 platform.
+      export WORKSPACE="$(pwd)"
+      export PACKAGES_PATH="$WORKSPACE"
+      export EDK_TOOLS_PATH="$WORKSPACE/BaseTools"
+      export CONF_PATH="$WORKSPACE/Conf"
+      mkdir -p "$CONF_PATH"
+      test -s BaseTools/Conf/build_rule.template
+      cp BaseTools/Conf/build_rule.template "$CONF_PATH/build_rule.txt"
+      source edksetup.sh
+
+      # 构建x86_64固件
+      build -a X64 -t GCC -p OvmfPkg/OvmfPkgX64.dsc -b RELEASE
+
+      x86_64_firmware="$(find Build -type f -path '*/FV/OVMF_CODE.fd' -print -quit)"
+      if [ -z "$x86_64_firmware" ]; then
+        echo "❌ x86_64 UEFI firmware not found"
+        echo "=== EDK2 firmware outputs ==="
+        find Build -type f \( -name '*.fd' -o -name '*.FV' \) -print || true
+        exit 1
+      fi
+
+      export X86_64_FIRMWARE_PATH="$WORKSPACE/$x86_64_firmware"
+      echo "X86_64_FIRMWARE_PATH=$X86_64_FIRMWARE_PATH" >> "$GITHUB_ENV"
+      echo "✅ x86_64 UEFI firmware built successfully: $X86_64_FIRMWARE_PATH"
+    shell: bash
+  - name: Prepare firmware artifacts
+    run: |
+      echo "=== Preparing firmware artifacts ==="
+      mkdir -p firmware-artifacts
+
+      # 复制ARM64固件
+      test -n "$ARM64_FIRMWARE_PATH"
+      test -s "$ARM64_FIRMWARE_PATH"
+      cp "$ARM64_FIRMWARE_PATH" \
+         firmware-artifacts/edk2-aarch64-code.fd
+
+      # 复制x86_64固件
+      test -n "$X86_64_FIRMWARE_PATH"
+      test -s "$X86_64_FIRMWARE_PATH"
+      cp "$X86_64_FIRMWARE_PATH" \
+         firmware-artifacts/OVMF_CODE.fd
+
+      test -s firmware-artifacts/edk2-aarch64-code.fd
+      test -s firmware-artifacts/OVMF_CODE.fd
+      file firmware-artifacts/*.fd
+      sha256sum firmware-artifacts/*.fd > firmware-artifacts/SHA256SUMS
+
+      # 创建版本信息
+      echo "UEFI Firmware Build" > firmware-artifacts/VERSION.txt
+      echo "Build Date: $(date)" >> firmware-artifacts/VERSION.txt
+      echo "Commit: $GITHUB_SHA" >> firmware-artifacts/VERSION.txt
+      echo "Branch: $GITHUB_REF_NAME" >> firmware-artifacts/VERSION.txt
+
+      # 列出文件
+      echo "=== Firmware Artifacts Contents ==="
+      find firmware-artifacts -type f -exec ls -lh {} \;
+    shell: bash
