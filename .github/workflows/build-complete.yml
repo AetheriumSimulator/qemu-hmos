@@ -64,6 +64,15 @@ jobs:
           test -s "$hap"
           printf 'HAP SHA-256: %s\n' "$(sha256sum "$hap" | cut -d ' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
           printf 'HAP bytes: %s\n' "$(stat -c %s "$hap")" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload unsigned HAP validation artifact
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherium-hap-validation-${{ github.sha }}
+          path: entry/build/default/outputs/default/entry-default-unsigned.hap
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Validation evidence
         if: ${{ always() }}
         shell: bash
@@ -77,10 +86,33 @@ jobs:
             printf 'Built checkout SHA: %s\n' "$(git rev-parse HEAD)"
             printf 'Event SHA: %s\n' "$GITHUB_SHA"
             printf 'Native: %s; UEFI: %s; HAP: %s; HAP identity: %s\n' "$NATIVE" "$FIRMWARE" "$HAP" "$IDENTITY"
-            echo 'Outputs: runner-local only; uploaded binaries: none.'
+            echo 'Outputs: unsigned HAP uploaded as a 7-day validation artifact; no distributable binary uploaded.'
             echo 'HAP signing: unsigned. Distributable HAP: blocked. GitHub Release: not created.'
             echo 'Deploy/device smoke: not executed; no device connected to hosted runner.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: [publication-review, validation]
+    # Formal release remains fail-closed: the compliance gate must explicitly
+    # allow publication, and a signed distributable HAP must be supplied.
+    if: ${{ needs.publication-review.result == 'success' && needs.publication-review.outputs.allowed == 'true' && needs.validation.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download validated HAP artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aetherium-hap-validation-${{ github.sha }}
+          path: release-assets
+      - name: Refuse unsigned artifact for formal Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          hap="release-assets/entry-default-unsigned.hap"
+          test -s "$hap"
+          echo "::error::The current validation HAP is unsigned; formal Release remains blocked until a signed distributable HAP is produced."
+          exit 1
 
   summary:
     needs: [publication-review, validation]
@@ -97,5 +129,5 @@ jobs:
             printf 'Event: %s; ref: %s; SHA: %s\n' "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_SHA"
             printf 'Source/publication review: %s; allowed: %s; validation: %s\n' "$REVIEW" "${ALLOWED:-unavailable}" "$VALIDATION"
             echo 'Tag runs are review-only. Skipped validation is not build evidence.'
-            echo 'Binary uploads: none. Release: not created. Device test: not executed.'
+            echo 'Validation artifact: uploaded only for this run. Formal Release: gate-controlled and not created. Device test: not executed.'
           } >> "$GITHUB_STEP_SUMMARY"
