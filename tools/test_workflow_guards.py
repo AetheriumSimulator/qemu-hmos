@@ -97,7 +97,18 @@ class WorkflowGuardTests(unittest.TestCase):
                         self.assertFalse(condition(job['if'], event, ref, allowed='false'))
                     self.assertEqual(workflow['jobs']['publication-review']['uses'],
                                      './.github/workflows/binary-publication-gate.yml')
-        assert_no_transport(self, self.job['steps'])
+        validation_transport_steps = [s for s in self.job['steps']
+                                      if 'upload-artifact' not in s.get('uses', '')]
+        assert_no_transport(self, validation_transport_steps)
+        upload = next(s for s in self.job['steps'] if 'upload-artifact' in s.get('uses', ''))
+        self.assertEqual(upload['with']['if-no-files-found'], 'error')
+        self.assertEqual(upload['with']['retention-days'], '7')
+        release = self.complete['jobs']['release']
+        self.assertEqual(release['needs'], ['publication-review', 'validation'])
+        self.assertFalse(condition(release['if'], 'push', 'refs/heads/main', allowed='false'))
+        self.assertTrue(condition(release['if'], 'push', 'refs/heads/main', allowed='true'))
+        self.assertFalse(condition(release['if'], 'pull_request', 'refs/pull/1/merge', allowed='true'))
+        self.assertTrue(any('download-artifact' in s.get('uses', '') for s in release['steps']))
         for action in self.actions.values():
             assert_no_transport(self, action['runs']['steps'])
         gate = self.workflows['binary-publication-gate.yml']['jobs']['review']
@@ -108,7 +119,7 @@ class WorkflowGuardTests(unittest.TestCase):
 
     def test_transport_regression_is_detected(self):
         for sink in ('actions/upload-artifact@v4', 'actions/download-artifact@v4', 'actions/cache@v4'):
-            steps = copy.deepcopy(self.job['steps']) + [{'uses': sink}]
+            steps = [s for s in copy.deepcopy(self.job['steps']) if 'upload-artifact' not in s.get('uses', '')] + [{'uses': sink}]
             with self.assertRaises(AssertionError):
                 assert_no_transport(self, steps)
 
@@ -144,7 +155,7 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertIn('sha256sum', identity['run'])
         summary = next(s for s in self.job['steps'] if s.get('name') == 'Validation evidence')
         self.assertEqual(summary['if'], '${{ always() }}')
-        for marker in ('git rev-parse HEAD', '$GITHUB_SHA', 'uploaded binaries: none', 'not executed'):
+        for marker in ('git rev-parse HEAD', '$GITHUB_SHA', 'Validation artifact: uploaded only for this run.', 'not executed'):
             self.assertIn(marker, summary['run'])
         for job in self.complete['jobs'].values():
             for step in job.get('steps', []):
