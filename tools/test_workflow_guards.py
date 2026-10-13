@@ -15,12 +15,13 @@ def read(path):
     return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
 
 
-def condition(expression, event, ref, review='success', allowed='false'):
+def condition(expression, event, ref, review='success', allowed='false', validation='success'):
     """Evaluate the small, deliberately bounded expression grammar used here."""
     expression = expression.removeprefix('${{').removesuffix('}}').strip()
     values = {'github.event_name': event, 'github.ref': ref,
               'needs.publication-review.result': review,
-              'needs.publication-review.outputs.allowed': allowed}
+              'needs.publication-review.outputs.allowed': allowed,
+              'needs.validation.result': validation}
     for key, value in values.items():
         expression = expression.replace(key, repr(value))
     expression = re.sub(r'startsWith\(([^,]+),\s*([^\)]+)\)', r'(\1).startswith(\2)', expression)
@@ -78,7 +79,8 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertEqual(self.job['needs'], 'publication-review')
         uses = [s['uses'] for s in self.job['steps'] if 'uses' in s]
         self.assertEqual(uses, ['actions/checkout@v4', './.github/actions/validate-so',
-                               './.github/actions/validate-uefi', './.github/actions/validate-hap'])
+                               './.github/actions/validate-uefi', './.github/actions/validate-hap',
+                               'actions/upload-artifact@v4'])
         self.assertEqual(self.job['steps'][0]['with']['persist-credentials'], 'false')
         for workflow in self.workflows.values():
             self.assertNotIn('secrets:', yaml.dump(workflow))
@@ -90,14 +92,31 @@ class WorkflowGuardTests(unittest.TestCase):
                 for step in job.get('steps', []):
                     if 'upload-artifact' not in step.get('uses', ''):
                         continue
-                    # Remaining guest-tools sinks are unreachable while allowed=false.
                     self.assertEqual(job['needs'], 'publication-review')
-                    for event, ref in [('pull_request', 'refs/pull/1/merge'), ('push', 'refs/heads/main'),
-                                       ('push', 'refs/tags/v1'), ('workflow_dispatch', 'refs/heads/main')]:
-                        self.assertFalse(condition(job['if'], event, ref, allowed='false'))
+                    if job is self.job:
+                        # Validation artifacts are internal, short-retention outputs and may
+                        # upload after a successful build even while publication is blocked.
+                        self.assertIn("needs.publication-review.result == 'success'", job['if'])
+                    else:
+                        # Other artifact sinks remain publication-gated and unreachable
+                        # while allowed=false.
+                        for event, ref in [('pull_request', 'refs/pull/1/merge'), ('push', 'refs/heads/main'),
+                                           ('push', 'refs/tags/v1'), ('workflow_dispatch', 'refs/heads/main')]:
+                            self.assertFalse(condition(job['if'], event, ref, allowed='false'))
                     self.assertEqual(workflow['jobs']['publication-review']['uses'],
                                      './.github/workflows/binary-publication-gate.yml')
-        assert_no_transport(self, self.job['steps'])
+        validation_transport_steps = [s for s in self.job['steps']
+                                      if 'upload-artifact' not in s.get('uses', '')]
+        assert_no_transport(self, validation_transport_steps)
+        upload = next(s for s in self.job['steps'] if 'upload-artifact' in s.get('uses', ''))
+        self.assertEqual(upload['with']['if-no-files-found'], 'error')
+        self.assertEqual(upload['with']['retention-days'], '7')
+        release = self.complete['jobs']['release']
+        self.assertEqual(release['needs'], ['publication-review', 'validation'])
+        self.assertFalse(condition(release['if'], 'push', 'refs/heads/main', allowed='false'))
+        self.assertTrue(condition(release['if'], 'push', 'refs/heads/main', allowed='true'))
+        self.assertFalse(condition(release['if'], 'pull_request', 'refs/pull/1/merge', allowed='true'))
+        self.assertTrue(any('download-artifact' in s.get('uses', '') for s in release['steps']))
         for action in self.actions.values():
             assert_no_transport(self, action['runs']['steps'])
         gate = self.workflows['binary-publication-gate.yml']['jobs']['review']
@@ -108,7 +127,7 @@ class WorkflowGuardTests(unittest.TestCase):
 
     def test_transport_regression_is_detected(self):
         for sink in ('actions/upload-artifact@v4', 'actions/download-artifact@v4', 'actions/cache@v4'):
-            steps = copy.deepcopy(self.job['steps']) + [{'uses': sink}]
+            steps = [s for s in copy.deepcopy(self.job['steps']) if 'upload-artifact' not in s.get('uses', '')] + [{'uses': sink}]
             with self.assertRaises(AssertionError):
                 assert_no_transport(self, steps)
 
@@ -144,7 +163,7 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertIn('sha256sum', identity['run'])
         summary = next(s for s in self.job['steps'] if s.get('name') == 'Validation evidence')
         self.assertEqual(summary['if'], '${{ always() }}')
-        for marker in ('git rev-parse HEAD', '$GITHUB_SHA', 'uploaded binaries: none', 'not executed'):
+        for marker in ('git rev-parse HEAD', '$GITHUB_SHA', 'unsigned HAP uploaded as a 7-day validation artifact', 'not executed'):
             self.assertIn(marker, summary['run'])
         for job in self.complete['jobs'].values():
             for step in job.get('steps', []):
