@@ -1,0 +1,165 @@
+name: Build and validate hap locally
+description: Runner-local outputs only; no upload, cache, signing or release.
+runs:
+  using: composite
+  steps:
+  - name: Install build prerequisites
+    run: |
+      set -euxo pipefail
+      sudo apt-get update
+      sudo apt-get install -y --no-install-recommends curl jq unzip zip ca-certificates python3
+    shell: bash
+  - name: Setup Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: zulu
+      java-version: '17'
+  - name: Setup Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: '18'
+  - name: Download HarmonyOS command-line tools
+    run: |
+      set -euxo pipefail
+      # Pin the 5.1.0 command-line bundle, whose embedded SDK is API 18.
+      # The older GitHub hos-sdk 2.0.0.2 archive contains an earlier API and
+      # can silently select the wrong SDK for this project.
+      asset_url='https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip'
+      curl --fail --retry 3 --location --output commandline-tools.zip "$asset_url"
+      rm -rf command-line-tools
+      mkdir -p command-line-tools
+      unzip -q commandline-tools.zip -d command-line-tools
+      find command-line-tools -type d -path '*/sdk/default/openharmony' -print -quit | grep -q .
+    shell: bash
+  - name: Select embedded HarmonyOS SDK API 18
+    run: |
+      set -euxo pipefail
+      # The HarmonyOS command-line tools ship with a matching SDK.  Do not
+      # mix the OpenHarmony ohsdkmgr package coordinates with sdkmgr here.
+      sdk_dir="$(find "$GITHUB_WORKSPACE/command-line-tools" -type d \
+        -path '*/sdk/default/openharmony' -print -quit)"
+      if [ -z "$sdk_dir" ]; then
+        echo '❌ Embedded HarmonyOS SDK root (sdk/default/openharmony) was not found'
+        find command-line-tools -maxdepth 5 -type d | sort
+        exit 1
+      fi
+      test -d "$sdk_dir/native"
+      test -f "$sdk_dir/native/build/cmake/ohos.toolchain.cmake"
+      # API 18 is the explicit product target in build-profile.json5. The
+      # command-line bundle exposes that SDK as sdk/default/openharmony,
+      # rather than as a nested numeric directory.
+      # Hvigor resolves API components below the SDK base directory.
+      # Keep the command-line bundle's versioned layout explicit.
+      for component in ets js native previewer toolchains; do
+        test -d "$sdk_dir/$component"
+      done
+      metadata_files=( $(find "$sdk_dir" -type f \
+        \( -name 'oh-uni-package.json' -o -name 'package.json' \) -print) )
+      test "${#metadata_files[@]}" -gt 0
+      if ! grep -R -I -E '5\.1\.0|api[^0-9]*18|apiVersion[^0-9]*18' \
+        "${metadata_files[@]}" >/tmp/aetherium-sdk-version.txt; then
+        echo '❌ Embedded SDK metadata does not identify HarmonyOS 5.1.0/API 18'
+        cat /tmp/aetherium-sdk-version.txt || true
+        exit 1
+      fi
+      # Hvigor expects the SDK home parent (the directory containing
+      # default/sdk-pkg.json), not the flattened openharmony component.
+      sdk_home="${sdk_dir%/default/openharmony}"
+      test -f "$sdk_home/default/sdk-pkg.json"
+      base_sdk="$GITHUB_WORKSPACE/sdk"
+      mkdir -p "$base_sdk"
+      ln -sfn "$sdk_dir" "$base_sdk/18"
+      {
+        echo "HOS_SDK_HOME=$sdk_home"
+        echo "DEVECO_SDK_HOME=$sdk_home"
+        echo "OHOS_SDK_HOME=$sdk_home"
+        echo "OHOS_BASE_SDK_HOME=$base_sdk"
+        echo "HARMONY_NATIVE_DIR=$sdk_dir/native"
+        echo "OHOS_NDK_HOME=$sdk_dir/native"
+        echo "HAP_TARGET_API=18"
+      } >> "$GITHUB_ENV"
+      echo "Using embedded HarmonyOS SDK: $sdk_dir"
+    shell: bash
+  - name: Verify project SDK target and configure SDK path
+    run: |
+      set -euxo pipefail
+      grep -Fq '"targetSdkVersion": "5.1.0(18)"' build-profile.json5
+      grep -Fq '"compatibleSdkVersion": "5.0.5(17)"' build-profile.json5
+      python3 - <<'PY'
+      import os
+      import re
+      from pathlib import Path
+      path = Path('hvigor-config.json5')
+      text = path.read_text()
+      sdk = os.environ['DEVECO_SDK_HOME'].replace('\\', '/')
+      text, count = re.subn(r'("sdkDirPath"\s*:\s*")[^"]*(")', rf'\g<1>{sdk}\g<2>', text)
+      if count != 1:
+          raise SystemExit('hvigor-config.json5 must contain exactly one sdkDirPath')
+      path.write_text(text)
+      PY
+    shell: bash
+  - name: Install Hvigor 5.18.6 dependencies
+    run: |
+      set -euxo pipefail
+      npm config set @ohos:registry https://repo.harmonyos.com/npm/
+      npm install --no-save --ignore-scripts \
+        @ohos/hvigor@5.18.6 @ohos/hvigor-ohos-plugin@5.18.6
+      # Match the Hvigor release bundled for HarmonyOS 5.1.0/API 18.
+      sed -i 's/6\\.0\\.0/5.18.6/g' hvigor-config.json5
+      # The package exposes hvigor.js rather than a node_modules/.bin shim.
+      # Invoke the pinned CLI directly so this stays deterministic in CI.
+      HVIGOR_JS=node_modules/@ohos/hvigor/bin/hvigor.js
+      test -f "$HVIGOR_JS"
+      node "$HVIGOR_JS" --version
+    shell: bash
+  - name: Prepare project files
+    run: |
+      set -euxo pipefail
+      if [ -d so-artifacts/libs/arm64-v8a ]; then
+        # HarmonyOS packages module-native libraries from entry/libs/<abi>.
+        # Keep the CMake staging path in sync for the prebuilt wrapper.
+        mkdir -p entry/libs/arm64-v8a entry/src/main/libs/arm64-v8a
+        cp -v so-artifacts/libs/arm64-v8a/*.so entry/libs/arm64-v8a/
+        cp -v so-artifacts/libs/arm64-v8a/*.so entry/src/main/libs/arm64-v8a/
+      fi
+      if [ -d firmware-artifacts ]; then
+        mkdir -p entry/src/main/resources/rawfile
+        cp -v firmware-artifacts/*.fd entry/src/main/resources/rawfile/
+      fi
+      find entry/libs/arm64-v8a entry/src/main/libs/arm64-v8a -name '*.so' -type f -print
+      find entry/src/main/resources/rawfile -name '*.fd' -type f -print || true
+    shell: bash
+  - name: Use prebuilt native libraries for HAP packaging
+    run: |
+      set -euxo pipefail
+      test -s entry/src/main/libs/arm64-v8a/libqemu_hmos.so
+      test -s entry/src/main/libs/arm64-v8a/libqemu_full.so
+      python3 - <<'PY'
+      from pathlib import Path
+      path = Path('entry/build-profile.json5')
+      text = path.read_text()
+      old = '"-DUSE_PREBUILT_LIB=OFF"'
+      if text.count(old) != 1:
+          raise SystemExit('expected exactly one USE_PREBUILT_LIB=OFF argument')
+      path.write_text(text.replace(old, '"-DUSE_PREBUILT_LIB=ON"'))
+      PY
+    shell: bash
+  - name: Install OpenHarmony package dependencies
+    run: |
+      set -euxo pipefail
+      tools_root="${DEVECO_SDK_HOME%/sdk}"
+      test -x "$tools_root/bin/ohpm"
+      echo "$tools_root/bin" >> "$GITHUB_PATH"
+      "$tools_root/bin/ohpm" --version
+      (cd entry && "$tools_root/bin/ohpm" install)
+    shell: bash
+  - name: Build unsigned HAP validation artifact
+    run: |
+      set -euxo pipefail
+      node node_modules/@ohos/hvigor/bin/hvigor.js clean --no-daemon
+      node node_modules/@ohos/hvigor/bin/hvigor.js --mode module -p product=default assembleHap --no-daemon
+      hap='entry/build/default/outputs/default/entry-default-unsigned.hap'
+      test -s "$hap"
+      unzip -tq "$hap"
+      python3 tools/validate_hap.py "$hap"
+    shell: bash
