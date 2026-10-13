@@ -15,12 +15,13 @@ def read(path):
     return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
 
 
-def condition(expression, event, ref, review='success', allowed='false'):
+def condition(expression, event, ref, review='success', allowed='false', validation='success'):
     """Evaluate the small, deliberately bounded expression grammar used here."""
     expression = expression.removeprefix('${{').removesuffix('}}').strip()
     values = {'github.event_name': event, 'github.ref': ref,
               'needs.publication-review.result': review,
-              'needs.publication-review.outputs.allowed': allowed}
+              'needs.publication-review.outputs.allowed': allowed,
+              'needs.validation.result': validation}
     for key, value in values.items():
         expression = expression.replace(key, repr(value))
     expression = re.sub(r'startsWith\(([^,]+),\s*([^\)]+)\)', r'(\1).startswith(\2)', expression)
