@@ -1,0 +1,741 @@
+{
+  "auditType": "automated-engineering-observation-not-distribution-approval",
+  "count": 119,
+  "counts": {
+    "supplementary-out-of-scope": 1,
+    "linux-user-vdso": 15,
+    "prebuilt-qemu-rom": 53,
+    "excluded-submodule": 14,
+    "edk2-prebuilt-tool-input": 3,
+    "brotli-dictionary-data": 2,
+    "edk2-test-data": 17,
+    "text-source-false-positive": 1,
+    "windows-host-binary": 2,
+    "external-symlink": 1,
+    "text-test-expectation": 1,
+    "qemu-test-data": 9
+  },
+  "exclusions": [
+    {
+      "path": "project/ports",
+      "reason": "supplementary phone exports outside this HAP build",
+      "category": "supplementary-out-of-scope",
+      "assessment": "Not inputs to this root HAP."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/aarch64/vdso-be.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/aarch64/vdso-le.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/arm/vdso-be32.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/arm/vdso-be8.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/arm/vdso-le.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/hppa/vdso.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/i386/vdso.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/loongarch64/vdso.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/ppc/vdso-32.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/ppc/vdso-64.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/ppc/vdso-64le.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/riscv/vdso-32.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/riscv/vdso-64.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/s390x/vdso.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/linux-user/x86_64/vdso.so",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "linux-user-vdso",
+      "assessment": "Current configure target is aarch64-softmmu, not linux-user."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/QEMU,cgthree.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/QEMU,tcx.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/ast27x0_bootrom.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/bios-256k.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/bios-microvm.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/bios.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/efi-e1000.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/efi-e1000e.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/efi-eepro100.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/efi-ne2k_pci.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/efi-pcnet.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/efi-rtl8139.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/efi-virtio.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/efi-vmxnet3.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/hppa-firmware.img",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/hppa-firmware64.img",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/kvmvapic.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/linuxboot.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/linuxboot_dma.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/multiboot.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/multiboot_dma.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/npcm7xx_bootrom.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/npcm8xx_bootrom.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/openbios-ppc",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/openbios-sparc32",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/openbios-sparc64",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/opensbi-riscv32-generic-fw_dynamic.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/opensbi-riscv64-generic-fw_dynamic.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/palcode-clipper",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/pnv-pnor.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/pvh.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/pxe-e1000.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/pxe-eepro100.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/pxe-ne2k_pci.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/pxe-pcnet.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/pxe-rtl8139.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/pxe-virtio.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/qboot.rom",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/s390-ccw.img",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/slof.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/u-boot-sam460.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/u-boot.e500",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vgabios-ati.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vgabios-bochs-display.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vgabios-cirrus.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vgabios-qxl.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vgabios-ramfb.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vgabios-stdvga.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vgabios-virtio.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vgabios-vmware.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vgabios.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vof-nvram.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/vof.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "prebuilt-qemu-rom",
+      "assessment": "Not the two freshly built HAP firmware files; QEMU install_blobs defaults need archive replay/fix before closure approval."
+    },
+    {
+      "path": "project/third_party/qemu/roms/QemuMacDrivers",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/SLOF",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Bin/GccLto/liblto-aarch64.a",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-prebuilt-tool-input",
+      "assessment": "GCC LTO archives or GNU BTI note data; GnuNoteBti.bin is referenced by tools_def.template. Check selected build flags/derivation rather than dismissing all as fixtures."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Bin/GccLto/liblto-arm.a",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-prebuilt-tool-input",
+      "assessment": "GCC LTO archives or GNU BTI note data; GnuNoteBti.bin is referenced by tools_def.template. Check selected build flags/derivation rather than dismissing all as fixtures."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Bin/GnuNoteBti.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-prebuilt-tool-input",
+      "assessment": "GCC LTO archives or GNU BTI note data; GnuNoteBti.bin is referenced by tools_def.template. Check selected build flags/derivation rather than dismissing all as fixtures."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Source/C/BrotliCompress/brotli/c/common/dictionary.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "brotli-dictionary-data",
+      "assessment": "Binary dictionary data, not executable; selected C source embeds dictionary bytes. Preserve/reconstruct preferred data inputs before claiming full closure."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Source/C/BrotliCompress/brotli/tests/testdata/random_org_10k.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Source/C/Makefiles/ms.app",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "text-source-false-positive",
+      "assessment": "ASCII Windows Makefile, BSD-2-Clause-Patent header; .app suffix does not make it compiled payload."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Source/Python/Eot/EfiCompressor.pyd",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "windows-host-binary",
+      "assessment": "Windows EOT compression module; current firmware build uses Linux host tooling."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Source/Python/Eot/LzmaCompressor.pyd",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "windows-host-binary",
+      "assessment": "Windows EOT compression module; current firmware build uses Linux host tooling."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Source/Python/Rsa2048Sha256Sign/TestSigningPublicKey.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls/tests/data_files/base64/def_b64_ff.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls/tests/data_files/pkcs7_data.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls/tests/data_files/pkcs7_data_1.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/gost-engine/tcl_tests/kbstrike.exe",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/test/data.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/test/data2.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/test/recipes/80-test_cmp_http_data/Mock/random.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/test/smcont.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/EmulatorPkg/Unix/Host/X11IncludeHack",
+      "reason": "external source symlink excluded",
+      "target": "/opt/X11/include",
+      "category": "external-symlink",
+      "assessment": "Points to /usr/include/X11; EmulatorPkg host input is not selected ArmVirt/OVMF firmware. Do not follow/exfiltrate external tree."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/MdeModulePkg/Library/BrotliCustomDecompressLib/brotli/c/common/dictionary.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "brotli-dictionary-data",
+      "assessment": "Binary dictionary data, not executable; selected C source embeds dictionary bytes. Preserve/reconstruct preferred data inputs before claiming full closure."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/MdeModulePkg/Library/BrotliCustomDecompressLib/brotli/tests/testdata/random_org_10k.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/mbedtlslib/mbedtls/tests/data_files/base64/def_b64_ff.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/gost-engine/tcl_tests/kbstrike.exe",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/test/data.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/test/data2.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/test/recipes/80-test_cmp_http_data/Mock/random.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/test/smcont.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "edk2-test-data",
+      "assessment": "Test fixture/public signing test data or GOST test executable; not demonstrated in selected firmware module list."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/ShellPkg/Application/ShellCTestApp/TestArgv.log",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "text-test-expectation",
+      "assessment": "EDK2 ShellCTestApp README identifies this as desired test output, not an execution log."
+    },
+    {
+      "path": "project/third_party/qemu/roms/ipxe",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/openbios",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/opensbi",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/qboot",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/qemu-palcode",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/seabios",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/seabios-hppa",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/skiboot",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/u-boot",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/u-boot-sam460ex",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/roms/vbootrom",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/tests/data/uefi-boot-images/bios-tables-test.aarch64.iso.qcow2",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "qemu-test-data",
+      "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
+    },
+    {
+      "path": "project/third_party/qemu/tests/data/uefi-boot-images/bios-tables-test.arm.iso.qcow2",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "qemu-test-data",
+      "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
+    },
+    {
+      "path": "project/third_party/qemu/tests/data/uefi-boot-images/bios-tables-test.i386.iso.qcow2",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "qemu-test-data",
+      "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
+    },
+    {
+      "path": "project/third_party/qemu/tests/data/uefi-boot-images/bios-tables-test.loongarch64.iso.qcow2",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "qemu-test-data",
+      "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
+    },
+    {
+      "path": "project/third_party/qemu/tests/data/uefi-boot-images/bios-tables-test.riscv64.iso.qcow2",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "qemu-test-data",
+      "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
+    },
+    {
+      "path": "project/third_party/qemu/tests/data/uefi-boot-images/bios-tables-test.x86_64.iso.qcow2",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "qemu-test-data",
+      "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
+    },
+    {
+      "path": "project/third_party/qemu/tests/lcitool/libvirt-ci",
+      "reason": "unused QEMU submodule; review scope",
+      "category": "excluded-submodule",
+      "assessment": "Other ROM platforms/test tooling; source recipe closure still requires archive replay."
+    },
+    {
+      "path": "project/third_party/qemu/tests/qemu-iotests/150.out.qcow2",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "qemu-test-data",
+      "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
+    },
+    {
+      "path": "project/third_party/qemu/tests/qemu-iotests/178.out.qcow2",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "qemu-test-data",
+      "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
+    },
+    {
+      "path": "project/third_party/qemu/subprojects/dtc/tests/incbin.bin",
+      "reason": "compiled payload/fixture excluded from source delivery",
+      "category": "qemu-test-data",
+      "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
+    }
+  ],
+  "observedHeads": [
+    "f618f98760487521b83647ff5a057c3e116b239c",
+    "cdb4b836a24c43a4fd740e66c3f28f59050fa669",
+    "38fc36ab6c966ae0cd83892f9dc2e564e9eb1d4e"
+  ],
+  "qualification": "Historical exclusion set before the subsequent archive-input repairs; read current CI omissions for the repaired candidate."
+}

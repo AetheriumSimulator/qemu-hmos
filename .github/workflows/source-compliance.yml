@@ -22,6 +22,12 @@ jobs:
         run: |
           python -m pip install 'PyYAML==6.0.2'
           python -m unittest discover -s tools -p 'test_workflow_guards.py' -v
+      - name: Test delivery evidence and prerelease boundaries
+        run: python -m unittest discover -s tools -p 'test_release_evidence.py' -v
+      - name: Test offline curl source reconstruction
+        run: python -m unittest discover -s tools -p 'test_curl_source.py' -v
+      - name: Test reconstructed firmware inputs
+        run: python -m unittest discover -s tools -p 'test_hap_source_inputs.py' -v
       - name: Test index and credential boundaries
         run: python -m unittest discover -s tools -p 'test_public_source.py' -v
       - name: Check the exact published source tree

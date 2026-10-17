@@ -3,6 +3,9 @@ description: Runner-local outputs only; no upload, cache, signing or release.
 runs:
   using: composite
   steps:
+  - name: Prepare reproducible HAP source inputs
+    shell: bash
+    run: python3 tools/prepare_hap_sources.py
   - name: Download and setup HarmonyOS SDK
     run: |
       echo "=== Downloading HarmonyOS SDK ==="
@@ -20,6 +23,7 @@ runs:
       for url in "${SDK_URLS[@]}"; do
         echo "Trying: $url"
         if curl -L --retry 3 --fail -o harmonyos-sdk.tar.gz "$url"; then
+          printf '%s\n' "$url" > .ci-native-sdk-url
           echo "✅ SDK downloaded successfully from: $url"
           break
         else
@@ -196,6 +200,7 @@ runs:
         --enable-slirp \
         --enable-curl \
         --disable-kvm \
+        --disable-install-blobs \
         --disable-xen \
         --disable-werror \
         --disable-libssh \

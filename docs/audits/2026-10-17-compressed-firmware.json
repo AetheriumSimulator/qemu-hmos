@@ -1,0 +1,98 @@
+{
+  "auditType": "automated-engineering-observation-not-distribution-approval",
+  "finding": "Historical candidate retained these compressed prebuilt firmware files; the follow-up archive repair excludes them. They are not the separately built HAP firmware evidence.",
+  "files": [
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-aarch64-code.fd.bz2",
+      "sha256": "c023444108b7a132fdebf70c4765cd2dd9af2a9ff7d001a743aaabe87c20a458",
+      "decompressedBytes": 67108864,
+      "decompressedSha256": "47765fe344818cbc464b1c14ae658fb4b854f5c2ceffa982411731eb4865594d",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-arm-code.fd.bz2",
+      "sha256": "d87ac8dcad15778142c6abc4e2f34f48bf3d4ea6036efd531297965d8ae0542d",
+      "decompressedBytes": 67108864,
+      "decompressedSha256": "c632a04ddd55dfa7136a0a36790c72f5c9b52542ecba979bbeeb5ddef99acd64",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-arm-vars.fd.bz2",
+      "sha256": "0011d83b5e67c691a58e3ae25a2e7fdf1d245a73d1b2b8bccb24af1a8c2e2523",
+      "decompressedBytes": 67108864,
+      "decompressedSha256": "b3b855c5a80310168051164986855692d1bdb06e67619856177965cd87c6774f",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-i386-code.fd.bz2",
+      "sha256": "32e7e621e568598088a87b7008b63dcbaece1da4163ca6c294d80c142c62e695",
+      "decompressedBytes": 3653632,
+      "decompressedSha256": "c8161f6e8464778e13795297e87f5e83cf97c8987480eea1d80742f6c98c18a9",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-i386-secure-code.fd.bz2",
+      "sha256": "69c934beac849e3cad32e1d17493b4161dc822f6f401f6ebe0b62508bb295809",
+      "decompressedBytes": 3653632,
+      "decompressedSha256": "2c5e36fc70b391532ceff5bc9b410c6e0fb29b486906e91577f5818368b0ce78",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-i386-vars.fd.bz2",
+      "sha256": "83470f393b9a200838b2292a65ca5708a109005d65a6422f3fa23cb21c8179b9",
+      "decompressedBytes": 540672,
+      "decompressedSha256": "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-loongarch64-code.fd.bz2",
+      "sha256": "4fdedf8501cf970dffaca292f0eddec8f2a6b63c8b7d0c9372940b0eb8d46f4b",
+      "decompressedBytes": 16777216,
+      "decompressedSha256": "edd5a67fe50f7597faecb2fe67c5733b9a31b0b345a2127c3c358a5737446ef7",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-loongarch64-vars.fd.bz2",
+      "sha256": "f1c537cdb136c5ee634f1c7797db06276e0ed92c0e09e001c8156fa04f55614e",
+      "decompressedBytes": 16777216,
+      "decompressedSha256": "adbfcb31d6470ef090220baeb53559e26323b6cfb5e7614f879e89608a3ed748",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-riscv-code.fd.bz2",
+      "sha256": "e33120b298f76f3658ec9daa7ba7f579062e60decf75cd746a933625b8b76167",
+      "decompressedBytes": 33554432,
+      "decompressedSha256": "c3b779f86671c0cadf9cbdb274917a20210aeceb6f58b42d68406cdddfa48869",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-riscv-vars.fd.bz2",
+      "sha256": "881b87567b3a20c8363c602c56b688ccfc0fb83683dab23acfcbb5eadb0b1e09",
+      "decompressedBytes": 33554432,
+      "decompressedSha256": "ea8094e953b1215444bd001ee1cf22818f1f7f8abcb158e62180cbaa6c1f70af",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-x86_64-code.fd.bz2",
+      "sha256": "f4d7c29fccb5e1d4d851eaddc41a5c4feec7de96ca7ad9bbf96f4d09838ef973",
+      "decompressedBytes": 3653632,
+      "decompressedSha256": "33090cc07675baa5190d9f1e84bf5176b33bcbfa9bacac522961150cdb6dbb2a",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-x86_64-microvm.fd.bz2",
+      "sha256": "144f2b89fe32bdd912b15f0118b3becafa5c47d982d34732391096ec6b60b780",
+      "decompressedBytes": 4194304,
+      "decompressedSha256": "3df9c22e1551310602cf3c63f6e57fdbffcc90d608a45e02a0d26190999b205b",
+      "firmwareVolumeSignaturePresent": true
+    },
+    {
+      "path": "project/third_party/qemu/pc-bios/edk2-x86_64-secure-code.fd.bz2",
+      "sha256": "90a20d858b35c29ff7e0a1d2002a3ec886665935eb4d0dbf70fe6b12ae500993",
+      "decompressedBytes": 3653632,
+      "decompressedSha256": "32807682a9e5c0e2d192ecb6077941d4be8bcfa6b9cd6e60830c3a9f48c0555a",
+      "firmwareVolumeSignaturePresent": true
+    }
+  ],
+  "observedHead": "f618f98760487521b83647ff5a057c3e116b239c"
+}

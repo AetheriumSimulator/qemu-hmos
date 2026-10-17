@@ -7,127 +7,60 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  publication-review:
-    uses: ./.github/workflows/binary-publication-gate.yml
-
   validation:
-    needs: publication-review
-    # Publication eligibility never authorizes this job to upload binaries.
-    # Fork PRs use the same unprivileged, ephemeral hosted runner.
-    if: ${{ needs.publication-review.result == 'success' && !startsWith(github.ref, 'refs/tags/') && (github.event_name == 'workflow_call' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/'))) }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-      - name: Save host environment
-        shell: bash
-        run: echo "CI_HOST_PATH=$PATH" >> "$GITHUB_ENV"
-      - name: Build SO and native wrapper
-        id: native
-        uses: ./.github/actions/validate-so
-      - name: Restore host tools for firmware and HAP
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          # SO's cross-tool settings must not select OHOS clang for EDK2 host tools.
-          {
-            echo "PATH=$CI_HOST_PATH"
-            echo 'CC=gcc'
-            echo 'CXX=g++'
-            echo 'AR=ar'
-            echo 'RANLIB=ranlib'
-            echo 'STRIP=strip'
-            echo 'PKG_CONFIG=pkg-config'
-            echo 'PKG_CONFIG_PATH='
-            echo 'PKG_CONFIG_LIBDIR='
-          } >> "$GITHUB_ENV"
-      - name: Build UEFI on the same runner
-        id: firmware
-        uses: ./.github/actions/validate-uefi
-      - name: Assemble and validate unsigned HAP on the same runner
-        id: hap
-        uses: ./.github/actions/validate-hap
-      - name: Record HAP identity
-        id: identity
-        shell: bash
-        run: |
-          hap=entry/build/default/outputs/default/entry-default-unsigned.hap
-          test -s "$hap"
-          printf 'HAP SHA-256: %s\n' "$(sha256sum "$hap" | cut -d ' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
-          printf 'HAP bytes: %s\n' "$(stat -c %s "$hap")" >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload unsigned HAP validation artifact
-        if: ${{ success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: aetherium-hap-validation-${{ github.sha }}
-          path: entry/build/default/outputs/default/entry-default-unsigned.hap
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Validation evidence
-        if: ${{ always() }}
-        shell: bash
-        env:
-          NATIVE: ${{ steps.native.outcome }}
-          FIRMWARE: ${{ steps.firmware.outcome }}
-          HAP: ${{ steps.hap.outcome }}
-          IDENTITY: ${{ steps.identity.outcome }}
-        run: |
-          {
-            printf 'Built checkout SHA: %s\n' "$(git rev-parse HEAD)"
-            printf 'Event SHA: %s\n' "$GITHUB_SHA"
-            printf 'Native: %s; UEFI: %s; HAP: %s; HAP identity: %s\n' "$NATIVE" "$FIRMWARE" "$HAP" "$IDENTITY"
-            echo 'Outputs: unsigned HAP uploaded as a 7-day validation artifact; no distributable binary uploaded.'
-            echo 'HAP signing: unsigned. Distributable HAP: blocked. GitHub Release: not created.'
-            echo 'Deploy/device smoke: not executed; no device connected to hosted runner.'
-          } >> "$GITHUB_STEP_SUMMARY"
+    uses: ./.github/workflows/build-validation.yml
 
   release:
-    needs: [publication-review, validation]
-    # Formal release remains fail-closed: the compliance gate must explicitly
-    # allow publication, and a signed distributable HAP must be supplied.
-    if: ${{ needs.publication-review.result == 'success' && needs.publication-review.outputs.allowed == 'true' && needs.validation.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: validation
+    if: ${{ needs.validation.outputs.review == 'success' && needs.validation.outputs.allowed == 'true' && needs.validation.outputs.upload == 'success' && needs.validation.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    concurrency:
+      group: hap-release-${{ github.sha }}
+      cancel-in-progress: false
     steps:
-      - name: Download validated HAP artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
         with:
-          name: aetherium-hap-validation-${{ github.sha }}
-          path: release-assets
-      - name: Refuse unsigned artifact for formal Release
-        shell: bash
-        run: |
-          set -euo pipefail
-          hap="release-assets/entry-default-unsigned.hap"
-          test -s "$hap"
-          echo "::error::The current validation HAP is unsigned; formal Release remains blocked until a signed distributable HAP is produced."
-          exit 1
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.validation.outputs.artifact_id }}
+          merge-multiple: true
+          path: delivery
+      - name: Reverify downloaded delivery before publication
+        run: python tools/release_evidence.py verify --out delivery --expected-commit "$GITHUB_SHA"
+      - name: Publish unsigned test prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/publish_hap_prerelease.sh delivery
 
   summary:
-    needs: [publication-review, validation]
+    needs: [validation, release]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
       - name: Pipeline summary
         env:
-          REVIEW: ${{ needs.publication-review.result }}
-          ALLOWED: ${{ needs.publication-review.outputs.allowed }}
-          VALIDATION: ${{ needs.validation.result }}
+          REVIEW: ${{ needs.validation.outputs.review }}
+          ALLOWED: ${{ needs.validation.outputs.allowed }}
+          VALIDATION: ${{ needs.validation.outputs.build }}
+          NATIVE: ${{ needs.validation.outputs.native }}
+          FIRMWARE: ${{ needs.validation.outputs.firmware }}
+          HAP: ${{ needs.validation.outputs.hap }}
+          UPLOAD: ${{ needs.validation.outputs.upload }}
+          RELEASE: ${{ needs.release.result }}
         run: |
           {
             printf 'Event: %s; ref: %s; SHA: %s\n' "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_SHA"
             printf 'Source/publication review: %s; allowed: %s; validation: %s\n' "$REVIEW" "${ALLOWED:-unavailable}" "$VALIDATION"
             echo 'Tag runs are review-only. Skipped validation is not build evidence.'
-            echo 'Validation artifact: uploaded only for this run. Formal Release: gate-controlled and not created. Device test: not executed.'
+            printf 'Native: %s; UEFI: %s; unsigned HAP: %s; public artifact upload: %s\n' "${NATIVE:-not-run}" "${FIRMWARE:-not-run}" "${HAP:-not-run}" "${UPLOAD:-not-run}"
+            printf 'Unsigned test Release job: %s.\n' "$RELEASE"
+            echo 'Device test: not executed; no device connected to hosted runner.'
           } >> "$GITHUB_STEP_SUMMARY"

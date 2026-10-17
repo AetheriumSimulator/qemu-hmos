@@ -1,0 +1,653 @@
+{
+  "auditType": "automated-engineering-observation-not-distribution-approval",
+  "run": 39014508946,
+  "observedCommit": "d85ee854c17e3c1a76b154f156317b226d4fe628",
+  "assets": {
+    "aetherium-source.tar.gz": "0be2d54c398ff5ce8e93f89f468a087441e8e7954fee92eacdd0d16de7f42259",
+    "aetherium-unsigned.hap": "68a83d82ae83124589a9c9ab0a950d09d6823c4766bc85fa62390d861fc9fe8e"
+  },
+  "components": [
+    {
+      "path": "project",
+      "revision": "d85ee854c17e3c1a76b154f156317b226d4fe628",
+      "origin": "https://github.com/AetheriumSimulator/qemu-hmos.git",
+      "licenseDocuments": [
+        {
+          "path": "project/LICENSE",
+          "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
+        },
+        {
+          "path": "project/LICENSE-APACHE",
+          "sha256": "12651b91873ac310c2f9ab6cfe01c345dda797becc02600f203d98c495040ae3"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu",
+      "revision": "9c23f2a7b0b45277693a14074b1aaa827eecdb92",
+      "origin": "https://github.com/qemu/qemu.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/COPYING",
+          "sha256": "dd3ce02338c3a48abb6ba59b48809f7108a8bd242cb0cc8be90daafa30707c28"
+        },
+        {
+          "path": "project/third_party/qemu/COPYING.LIB",
+          "sha256": "31c90ce76b6f5aab90a205851e71d5c27e31c0aa3d7017a4383b98a6fe3f1faa"
+        },
+        {
+          "path": "project/third_party/qemu/LICENSE",
+          "sha256": "139c64b7a9ae62858ff969aae622ecfcf4f1519655bd92d2e70a1a2fb615690e"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2",
+      "revision": "4dfdca63a93497203f197ec98ba20e2327e4afe4",
+      "origin": "https://gitlab.com/qemu-project/edk2.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/License-History.txt",
+          "sha256": "2de7cfb9abc27af35550ba6d7ec9974414a24cb704a481659a2482ac5ce0b096"
+        },
+        {
+          "path": "project/third_party/qemu/roms/edk2/License.txt",
+          "sha256": "50ce20c9cfdb0e19ee34fe0a51fc0afe961f743697b068359ab2f862b494df80"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/ArmPkg/Library/ArmSoftFloatLib/berkeley-softfloat-3",
+      "revision": "b64af41c3276f97f0e181920400ee056b9c88037",
+      "origin": "https://github.com/ucb-bar/berkeley-softfloat-3.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/ArmPkg/Library/ArmSoftFloatLib/berkeley-softfloat-3/COPYING.txt",
+          "sha256": "145ea96b4a4a04a1a7738d2a2bf9e830f861971e69606187b018d9e8fc0b95c7"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/BaseTools/Source/C/BrotliCompress/brotli",
+      "revision": "f4153a09f87cbb9c826d8fc12c74642bb2d879ea",
+      "origin": "https://github.com/google/brotli",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/BaseTools/Source/C/BrotliCompress/brotli/LICENSE",
+          "sha256": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls",
+      "revision": "8c89224991adff88d53cd380f42a2baa36f91454",
+      "origin": "https://github.com/ARMmbed/mbedtls",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/MbedTlsLib/mbedtls/LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl",
+      "revision": "de90e54bbe82e5be4fb9608b6f5c308bb837d355",
+      "origin": "https://github.com/openssl/openssl",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/LICENSE.txt",
+          "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/gost-engine",
+      "revision": "b2b4d629f100eaee9f5942a106b1ccefe85b8808",
+      "origin": "https://github.com/gost-engine/engine",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/gost-engine/LICENSE",
+          "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/gost-engine/libprov",
+      "revision": "8a126e09547630ef900177625626b6156052f0ee",
+      "origin": "https://github.com/provider-corner/libprov.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/gost-engine/libprov/LICENSE",
+          "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/krb5",
+      "revision": "aa9b4a2a64046afd2fab7cb49c346295874a5fb6",
+      "origin": "https://github.com/krb5/krb5",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/krb5/NOTICE",
+          "sha256": "1577e0b6ae6fa9801a694b800edbe2ea60bb1d0176ff14406250ad7ee088df32"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/pyca-cryptography",
+      "revision": "c18d0567386414efa3caef7ed586c4ca75bf3a8b",
+      "origin": "https://github.com/pyca/cryptography.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/pyca-cryptography/LICENSE.BSD",
+          "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb"
+        },
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/pyca-cryptography/LICENSE",
+          "sha256": "43dad2cc752ab721cd9a9f36ece70fb53ab7713551f2d3d8694d8e8c5a06d6e2"
+        },
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/pyca-cryptography/LICENSE.PSF",
+          "sha256": "693ec0a662b39f995a4f252b03a6222945470c1b6f12ca02918e4efe0df64b9f"
+        },
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/pyca-cryptography/LICENSE.APACHE",
+          "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/wycheproof",
+      "revision": "2196000605e45d91097147c9c71f26b72af58003",
+      "origin": "https://github.com/google/wycheproof",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/CryptoPkg/Library/OpensslLib/openssl/wycheproof/LICENSE",
+          "sha256": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/MdeModulePkg/Library/BrotliCustomDecompressLib/brotli",
+      "revision": "f4153a09f87cbb9c826d8fc12c74642bb2d879ea",
+      "origin": "https://github.com/google/brotli",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/MdeModulePkg/Library/BrotliCustomDecompressLib/brotli/LICENSE",
+          "sha256": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/MdeModulePkg/Universal/RegularExpressionDxe/oniguruma",
+      "revision": "abfc8ff81df4067f309032467785e06975678f0d",
+      "origin": "https://github.com/kkos/oniguruma",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/MdeModulePkg/Universal/RegularExpressionDxe/oniguruma/COPYING",
+          "sha256": "6c7038393e8f30fee16257e713f77e383712f1465d6d25929596746b10b42bd3"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/MdePkg/Library/BaseFdtLib/libfdt",
+      "revision": "cfff805481bdea27f900c32698171286542b8d3c",
+      "origin": "https://github.com/devicetree-org/pylibfdt.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/MdePkg/Library/BaseFdtLib/libfdt/BSD-2-Clause",
+          "sha256": "6313108c23efffa36948f8b2cff1560a5935373b527b0e1a837cc77e6ed1bacd"
+        },
+        {
+          "path": "project/third_party/qemu/roms/edk2/MdePkg/Library/BaseFdtLib/libfdt/GPL",
+          "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/MdePkg/Library/MipiSysTLib/mipisyst",
+      "revision": "370b5944c046bab043dd8b133727b2135af7747a",
+      "origin": "https://github.com/MIPI-Alliance/public-mipi-sys-t.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/MdePkg/Library/MipiSysTLib/mipisyst/LICENSE",
+          "sha256": "3be61204a14e1ae0cafc7c98695d985d5efa2b4b573f0b617278a17cd192c6f8"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/MdePkg/Library/MipiSysTLib/mipisyst/external/googletest",
+      "revision": "a6f06bf2fd3b832822cd4e9e554b7d47f32ec084",
+      "origin": "https://github.com/google/googletest.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/MdePkg/Library/MipiSysTLib/mipisyst/external/googletest/LICENSE",
+          "sha256": "9702de7e4117a8e2b20dafab11ffda58c198aede066406496bef670d40a22138"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/MdePkg/Library/MipiSysTLib/mipisyst/external/pugixml",
+      "revision": "c53fdab93af76106b963216d85897614b996f8b6",
+      "origin": "https://github.com/zeux/pugixml.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/MdePkg/Library/MipiSysTLib/mipisyst/external/pugixml/LICENSE.md",
+          "sha256": "870dfa99b9a85bddd41beedd8ebf1e407b56c4c7c4d4ee2d18a491ea41344503"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/RedfishPkg/Library/JsonLib/jansson",
+      "revision": "e9ebfa7e77a6bee77df44e096b100e7131044059",
+      "origin": "https://github.com/akheron/jansson",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/RedfishPkg/Library/JsonLib/jansson/LICENSE",
+          "sha256": "1fff7d37d22157bcd81ab53b6c54da755d7c2f868f15807d9bde920f10730da0"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm",
+      "revision": "50924a4c8145fc721e17208f55814d2b38766fe6",
+      "origin": "https://github.com/DMTF/libspdm.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/LICENSE.md",
+          "sha256": "c6ffa7e6889e63893078cb21b89594070183f7e2cf5b4ea01a4fb23eac59ed32"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/mbedtlslib/mbedtls",
+      "revision": "dd79db10014d85b26d11fe57218431f2e5ede6f2",
+      "origin": "https://github.com/ARMmbed/mbedtls",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/mbedtlslib/mbedtls/LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl",
+      "revision": "de90e54bbe82e5be4fb9608b6f5c308bb837d355",
+      "origin": "https://github.com/openssl/openssl",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/LICENSE.txt",
+          "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/gost-engine",
+      "revision": "b2b4d629f100eaee9f5942a106b1ccefe85b8808",
+      "origin": "https://github.com/gost-engine/engine",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/gost-engine/LICENSE",
+          "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/gost-engine/libprov",
+      "revision": "8a126e09547630ef900177625626b6156052f0ee",
+      "origin": "https://github.com/provider-corner/libprov.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/gost-engine/libprov/LICENSE",
+          "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/krb5",
+      "revision": "aa9b4a2a64046afd2fab7cb49c346295874a5fb6",
+      "origin": "https://github.com/krb5/krb5",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/krb5/NOTICE",
+          "sha256": "1577e0b6ae6fa9801a694b800edbe2ea60bb1d0176ff14406250ad7ee088df32"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/pyca-cryptography",
+      "revision": "c18d0567386414efa3caef7ed586c4ca75bf3a8b",
+      "origin": "https://github.com/pyca/cryptography.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/pyca-cryptography/LICENSE.BSD",
+          "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb"
+        },
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/pyca-cryptography/LICENSE",
+          "sha256": "43dad2cc752ab721cd9a9f36ece70fb53ab7713551f2d3d8694d8e8c5a06d6e2"
+        },
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/pyca-cryptography/LICENSE.PSF",
+          "sha256": "693ec0a662b39f995a4f252b03a6222945470c1b6f12ca02918e4efe0df64b9f"
+        },
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/pyca-cryptography/LICENSE.APACHE",
+          "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/wycheproof",
+      "revision": "2196000605e45d91097147c9c71f26b72af58003",
+      "origin": "https://github.com/google/wycheproof",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/os_stub/openssllib/openssl/wycheproof/LICENSE",
+          "sha256": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/unit_test/cmockalib/cmocka",
+      "revision": "a01cc69ee9536f90e57c61a198f2d1944d3d4313",
+      "origin": "https://gitlab.com/cmocka/cmocka.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/SecurityPkg/DeviceSecurity/SpdmLib/libspdm/unit_test/cmockalib/cmocka/COPYING",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/UnitTestFrameworkPkg/Library/CmockaLib/cmocka",
+      "revision": "1cc9cde3448cdd2e000886a26acf1caac2db7cf1",
+      "origin": "https://github.com/tianocore/edk2-cmocka.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/UnitTestFrameworkPkg/Library/CmockaLib/cmocka/COPYING",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/UnitTestFrameworkPkg/Library/GoogleTestLib/googletest",
+      "revision": "86add13493e5c881d7e4ba77fb91c1f57752b3a4",
+      "origin": "https://github.com/google/googletest.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/UnitTestFrameworkPkg/Library/GoogleTestLib/googletest/LICENSE",
+          "sha256": "9702de7e4117a8e2b20dafab11ffda58c198aede066406496bef670d40a22138"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/roms/edk2/UnitTestFrameworkPkg/Library/SubhookLib/subhook",
+      "revision": "83d4e1ebef3588fae48b69a7352cc21801cb70bc",
+      "origin": "https://github.com/tianocore/edk2-subhook.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/roms/edk2/UnitTestFrameworkPkg/Library/SubhookLib/subhook/LICENSE.txt",
+          "sha256": "1f260e70653e37184b34d8d0102d0bbac37518de5e8324af83569d84d7edd59c"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/deps/.ohos-build/curl-01346829096c61b372692f6dc43ffa778c6caccd",
+      "revision": "01346829096c61b372692f6dc43ffa778c6caccd",
+      "origin": "https://github.com/curl/curl.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/deps/.ohos-build/curl-01346829096c61b372692f6dc43ffa778c6caccd/COPYING",
+          "sha256": "82f2f4427d6545ee5aaac4f0b80428da6cc8ba41c2cf5da3a03680ec327b9681"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/deps/glib/src/subprojects/gvdb",
+      "revision": "2b42fc75f09dbe1cd1057580b5782b08f2dcb400",
+      "origin": "https://gitlab.gnome.org/GNOME/gvdb.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/deps/glib/src/subprojects/gvdb/COPYING",
+          "sha256": "bdbcdaa7858872393e9d6b216bbdc8a23e99d98dd6cdb7cda19458025b9e19fc"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/deps/glib/src/subprojects/libffi",
+      "revision": "83d0cfd00d7d37af4b4349511d29f1f0512621b3",
+      "origin": "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/deps/glib/src/subprojects/libffi/LICENSE",
+          "sha256": "0f4d7a0bfb83c37465d42dc305f124189196cc0cc2cc8d6f8461103682aebbc5"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/deps/glib/src/subprojects/proxy-libintl",
+      "revision": "33934de09af6a6627eb44e310a8079df009abdbb",
+      "origin": "https://github.com/frida/proxy-libintl.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/deps/glib/src/subprojects/proxy-libintl/COPYING",
+          "sha256": "d245807f90032872d1438d741ed21e2490e1175dc8aa3afa5ddb6c8e529b58e5"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/subprojects/berkeley-softfloat-3",
+      "revision": "b64af41c3276f97f0e181920400ee056b9c88037",
+      "origin": "https://gitlab.com/qemu-project/berkeley-softfloat-3.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/subprojects/berkeley-softfloat-3/COPYING.txt",
+          "sha256": "145ea96b4a4a04a1a7738d2a2bf9e830f861971e69606187b018d9e8fc0b95c7"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/subprojects/berkeley-testfloat-3",
+      "revision": "e7af9751d9f9fd3b47911f51a5cfd08af256a9ab",
+      "origin": "https://gitlab.com/qemu-project/berkeley-testfloat-3.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/subprojects/berkeley-testfloat-3/COPYING.txt",
+          "sha256": "862c7f1238c07addea5e7af00ae4a9b6e59150029091c4261c896bcdce02a059"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/subprojects/dtc",
+      "revision": "b6910bec11614980a21e46fbccc35934b671bd81",
+      "origin": "https://gitlab.com/qemu-project/dtc.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/subprojects/dtc/BSD-2-Clause",
+          "sha256": "6313108c23efffa36948f8b2cff1560a5935373b527b0e1a837cc77e6ed1bacd"
+        },
+        {
+          "path": "project/third_party/qemu/subprojects/dtc/GPL",
+          "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/subprojects/keycodemapdb",
+      "revision": "f5772a62ec52591ff6870b7e8ef32482371f22c6",
+      "origin": "https://gitlab.com/qemu-project/keycodemapdb.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/subprojects/keycodemapdb/LICENSE.BSD",
+          "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb"
+        },
+        {
+          "path": "project/third_party/qemu/subprojects/keycodemapdb/LICENSE.GPL2",
+          "sha256": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/subprojects/libblkio",
+      "revision": "f84cc963a444e4cb34813b2dcfc5bf8526947dc0",
+      "origin": "https://gitlab.com/libblkio/libblkio",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/subprojects/libblkio/LICENSE-APACHE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "project/third_party/qemu/subprojects/libblkio/LICENSE.crosvm",
+          "sha256": "a6d3ebd1c2f37d4fd83d0676621f695fc0cc2d8c6e646cdbb831b46e0650c208"
+        },
+        {
+          "path": "project/third_party/qemu/subprojects/libblkio/LICENSE-MIT",
+          "sha256": "59b77cf8c26fdb0b729190b400a60ce1219162b5ba60bcaba084ca4b4944e107"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/qemu/subprojects/slirp",
+      "revision": "26be815b86e8d49add8c9a8b320239b9594ff03d",
+      "origin": "https://gitlab.freedesktop.org/slirp/libslirp.git",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/qemu/subprojects/slirp/COPYRIGHT",
+          "sha256": "b28aecf4796a6a22054167f0a976de13d9db335669d37afd2dc7ea4c335e1e13"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/deps/glib/src",
+      "revision": null,
+      "sourceTreeSha256": "b2637949fc044a6116b8c0611e3caeb46b352a350a8d9c7b3324bc3823ca1a2b",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/deps/glib/src/COPYING",
+          "sha256": "fa6f36630bb1e0c571d34b2bbdf188d08495c9dbf58f28cac112f303fc1f58fb"
+        },
+        {
+          "path": "project/third_party/deps/glib/src/COPYING~main",
+          "sha256": "fa6f36630bb1e0c571d34b2bbdf188d08495c9dbf58f28cac112f303fc1f58fb"
+        },
+        {
+          "path": "project/third_party/deps/glib/src/COPYING~main_0",
+          "sha256": "fa6f36630bb1e0c571d34b2bbdf188d08495c9dbf58f28cac112f303fc1f58fb"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/deps/pcre2/src",
+      "revision": null,
+      "sourceTreeSha256": "6e513c83142e566fa0aeca0646e9127cab450f347083f5d5b15e4ad2092d75f9",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/deps/pcre2/src/COPYING",
+          "sha256": "99272c55f3dcfa07a8a7e15a5c1a33096e4727de74241d65fa049fccfdd59507"
+        },
+        {
+          "path": "project/third_party/deps/pcre2/src/LICENCE.md",
+          "sha256": "197d8a73ffee0d6b09adba2f9c677b5f5aede24edf89258a68e48248d010d811"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/deps/pixman/src",
+      "revision": null,
+      "sourceTreeSha256": "78660f63cb76c1b0e431d95d0a9be2efd5f829eb9f8f7639e6a060565400dc55",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/deps/pixman/src/COPYING",
+          "sha256": "fac9270f0987b96ff4533fca3548c633e02083cbba4a0172a3b149b2e4019793"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    },
+    {
+      "path": "project/third_party/deps/openssl/src",
+      "revision": null,
+      "sourceTreeSha256": "aa43a341d76c942b749d9c1c09d6da61cdcf1d3412e7e629d5e8486d024484fa",
+      "licenseDocuments": [
+        {
+          "path": "project/third_party/deps/openssl/src/LICENSE.txt",
+          "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+        }
+      ],
+      "qualification": "Source record; inclusion in a linked HAP component must be established separately."
+    }
+  ],
+  "sdkInputs": [
+    {
+      "path": "harmonyos-sdk.tar.gz",
+      "url": "https://repo.huaweicloud.com/harmonyos/os/6.0-Release/ohos-sdk-windows_linux-public.tar.gz",
+      "sha256": "a315834ac133625efc912bd078f3e2b2550868d04aef1b5aa4f9679c8b3c9d8e"
+    },
+    {
+      "path": "commandline-tools.zip",
+      "url": "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip",
+      "sha256": "1dcefa4741dc289277560b2802040e0c45b433898d8db453d711d5376e0478f1"
+    }
+  ],
+  "nativeDynamicDependencies": {
+    "libs/arm64-v8a/libqemu_full.so": [
+      "libz.so",
+      "libc.so"
+    ],
+    "libs/arm64-v8a/libc++_shared.so": [
+      "libc.so"
+    ],
+    "libs/arm64-v8a/libqemu_hmos.so": [
+      "libnative_window.so",
+      "libnative_buffer.so",
+      "libace_napi.z.so",
+      "libhilog_ndk.z.so",
+      "libqemu_full.so",
+      "libc++_shared.so",
+      "libc.so"
+    ]
+  }
+}
