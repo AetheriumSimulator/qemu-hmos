@@ -219,7 +219,7 @@ def collect(root, hap, out):
     # Keep reviewable identities visible even when public artifact upload is held.
     print(json.dumps({key: evidence[key] for key in (
         'commit', 'assets', 'components', 'sdkInputs', 'toolVersions',
-        'nativeDynamicDependencies')}, indent=2))
+        'nativeDynamicDependencies', 'omissions', 'licenseFiles')}, indent=2))
     print('Packaged native/firmware identities: ' + json.dumps([
         item for item in payload if item['path'].endswith(('.so', '.fd'))]))
     return evidence
