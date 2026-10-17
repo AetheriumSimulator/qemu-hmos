@@ -6,6 +6,7 @@ publication occurs here. A missing/stale distribution review blocks publication.
 """
 import argparse
 import hashlib
+import gzip
 import io
 import json
 import os
@@ -22,6 +23,21 @@ from check_public_source import ARTIFACT_SUFFIXES, content_problems
 
 ASSETS = {'aetherium-unsigned.hap', 'aetherium-source.tar.gz', 'release-evidence.json'}
 REQUIRED_REVIEWS = {'component-licenses', 'source-completeness', 'sdk-runtime-terms'}
+REQUIRED_SOURCES = {
+    'project/LICENSE', 'project/LICENSE-APACHE',
+    'project/.github/actions/validate-so/action.yml',
+    'project/.github/actions/validate-uefi/action.yml',
+    'project/.github/actions/validate-hap/action.yml',
+    'project/entry/src/main/cpp/CMakeLists.txt',
+    'project/third_party/qemu/configure', 'project/third_party/qemu/COPYING',
+    'project/third_party/qemu/roms/edk2/ArmVirtPkg/ArmVirtQemu.dsc',
+    'project/third_party/qemu/roms/edk2/OvmfPkg/OvmfPkgX64.dsc',
+    'project/third_party/deps/glib/src/COPYING',
+    'project/third_party/deps/pcre2/src/LICENCE.md',
+    'project/third_party/deps/pixman/src/COPYING',
+    'project/third_party/deps/openssl/src/LICENSE.txt',
+    'project/third_party/deps/.ohos-build/curl-01346829096c61b372692f6dc43ffa778c6caccd/COPYING',
+}
 REQUIRED_PAYLOAD = {
     'libs/arm64-v8a/libqemu_full.so', 'libs/arm64-v8a/libqemu_hmos.so',
     'resources/rawfile/edk2-aarch64-code.fd', 'resources/rawfile/OVMF_CODE.fd',
@@ -141,7 +157,7 @@ def collect(root, hap, out):
                                (name, digest(value[1])) for name, value in sorted(files.items())
                                if name.startswith(prefix + '/')]))})
     sources = []
-    with tarfile.open(out/'aetherium-source.tar.gz', 'w:gz') as archive:
+    with (out/'aetherium-source.tar.gz').open('wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', mtime=0, filename='') as compressed, tarfile.open(fileobj=compressed, mode='w') as archive:
         for name, (kind, data, mode) in sorted(files.items()):
             info = tarfile.TarInfo(name)
             info.mode = mode
@@ -168,6 +184,16 @@ def collect(root, hap, out):
     for name in ('harmonyos-sdk.tar.gz', 'commandline-tools.zip'):
         path = root/name
         sdk_inputs.append({'path': name, 'sha256': file_hash(path)})
+    tool_versions = {}
+    for name, executable in {
+        'native-clang': Path(os.environ.get('NDK_DIR', '/missing'))/'llvm/bin/clang',
+        'meson': root/'.ci-venv-so/bin/meson',
+        'ninja': root/'.ci-venv-so/bin/ninja',
+        'node': Path(shutil.which('node') or '/missing'),
+        'cmake': Path(shutil.which('cmake') or '/missing'),
+    }.items():
+        tool_versions[name] = (subprocess.check_output([str(executable), '--version'], text=True).strip()
+                               if executable.exists() else 'not-found')
     licenses = [s for s in sources if any(word in Path(s['path']).name.lower()
                                         for word in ('license', 'licence', 'copying', 'copyright'))]
     evidence = {'schemaVersion': 1, 'commit': git(root, 'rev-parse', 'HEAD'),
@@ -176,13 +202,13 @@ def collect(root, hap, out):
                 'unsigned': True, 'deviceTest': 'not-executed',
                 'components': components, 'sourceMembers': sources, 'licenseFiles': licenses,
                 'omissions': omissions, 'sdkInputs': sdk_inputs, 'payload': payload,
-                'nativeDynamicDependencies': native_dependencies,
+                'nativeDynamicDependencies': native_dependencies, 'toolVersions': tool_versions,
                 'assets': {name: file_hash(out/name) for name in ASSETS - {'release-evidence.json'}}}
     # Review binds the actual source set (excluding the review itself), recipes,
     # resolved revisions, SDK bytes and omissions. No self-declared ready flag.
     evidence['scopeSha256'] = scope_hash(evidence)
     (out/'release-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
-    print(f"Source candidate: {len(sources)} entries; {len(components)} repositories; "
+    print(f"Source candidate: {len(sources)} entries; {len(components)} source records; "
           f"{len(omissions)} exclusions. Review scope SHA-256: {evidence['scopeSha256']}")
     return evidence
 
@@ -195,7 +221,8 @@ def scope_hash(evidence):
     components = [dict(c, revision='source-members-bind-root') if c['path'] == 'project' else c
                   for c in evidence['components']]
     return digest(encoded({'sources': sources, 'components': components,
-                           'sdkInputs': evidence['sdkInputs'], 'omissions': evidence['omissions']}))
+                           'sdkInputs': evidence['sdkInputs'], 'toolVersions': evidence.get('toolVersions', {}),
+                           'omissions': evidence['omissions']}))
 
 
 def verify(out, review, expected_commit=None):
@@ -248,6 +275,8 @@ def verify(out, review, expected_commit=None):
     if set(records) != REQUIRED_REVIEWS:
         errors.append('Need component license, source completeness and SDK runtime reviews')
     members = {s['path']: s['sha256'] for s in sources}
+    if not REQUIRED_SOURCES <= members.keys():
+        errors.append('Required root/dependency/firmware source or license missing')
     for topic, record in records.items():
         path = record.get('path', '')
         if (not path.startswith('project/compliance/distribution-review/') or

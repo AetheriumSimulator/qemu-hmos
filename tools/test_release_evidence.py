@@ -9,7 +9,7 @@ import tempfile
 import unittest
 import zipfile
 
-from release_evidence import (ASSETS, REQUIRED_PAYLOAD, REQUIRED_REVIEWS, digest,
+from release_evidence import (ASSETS, REQUIRED_PAYLOAD, REQUIRED_REVIEWS, REQUIRED_SOURCES, digest,
                               file_hash, scope_hash, verify, add_file)
 
 
@@ -20,6 +20,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
         self.out = Path(self.temp.name)
         self.sources = {'project/LICENSE': b'fixture license',
                         'project/src/main.c': b'int main(void) { return 0; }'}
+        self.sources.update({name: b'Synthetic required-source fixture' for name in REQUIRED_SOURCES})
         self.review = {'reviews': {}}
         for topic in REQUIRED_REVIEWS:
             name = 'project/compliance/distribution-review/' + topic + '.md'
@@ -34,7 +35,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
                        for i in archive.infolist()]
         self.evidence = {'schemaVersion': 1, 'unsigned': True, 'commit': 'a'*40,
                          'components': [{'path': 'project', 'revision': 'a'*40}],
-                         'sourceMembers': self.members(), 'licenseFiles': [m for m in self.members() if 'license' in Path(m['path']).name.lower()],
+                         'sourceMembers': self.members(), 'licenseFiles': [m for m in self.members() if any(word in Path(m['path']).name.lower() for word in ('license', 'licence', 'copying', 'copyright'))],
                          'omissions': [], 'sdkInputs': [{'path': 'native', 'sha256': 'b'*64},
                                                        {'path': 'hap', 'sha256': 'c'*64}],
                          'payload': payload, 'assets': {}}
@@ -119,6 +120,39 @@ class ReleaseEvidenceTests(unittest.TestCase):
             env = dict(os.environ, GITHUB_REPOSITORY='fixture/repo', GITHUB_SHA='a'*40,
                        GITHUB_EVENT_NAME=event, GITHUB_REF=ref)
             self.assertNotEqual(subprocess.run(['bash', str(script), str(self.out)], env=env).returncode, 0)
+
+    def test_prerelease_stages_assets_before_publication(self):
+        script = Path(__file__).with_name('publish_hap_prerelease.sh').resolve()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fake = base/'gh'
+            fake.write_text("""#!/bin/bash
+printf '%s\\n' "$*" >> "$GH_CALLS"
+case "$1 $2" in
+  'api '*) exit 1 ;;
+  'release view') exit 1 ;;
+  'release create') exit "${CREATE_EXIT:-0}" ;;
+  'release edit') exit 0 ;;
+esac
+exit 2
+""")
+            fake.chmod(0o755)
+            calls = base/'calls'
+            env = dict(os.environ, PATH=str(base)+':'+os.environ['PATH'],
+                       GH_CALLS=str(calls), GITHUB_REPOSITORY='fixture/repo',
+                       GITHUB_SHA='a'*40, GITHUB_EVENT_NAME='push', GITHUB_REF='refs/heads/main')
+            for create_exit in ('0', '1'):
+                calls.unlink(missing_ok=True)
+                result = subprocess.run(['bash', str(script), str(self.out)],
+                                        env=dict(env, CREATE_EXIT=create_exit))
+                recorded = calls.read_text().splitlines()
+                creation = next(line for line in recorded if line.startswith('release create'))
+                self.assertIn('--draft --prerelease', creation)
+                for name in ASSETS:
+                    self.assertIn(name, creation)
+                published = any(line.startswith('release edit') for line in recorded)
+                self.assertEqual(published, create_exit == '0')
+                self.assertEqual(result.returncode == 0, create_exit == '0')
 
 
 if __name__ == '__main__':
