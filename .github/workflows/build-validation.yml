@@ -92,6 +92,12 @@ jobs:
           python tools/release_evidence.py collect
           --hap entry/build/default/outputs/default/entry-default-unsigned.hap
           --out delivery
+      - name: Replay repaired inputs from collected source archive
+        id: source_replay
+        shell: bash
+        run: >-
+          python tools/replay_source_inputs.py delivery/aetherium-source.tar.gz
+          --meson "$GITHUB_WORKSPACE/.ci-venv-so/bin/meson"
       - name: Verify distribution eligibility
         id: eligibility
         shell: bash
@@ -122,6 +128,7 @@ jobs:
           IDENTITY: ${{ steps.identity.outcome }}
           UPLOAD: ${{ steps.upload.outcome }}
           EVIDENCE: ${{ steps.evidence.outcome }}
+          SOURCE_REPLAY: ${{ steps.source_replay.outcome }}
           ALLOWED: ${{ steps.eligibility.outputs.allowed }}
         run: |
           {
@@ -130,6 +137,7 @@ jobs:
             printf 'Native: %s; UEFI: %s; HAP: %s; HAP identity: %s\n' "$NATIVE" "$FIRMWARE" "$HAP" "$IDENTITY"
             printf 'Public HAP artifact upload: %s (7-day retention when successful).\n' "$UPLOAD"
             printf 'Source collection: %s; distribution eligible: %s\n' "$EVIDENCE" "${ALLOWED:-unavailable}"
+            printf 'Extracted-archive build-input replay: %s (targeted; not a full HAP rebuild).\n' "$SOURCE_REPLAY"
             echo 'HAP signing: unsigned. Release is a separate main-push job.'
             echo 'Deploy/device smoke: not executed; no device connected to hosted runner.'
           } >> "$GITHUB_STEP_SUMMARY"

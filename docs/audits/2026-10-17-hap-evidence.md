@@ -199,3 +199,54 @@ Any eventual machine-readable approval must identify itself as automated
 engineering review, bind this evidence to the exact scope, and state its limits.
 No human, lawyer or rights-holder approval is implied. The gate remains closed;
 no actual upload, prerelease or merge is authorized by this audit.
+
+## Follow-up: archive input repairs
+
+The findings above describe the audited historical candidate. The follow-up
+repairs the following engineering errors without changing VFIO, OpenSSL, device
+models, the packaged native libraries, or the two HAP firmware build targets:
+
+* The collector and verifier share one payload classification rule. The exact
+  EDK2 `ms.app` Makefile and `TestArgv.log` expected output are retained only as
+  valid text (the latter is BOM-marked UTF-16). ELF/PE/archive magic, invalid text
+  and embedded control bytes remain rejected. This is not a blanket `.app` or
+  `.log` exemption.
+* Compound firmware suffixes such as `.fd.bz2`, `.bin.gz` and prebuilt `.dtb` are
+  rejected consistently by collection and verification. The 13 old compressed
+  EDK2 files are no longer carried as apparent source. QEMU's pinned
+  `pc-bios/README` attributes those images to `edk2-stable202302`, with
+  `OpenSSL_1_1_1s` and SoftFloat, and points to `edk2-licenses.txt`; those provenance
+  documents remain in the archive. That attribution is not independently proven
+  binary/source correspondence and is not substituted for this HAP's actual
+  EDK2 revision. The old images are not inputs to the two separately built HAP
+  firmware payloads.
+* `tools/prepare_hap_sources.py` reconstructs the 32-byte AArch64 GNU BTI property
+  note from named ELF fields and asserts SHA-256
+  `4cd79611a5b20ea164d0bb517e3babbaa1915f1a5698a7b033b669d35cc4f5d0`, identical to
+  the pinned EDK2 input. Both native-source preparation and the UEFI recipe invoke
+  it. Missing notes are recreated; unexpected existing bytes fail rather than
+  being silently replaced. The archive carries the readable recipe, and the
+  omission record names it; it does not drop the required build input without a
+  reconstruction path.
+* The HAP shared-core configure command explicitly sets `--disable-install-blobs`.
+  A hash-checked, idempotent source adaptation makes `pc-bios/meson.build` return
+  before prebuilt ROM targets when that option is false. Merely setting the
+  option was insufficient: upstream still unpacked EDK2 images when bzip2 was
+  installed. The `install_blobs=true` path and upstream remainder are preserved.
+  The native executable/data installation is not the HAP firmware-delivery path;
+  `validate-uefi` still builds ArmVirt and OVMF and packages their fresh outputs.
+
+`tools/replay_source_inputs.py` reads the actual collected archive, extracts the
+relevant inputs into a fresh metadata-free directory, invokes the archived
+preparation recipe, verifies the regenerated note, and runs the real archived
+pc-bios Meson file. With bzip2 available, `install_blobs=false` configures without
+prebuilt ROM files; `true` still requires the omitted ROM inputs and fails on the
+expected firmware filename. This is a deliberate HAP-source configuration, not a
+claim that the source archive rebuilds every upstream QEMU firmware platform.
+The same replay passed locally against actual pinned sources; CI runs it against
+the newly collected delivery archive before evaluating distribution eligibility.
+
+The replay is **targeted build-input reconstruction**, not a complete clean
+archive-to-HAP rebuild. Full source closure, native license compatibility, SDK
+terms/notice delivery and device acceptance remain separate. No review approval,
+public artifact upload, Release publication, or merge follows from these repairs.

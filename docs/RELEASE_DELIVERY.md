@@ -128,3 +128,16 @@ or repository policy failure must be reported, not bypassed with a personal toke
 The current [automated engineering audit](audits/2026-10-17-hap-evidence.md)
 records resolved evidence and remaining blockers. Its existence does not satisfy
 the three required hash-bound distribution approvals.
+
+### Reconstructing repaired archive inputs
+
+Run `python3 tools/prepare_hap_sources.py` before the native/UEFI recipes when
+using extracted sources. It verifies the pinned QEMU pc-bios recipe, applies the
+HAP packaging adaptation idempotently, and generates the exact EDK2 BTI note from
+readable ELF fields. The native recipe uses `--disable-install-blobs`; HAP firmware
+continues to come from the separate ArmVirt/OVMF builds, not QEMU's old compressed
+prebuilt ROM set. No VFIO/OpenSSL runtime functionality is disabled by this change.
+
+After collection, CI runs `tools/replay_source_inputs.py` on the actual archive.
+The summary reports this targeted source-input replay separately; success is not
+a full archive-to-HAP rebuild, distribution approval or real-device validation.

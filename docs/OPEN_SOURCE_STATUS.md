@@ -45,7 +45,8 @@ controls `GITHUB_TOKEN`, not artifact audience.
 
 The [2026-10-17 engineering audit](audits/2026-10-17-hap-evidence.md) adds
 build-matched source/SDK identities, component notices, exact packaged C++ runtime
-provenance and a fixed-tree offline curl reconstruction repair. It is automated
+provenance, a fixed-tree offline curl reconstruction repair, and targeted
+archive-input repairs for text files, BTI note reconstruction and prebuilt ROMs. It is automated
 engineering evidence, not legal or rights-holder approval. The initial inventory
 below is not a replacement for that build-specific evidence.
 
@@ -90,6 +91,7 @@ publication. The legacy reusable gate still holds unrelated binary jobs.
 | Source checks | Indexed source hygiene, recorded identities and supplementary source replay. Success is not distribution approval. |
 | Native, UEFI, HAP | PRs, main pushes and non-tag manual runs build once on an ephemeral hosted runner. Tags are review-only. |
 | Source/evidence | Collect actual working-tree sources, resolved Git wraps, firmware sources, license file index, source omissions, SDK hashes and HAP member identities. Missing reviews yield `allowed=false`; collection errors fail validation. |
+| Archive input replay | Extract the collected inputs, regenerate the BTI note, and exercise actual pc-bios Meson behavior without prebuilt ROMs. Targeted replay is not a complete HAP rebuild. |
 | Public Artifact | Only a main push with successful build and `allowed=true` uploads the HAP plus source archive and evidence. Seven-day retention; no separate SO/UEFI binary delivery. PRs/manual runs do not publish. |
 | Test prerelease | Main-only job reverifies downloaded evidence before creating an unsigned test prerelease. Write permission is confined to this job. Signing is not a GPL prerequisite. |
 | Device / guest boot | Not executed. Build, payload checks, source replay, artifact or Release success cannot replace device acceptance. |

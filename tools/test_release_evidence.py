@@ -10,7 +10,7 @@ import unittest
 import zipfile
 
 from release_evidence import (ASSETS, REQUIRED_PAYLOAD, REQUIRED_REVIEWS, REQUIRED_SOURCES, digest,
-                              file_hash, scope_hash, verify, add_file)
+                              file_hash, scope_hash, verify, add_file, TEXT_BUILD_INPUTS)
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
@@ -121,6 +121,51 @@ class ReleaseEvidenceTests(unittest.TestCase):
         self.assertEqual(omissions, [{'path': 'project/third_party/edk2/X11IncludeHack',
                                      'reason': 'external source symlink excluded',
                                      'target': '/usr/include/X11'}])
+
+    def test_text_build_inputs_survive_but_binary_impersonation_fails(self):
+        source = self.out/'input'
+        for name in TEXT_BUILD_INPUTS:
+            for data, accepted in [(b'# Makefile\r\nall:\n\techo test\n', True),
+                                   ('expected output\r\n'.encode('utf-16'), True),
+                                   (b'\x7fELFhidden', False), (b'MZhidden', False),
+                                   (b'text\x00binary', False), (b'\xff', False)]:
+                with self.subTest(name=name, data=data):
+                    source.write_bytes(data)
+                    files, omissions = {}, []
+                    add_file(source, name, files, omissions)
+                    self.assertEqual(name in files, accepted)
+
+    def test_compressed_firmware_is_rejected_by_collection_and_verification(self):
+        import bz2
+        for name in ('project/pc-bios/code.fd.bz2', 'project/pc-bios/code.bin.gz',
+                     'project/pc-bios/tree.dtb', 'project/pc-bios/code.fd.BZ2'):
+            with self.subTest(name=name):
+                data = bz2.compress(b'firmware volume')
+                source = self.out/'fixture'
+                source.write_bytes(data)
+                files, omissions = {}, []
+                add_file(source, name, files, omissions)
+                self.assertFalse(files)
+                source.unlink()
+                self.sources[name] = data
+                self.repack()
+                self.evidence['sourceMembers'] = self.members()
+                self.save()
+                self.review['scopeSha256'] = self.evidence['scopeSha256']
+                self.assertIn('Compiled binary in source archive', verify(self.out, self.review))
+                del self.sources[name]
+
+    def test_bti_note_is_reconstructed_not_silently_discarded(self):
+        from prepare_hap_sources import NOTE_PATH, note_bytes
+        source = self.out/'note'
+        source.write_bytes(note_bytes())
+        files, omissions = {}, []
+        add_file(source, 'project/'+NOTE_PATH, files, omissions)
+        self.assertFalse(files)
+        self.assertIn('prepare_hap_sources.py', omissions[0]['reason'])
+        source.write_bytes(b'changed')
+        with self.assertRaisesRegex(ValueError, 'reconstruction recipe'):
+            add_file(source, 'project/'+NOTE_PATH, {}, [])
 
     def test_no_device_claim_and_no_publication_outside_main_push(self):
         script = Path(__file__).with_name('publish_hap_prerelease.sh')

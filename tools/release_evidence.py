@@ -21,6 +21,7 @@ import tarfile
 import zipfile
 
 from check_public_source import ARTIFACT_SUFFIXES, content_problems
+from prepare_hap_sources import NOTE_PATH
 
 ASSETS = {'aetherium-unsigned.hap', 'aetherium-source.tar.gz', 'release-evidence.json'}
 REQUIRED_REVIEWS = {'component-licenses', 'source-completeness', 'sdk-runtime-terms'}
@@ -31,6 +32,9 @@ REQUIRED_SOURCES = {
     'project/.github/actions/validate-hap/action.yml',
     'project/entry/src/main/cpp/CMakeLists.txt',
     'project/tools/build_curl_ohos.sh', 'project/tools/verify_curl_source.py',
+    'project/tools/prepare_hap_sources.py',
+    'project/tools/replay_source_inputs.py',
+    'project/third_party/qemu/pc-bios/meson.build',
     'project/third_party/qemu/configure', 'project/third_party/qemu/COPYING',
     'project/third_party/qemu/roms/edk2/ArmVirtPkg/ArmVirtQemu.dsc',
     'project/third_party/qemu/roms/edk2/OvmfPkg/OvmfPkgX64.dsc',
@@ -69,6 +73,31 @@ def git(root, *args):
 def safe_name(name):
     p = PurePosixPath(name)
     return bool(name) and not p.is_absolute() and '..' not in p.parts and '\\' not in name
+
+
+TEXT_BUILD_INPUTS = {
+    'project/third_party/qemu/roms/edk2/BaseTools/Source/C/Makefiles/ms.app',
+    'project/third_party/qemu/roms/edk2/ShellPkg/Application/ShellCTestApp/TestArgv.log',
+}
+REQUIRED_SOURCES.update(TEXT_BUILD_INPUTS)
+
+
+def excluded_payload(name, data):
+    """Shared collector/verifier policy, including compound firmware suffixes."""
+    if data.startswith((b'\x7fELF', b'MZ', b'!<arch>\n', b'\xd0\x0d\xfe\xed')):
+        return True
+    if name in TEXT_BUILD_INPUTS:
+        try:
+            # EDK2's expected ShellCTestApp output is BOM-marked UTF-16.
+            text = data.decode('utf-16' if data.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8')
+            return any(ord(c) < 32 and c not in '\r\n\t' for c in text)
+        except UnicodeDecodeError:
+            return True
+    suffixes = [s.lower() for s in Path(name).suffixes]
+    while suffixes and suffixes[-1] in {'.bz2', '.gz', '.xz', '.zst', '.zip'}:
+        suffixes.pop()
+    return (bool(suffixes and suffixes[-1] in ARTIFACT_SUFFIXES | {'.rom', '.bin', '.dtb'})
+            or '.so' in suffixes)
 
 
 def snapshot(root, prefix, files, components, omissions, recurse=True):
@@ -117,8 +146,13 @@ def add_file(path, name, files, omissions):
         files[name] = ('symlink', target.encode(), 0o777)
         return
     data = path.read_bytes()
-    if (path.suffix.lower() in ARTIFACT_SUFFIXES | {'.rom', '.bin'} or
-            '.so' in path.suffixes or data.startswith((b'\x7fELF', b'MZ', b'!<arch>\n'))):
+    if name == 'project/' + NOTE_PATH:
+        from prepare_hap_sources import note_bytes
+        if data != note_bytes():
+            raise ValueError('EDK2 BTI note does not match its reconstruction recipe')
+        omissions.append({'path': name, 'reason': 'reconstructed build data; tools/prepare_hap_sources.py'})
+        return
+    if excluded_payload(name, data):
         omissions.append({'path': name, 'reason': 'compiled payload/fixture excluded from source delivery'})
         return
     problems = content_problems('third_party/' + name if '/third_party/' in name else name, data)
@@ -275,7 +309,7 @@ def verify(out, review, expected_commit=None):
                 data, kind = member.linkname.encode(), 'symlink'
             elif member.isfile():
                 data, kind = archive.extractfile(member).read(), 'file'
-                if data.startswith((b'\x7fELF', b'MZ', b'!<arch>\n')) or Path(member.name).suffix in ARTIFACT_SUFFIXES | {'.bin', '.rom'}:
+                if excluded_payload(member.name, data):
                     errors.append('Compiled binary in source archive')
             else:
                 errors.append('Unsupported archive member')

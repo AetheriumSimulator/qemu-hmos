@@ -40,6 +40,7 @@ runs:
       # 激活Python虚拟环境
       source .ci-venv-uefi/bin/activate
 
+      python3 tools/prepare_hap_sources.py
       cd third_party/qemu/roms/edk2
 
       # 设置环境变量
