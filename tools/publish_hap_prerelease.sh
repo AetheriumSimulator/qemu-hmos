@@ -32,11 +32,18 @@ cat > "$notes" <<EOF
 Unsigned Aetherium test HAP for $GITHUB_SHA.
 
 Not signed for device installation; no device/guest-boot acceptance is claimed.
-The accompanying source candidate and hash-bound review evidence passed the
-repository distribution verifier for this build. See release-evidence.json for
-payload identities, source members, exact fetched revisions, SDK archive hashes
-and review scope. Only the HAP is delivered as a binary; no separate SO or UEFI
-binary assets are published.
+This test delivery passed artifact/source identity checks under test-disclosure-v1.
+Human license, source-completeness and SDK-runtime reviews are NOT approved.
+Known unresolved issues: the selected GPLv2-only VFIO / Apache-2.0 OpenSSL
+combination needs assessment; the SDK runtime's downstream source/patch mapping
+is unresolved and its referenced Exhibit C URL returned HTTP 403; a complete
+clean archive-to-HAP rebuild has not been performed. No legal conclusion is made.
+
+The source candidate includes current collected sources, reconstruction recipes,
+original SDK runtime notices/metadata and explicit omissions. It is not certified
+complete corresponding source. See release-evidence.json testDistribution for
+these disclosures, payload/source hashes, SDK identities and scope. Only the HAP
+is delivered as a binary; no separate SO or UEFI assets are published.
 EOF
 # A draft prevents a partially uploaded asset set from becoming a public release.
 gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \

@@ -28,16 +28,23 @@ presence is an index, not an automatic license compatibility decision.
 
 ## Gate and events
 
-`tools/release_evidence.py verify` verifies the delivery bytes and archive members,
-required native and firmware HAP entries, source scope, expected checkout commit,
-and three hash-bound review documents. It can return `allowed=true` for complete
-reviewed evidence; positive and negative fixtures exercise this behavior. It
-never infers approval from `unsigned`, a short retention period or a `ready` flag.
-The source-only reusable gate still holds unrelated legacy binary jobs; it is not
-the post-build HAP distribution decision.
+`tools/release_evidence.py verify` always verifies delivery hashes and archive
+members, required native/firmware HAP entries and source inputs, source scope and
+expected checkout commit. CI explicitly selects `--policy test-disclosure-v1`:
+missing human reviews are disclosed, rather than a hard block. This is a project
+policy choice, not a platform rule or a legal approval. The default CLI policy
+remains `strict-review`, requiring three hash-bound review documents.
+
+The test policy additionally requires the exact public `testDistribution`
+disclosure (reviews **not approved**, source completeness **not certified**),
+and the audited SDK runtime/notice provenance. Changed/missing disclosures,
+SDK/runtime identities or notices block it; no `ready` flag bypasses these checks.
+Both policies preserve HAP/source hashes, source origins, event isolation and
+Release reverification. The legacy source-only gate still emits `allowed=false`
+for unrelated binary jobs; that output does not control this HAP delivery path.
 
 PRs (including forks), manual runs and non-main refs **never upload or release**.
-A main push with a successful build and approved distribution evidence uploads
+A main push with a successful build and passing test-distribution integrity/disclosure checks uploads
 the three files together for seven days. A separate main-only job downloads that
 exact artifact ID emitted by the build (also on release-only retries), verifies it again, and creates a test prerelease
 `test-<full commit SHA>`. The read-only `build-validation.yml` is reused by the main pipeline and legacy entry points; it contains no write-permission job. Only the main pipeline Release job receives `contents: write`; the token is
@@ -75,7 +82,7 @@ No distribution approval is supplied by this PR. In particular:
    accessible only through their SDK account; this PR does not access or change
    that account. Merely downloading from an official URL is not an approval.
 
-After these are established, add reviewed documents under
+For the optional strict-review policy, after these are established add reviewed documents under
 `compliance/distribution-review/`, then a `compliance/distribution-review.json`:
 
 ```json
@@ -90,31 +97,45 @@ After these are established, add reviewed documents under
 ```
 
 The review documents and index are excluded from their own scope digest to avoid
-self-reference. Other source/recipe/SDK changes invalidate the scope and require
-review again. This conservative first implementation does **not** automatically
-carry approval across arbitrary future code or SDK changes; per-push delivery
-only proceeds for the reviewed scope. Hashes bind the recorded decision to inputs;
-they cannot judge the truth of an authored legal/source review. The repository's
-normal review process must assess those documents. No approvals are fabricated
-here and no repository protection or credential settings are changed.
+self-reference. Scope changes invalidate strict-policy approvals. The test policy
+creates no approval records: every delivery retains the explicit unresolved
+items even when its integrity checks pass. Hash checks cannot judge the truth of
+legal or source-completeness assertions.
+
+### SDK notice delivery
+
+The collector extracts four original UTF-8 text files from the hash-pinned CLI
+SDK ZIP: its LICENSE.txt, OpenHarmony native NOTICE.txt, LLVM NOTICE, and native
+package metadata. They accompany the HAP inside the source archive under
+`project/compliance/sdk-runtime/command-line-tools/`. `sdkRuntimeEvidence` maps
+each original ZIP member to the delivered member and hash, and binds the packaged
+libc++ runtime to its exact SDK member. No SDK executable is added to the source
+archive. NOTICE files are now included in the license-file index.
+
+This directly repairs the missing bundled-notice delivery. It does not resolve
+the SDK runtime's downstream source/patch mapping, inaccessible Exhibit C terms,
+or combined-component assessment. A changed SDK/runtime must update provenance
+and notices before passing this test policy. No account access or new agreement
+acceptance is performed. The Release notes disclose the outstanding issues
+before users download the three assets.
 
 Local commands after the complete build:
 
 ```sh
 python tools/release_evidence.py collect \
   --hap entry/build/default/outputs/default/entry-default-unsigned.hap --out delivery
-python tools/release_evidence.py verify --out delivery \
+python tools/release_evidence.py verify --policy test-disclosure-v1 --out delivery \
   --expected-commit "$(git rev-parse HEAD)"
 ```
 
-Collection refuses to overwrite an existing output directory. Missing review
-records produce an explicit blocked result; CI's `--report-only` keeps build
-validation successful while emitting `allowed=false`. Structural collection
-failures still fail the evidence stage. Release reverification never uses
-`--report-only`. While blocked, candidate bytes remain runner-local. The review
-scope and reasons are printed in CI; reconstruct the candidate locally to review
-its full content. This does not claim a downloadable HAP or a successful Release
-until the actual main publication steps have run successfully.
+Collection refuses to overwrite an existing output directory. CI's `--report-only`
+reports failed integrity/disclosure checks as `allowed=false`; it cannot authorize
+upload. Collection errors fail validation. Release reverification never uses
+`--report-only`. Under the test policy, missing human reviews alone do not block
+main-push uploads or prereleases. They remain explicitly unapproved, with the
+source candidate's limits and known license/SDK uncertainties publicly disclosed.
+PRs never upload or release even if `allowed=true`; test-policy validation on a
+PR is not proof of an actual main upload/Release or device run.
 
 ### Credential lifecycle
 
@@ -126,8 +147,8 @@ or changes to account authorization/token expiration settings. An Actions token
 or repository policy failure must be reported, not bypassed with a personal token.
 
 The current [automated engineering audit](audits/2026-10-17-hap-evidence.md)
-records resolved evidence and remaining blockers. Its existence does not satisfy
-the three required hash-bound distribution approvals.
+records resolved evidence and remaining review gaps. Its existence does not
+satisfy strict-policy approvals; the disclosed-test policy does not claim it does.
 
 ### Reconstructing repaired archive inputs
 

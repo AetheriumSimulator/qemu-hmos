@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Collect a source candidate and verify hash-bound HAP distribution evidence.
 
-Collection is not a license approval. No network access, extraction, signing or
-publication occurs here. A missing/stale distribution review blocks publication.
+Collection is not a license approval. No network access, signing or publication
+occurs here. Strict review and disclosed-test policies are explicit.
 """
 import argparse
 import hashlib
@@ -22,6 +22,7 @@ import zipfile
 
 from check_public_source import ARTIFACT_SUFFIXES, content_problems
 from prepare_hap_sources import NOTE_PATH
+from delivery_policy import POLICY, collect_notices, disclosure, verify_disclosure, runtime_provenance
 
 ASSETS = {'aetherium-unsigned.hap', 'aetherium-source.tar.gz', 'release-evidence.json'}
 REQUIRED_REVIEWS = {'component-licenses', 'source-completeness', 'sdk-runtime-terms'}
@@ -34,6 +35,8 @@ REQUIRED_SOURCES = {
     'project/tools/build_curl_ohos.sh', 'project/tools/verify_curl_source.py',
     'project/tools/prepare_hap_sources.py',
     'project/tools/replay_source_inputs.py',
+    'project/tools/delivery_policy.py',
+    'project/docs/audits/2026-10-17-test-delivery-policy.md',
     'project/third_party/qemu/pc-bios/meson.build',
     'project/third_party/qemu/configure', 'project/third_party/qemu/COPYING',
     'project/third_party/qemu/roms/edk2/ArmVirtPkg/ArmVirtQemu.dsc',
@@ -196,6 +199,7 @@ def collect(root, hap, out):
                            'sourceTreeSha256': digest(encoded([
                                (name, digest(value[1])) for name, value in sorted(files.items())
                                if name.startswith(prefix + '/')]))})
+    collect_notices(root/'commandline-tools.zip', files)
     sources = []
     with (out/'aetherium-source.tar.gz').open('wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', mtime=0, filename='') as compressed, tarfile.open(fileobj=compressed, mode='w') as archive:
         for name, (kind, data, mode) in sorted(files.items()):
@@ -237,11 +241,12 @@ def collect(root, hap, out):
         tool_versions[name] = (subprocess.check_output([str(executable), '--version'], text=True).strip()
                                if executable.exists() else 'not-found')
     licenses = [s for s in sources if any(word in Path(s['path']).name.lower()
-                                        for word in ('license', 'licence', 'copying', 'copyright'))]
+                                        for word in ('license', 'licence', 'copying', 'copyright', 'notice'))]
     evidence = {'schemaVersion': 1, 'commit': git(root, 'rev-parse', 'HEAD'),
                 'eventCommit': os.environ.get('GITHUB_SHA', ''),
                 'run': os.environ.get('GITHUB_RUN_ID', ''),
                 'unsigned': True, 'deviceTest': 'not-executed',
+                'testDistribution': disclosure(), 'sdkRuntimeEvidence': runtime_provenance(),
                 'components': components, 'sourceMembers': sources, 'licenseFiles': licenses,
                 'omissions': omissions, 'sdkInputs': sdk_inputs, 'payload': payload,
                 'nativeDynamicDependencies': native_dependencies, 'toolVersions': tool_versions,
@@ -279,10 +284,12 @@ def scope_hash(evidence):
                   for c in evidence['components']]
     return digest(encoded({'sources': sources, 'components': components,
                            'sdkInputs': evidence['sdkInputs'], 'toolVersions': evidence.get('toolVersions', {}),
-                           'omissions': evidence['omissions']}))
+                           'omissions': evidence['omissions'],
+                           'testDistribution': evidence.get('testDistribution'),
+                           'sdkRuntimeEvidence': evidence.get('sdkRuntimeEvidence')}))
 
 
-def verify(out, review, expected_commit=None):
+def verify(out, review, expected_commit=None, policy='strict-review'):
     errors = []
     if {p.name for p in out.iterdir()} != ASSETS:
         return ['Delivery must contain exactly HAP, source archive and evidence JSON']
@@ -326,21 +333,26 @@ def verify(out, review, expected_commit=None):
         errors.append('Required native/firmware HAP payload missing')
     if e.get('scopeSha256') != scope_hash(e):
         errors.append('Review scope hash mismatch')
-    if review.get('scopeSha256') != e.get('scopeSha256'):
-        errors.append('Distribution review missing or stale for this exact source/SDK scope')
-    records = review.get('reviews', {})
-    if set(records) != REQUIRED_REVIEWS:
-        errors.append('Need component license, source completeness and SDK runtime reviews')
     members = {s['path']: s['sha256'] for s in sources}
     if not REQUIRED_SOURCES <= members.keys():
         errors.append('Required root/dependency/firmware source or license missing')
-    for topic, record in records.items():
-        path = record.get('path', '')
-        if (not path.startswith('project/compliance/distribution-review/') or
-                not record.get('sha256') or members.get(path) != record['sha256']):
-            errors.append('Missing/hash-mismatched review document: ' + topic)
+    if policy == POLICY:
+        errors.extend(verify_disclosure(e, members))
+    elif policy == 'strict-review':
+        if review.get('scopeSha256') != e.get('scopeSha256'):
+            errors.append('Distribution review missing or stale for this exact source/SDK scope')
+        records = review.get('reviews', {})
+        if set(records) != REQUIRED_REVIEWS:
+            errors.append('Need component license, source completeness and SDK runtime reviews')
+        for topic, record in records.items():
+            path = record.get('path', '')
+            if (not path.startswith('project/compliance/distribution-review/') or
+                    not record.get('sha256') or members.get(path) != record['sha256']):
+                errors.append('Missing/hash-mismatched review document: ' + topic)
+    else:
+        errors.append('Unsupported distribution policy')
     expected_licenses = [s for s in sources if any(word in Path(s['path']).name.lower()
-                                                for word in ('license', 'licence', 'copying', 'copyright'))]
+                                                for word in ('license', 'licence', 'copying', 'copyright', 'notice'))]
     if e.get('licenseFiles') != expected_licenses:
         errors.append('License file inventory mismatch')
     if not e.get('licenseFiles') or not e.get('components') or len(e.get('sdkInputs', [])) != 2:
@@ -356,13 +368,18 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--review', type=Path, default=Path('compliance/distribution-review.json'))
     parser.add_argument('--expected-commit')
+    parser.add_argument('--policy', choices=['strict-review', POLICY], default='strict-review')
     parser.add_argument('--report-only', action='store_true', help='Report blocked eligibility without failing validation')
     args = parser.parse_args()
     if args.command == 'collect':
         collect(args.root.resolve(), args.hap, args.out)
         return 0
     review = json.loads(args.review.read_text()) if args.review.exists() else {}
-    errors = verify(args.out, review, args.expected_commit)
+    errors = verify(args.out, review, args.expected_commit, args.policy)
+    if args.policy == POLICY:
+        print('Test distribution policy: integrity verified separately; human review NOT approved')
+        for topic, detail in disclosure()['unresolved'].items():
+            print('UNRESOLVED: ' + topic + ': ' + detail)
     allowed = not errors
     for error in errors:
         print('BLOCKED: ' + error)
@@ -372,6 +389,9 @@ def main():
             stream.write('allowed=' + str(allowed).lower() + '\n')
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+            stream.write('Distribution policy: ' + args.policy + '\n')
+            if args.policy == POLICY:
+                stream.write('Human license/source/SDK reviews: NOT APPROVED; see release-evidence.json disclosures.\n')
             stream.write('Distribution eligibility: ' + str(allowed).lower() + '\n')
             stream.writelines('- ' + error + '\n' for error in errors)
     return 0 if allowed or args.report_only else 1

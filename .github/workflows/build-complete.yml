@@ -34,7 +34,7 @@ jobs:
           merge-multiple: true
           path: delivery
       - name: Reverify downloaded delivery before publication
-        run: python tools/release_evidence.py verify --out delivery --expected-commit "$GITHUB_SHA"
+        run: python tools/release_evidence.py verify --policy test-disclosure-v1 --out delivery --expected-commit "$GITHUB_SHA"
       - name: Publish unsigned test prerelease
         env:
           GH_TOKEN: ${{ github.token }}
