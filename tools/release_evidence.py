@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 import posixpath
 import shutil
 import re
+import shlex
 import tempfile
 import subprocess
 import tarfile
@@ -29,6 +30,7 @@ REQUIRED_SOURCES = {
     'project/.github/actions/validate-uefi/action.yml',
     'project/.github/actions/validate-hap/action.yml',
     'project/entry/src/main/cpp/CMakeLists.txt',
+    'project/tools/build_curl_ohos.sh', 'project/tools/verify_curl_source.py',
     'project/third_party/qemu/configure', 'project/third_party/qemu/COPYING',
     'project/third_party/qemu/roms/edk2/ArmVirtPkg/ArmVirtQemu.dsc',
     'project/third_party/qemu/roms/edk2/OvmfPkg/OvmfPkgX64.dsc',
@@ -222,6 +224,15 @@ def collect(root, hap, out):
         'nativeDynamicDependencies', 'omissions', 'licenseFiles')}, indent=2))
     print('Packaged native/firmware identities: ' + json.dumps([
         item for item in payload if item['path'].endswith(('.so', '.fd'))]))
+    link_name = 'project/third_party/qemu/build/meson-shared-link.rsp'
+    if link_name in files:
+        # Audit the actual selected link inputs while artifact publication is held.
+        tokens = shlex.split(files[link_name][1].decode())
+        print('Selected QEMU link inputs: ' + json.dumps({
+            'sourceMember': link_name, 'sha256': digest(files[link_name][1]),
+            'archivesAndLibraries': [t for t in tokens if t.endswith('.a') or t.startswith('-l')],
+            'vfioObjects': [t for t in tokens if 'vfio' in t and t.endswith('.o')],
+        }))
     return evidence
 
 

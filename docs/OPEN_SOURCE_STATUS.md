@@ -43,20 +43,27 @@ controls `GITHUB_TOKEN`, not artifact audience.
 
 ## Actual root build and remaining evidence gaps
 
+The [2026-10-17 engineering audit](audits/2026-10-17-hap-evidence.md) adds
+build-matched source/SDK identities, component notices, exact packaged C++ runtime
+provenance and a fixed-tree offline curl reconstruction repair. It is automated
+engineering evidence, not legal or rights-holder approval. The initial inventory
+below is not a replacement for that build-specific evidence.
+
 | Input or stage | Evidence and limits |
 | --- | --- |
 | QEMU | `third_party/qemu` pins `9c23f2a7b0b45277693a14074b1aaa827eecdb92` (10.1.93). CI's `validate-so/action.yml` configures it directly, enables curl/slirp/VNC/pixman and relinks the Meson object graph as `libqemu_full.so`. It does **not** invoke the inventoried `build_qemu_full_linux.sh` patch recipe. A recorded recipe is not proof it built this HAP. |
 | GLib, PCRE2, Pixman | `tools/build_ohos_deps.sh` builds static vendored sources; GLib may obtain Meson wraps and the recipe creates missing test scaffolding. The inventory retains source-tree hashes and notices but leaves upstream identities incomplete. PCRE2's COPYING refers to LICENCE, while the full tracked text is LICENCE.md; that text is now hash-recorded rather than treated as missing. |
 | OpenSSL and curl | CI invokes both build recipes. Curl is pinned to `01346829096c61b372692f6dc43ffa778c6caccd` and built statically with OpenSSL. Curl is absent from the initial component inventory; QEMU fallback dependencies and SDK-provided link inputs also need an actual link/payload inventory. |
 | Native wrapper / LibVNC | CMake builds `libqemu_hmos.so`, compiles cJSON, and loads QEMU in-process. LibVNC archives are linked with `--whole-archive` **if present**. This CI does not call `tools/build_libvnc_ohos.sh`; do not infer that its HAP contains those archives merely from the optional CMake branch or separate phone-port evidence. The root LibVNC recipe itself clones an unpinned default branch. |
-| Firmware | CI builds ArmVirtQemu and OVMF from QEMU's recursive EDK2 checkout, then copies the generated `.fd` files into HAP raw resources. This is stronger evidence than an arbitrary firmware download, but there is no artifact-matched firmware source/license/build manifest. `validate_hap.py` checks the module, bytecode and two native libraries; it does not verify firmware contents or correspondence. |
+| Firmware | CI builds ArmVirtQemu and OVMF from QEMU's recursive EDK2 checkout, then copies the generated `.fd` files into HAP raw resources. The delivery collector now records firmware payload hashes, EDK2 revisions, source members and build recipes. Its structural verifier requires both firmware members; neither it nor `validate_hap.py` proves functional boot or complete license/source correspondence. |
 | Toolchain and packaging | The native SDK downloader has version fallbacks without digest verification; HAP tooling uses the 5.1.0.840 bundle/API 18. Host tooling, wraps, SDK runtime inputs and package dependencies need to be recorded according to what actually enters or is required to build the artifact. SDK origin alone is not an exemption. |
 
 `compliance/source-inventory.json` is deliberately an **initial** inventory, not
 a complete SBOM or version-bound source archive. The published source and license
 notices are useful evidence; they do not yet cover every actual packaged object
-and required build input. No complete archive matched to this Aetherium HAP was
-established. The separate QEMU 11.1 and LibVNC exports are not substituted for it.
+and required build input. A candidate archive is now matched to the built HAP,
+but its completeness is not established. The separate QEMU 11.1 and LibVNC
+exports are not substituted for it.
 
 Review applicable terms per actual component and integration. The root Apache
 text does not replace third-party notices, and optional integration must be

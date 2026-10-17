@@ -115,3 +115,16 @@ failures still fail the evidence stage. Release reverification never uses
 scope and reasons are printed in CI; reconstruct the candidate locally to review
 its full content. This does not claim a downloadable HAP or a successful Release
 until the actual main publication steps have run successfully.
+
+### Credential lifecycle
+
+The same-repository build uses read-only `GITHUB_TOKEN` permissions. Only the
+prerelease job receives `contents: write`; its `GH_TOKEN` is `${{ github.token }}`,
+the automatically issued job token. Checkout uses `persist-credentials: false`.
+This pipeline does not require a user-maintained PAT, repeated interactive login,
+or changes to account authorization/token expiration settings. An Actions token
+or repository policy failure must be reported, not bypassed with a personal token.
+
+The current [automated engineering audit](audits/2026-10-17-hap-evidence.md)
+records resolved evidence and remaining blockers. Its existence does not satisfy
+the three required hash-bound distribution approvals.

@@ -1,0 +1,48 @@
+{
+  "auditType": "automated-engineering-observation-not-distribution-approval",
+  "sdkArchiveSha256": "1dcefa4741dc289277560b2802040e0c45b433898d8db453d711d5376e0478f1",
+  "nativePackageMetadata": {
+    "apiVersion": "18",
+    "displayName": "Native",
+    "meta": {
+      "metaVersion": "3.0.0"
+    },
+    "path": "native",
+    "releaseType": "Release",
+    "version": "5.1.0.125"
+  },
+  "files": [
+    {
+      "archiveMember": "command-line-tools/LICENSE.txt",
+      "bytes": 77481,
+      "sha256": "ce19d08d8bbdad17a2866511e3f9b947915b96b0d57ef1acb7989859feb60669"
+    },
+    {
+      "archiveMember": "command-line-tools/sdk/default/openharmony/native/oh-uni-package.json",
+      "bytes": 169,
+      "sha256": "3a7be9dc7caa0b022fd877e6221e803c346bf412b8dea567834eb75475b40120"
+    },
+    {
+      "archiveMember": "command-line-tools/sdk/default/openharmony/native/llvm/NOTICE",
+      "bytes": 166582,
+      "sha256": "0de99f6e07e1f7c2438ab21c20a5b05635ba7b206d843be32b75b2029c288f31"
+    },
+    {
+      "archiveMember": "command-line-tools/sdk/default/openharmony/native/NOTICE.txt",
+      "bytes": 1026506,
+      "sha256": "6179b3b8bd4017b4de8f486a0bdfc4c189a40a6850bb1efcc19fe707ed86c178"
+    },
+    {
+      "archiveMember": "command-line-tools/sdk/default/openharmony/native/llvm/lib/aarch64-linux-ohos/libc++_shared.so",
+      "bytes": 1262184,
+      "sha256": "899545c5e6c43134f20d611dc5b72f329f8e143c75a7cb3ec69f66df77ddc6b6"
+    }
+  ],
+  "hapRuntimeSha256": "899545c5e6c43134f20d611dc5b72f329f8e143c75a7cb3ec69f66df77ddc6b6",
+  "runtimeMatch": true,
+  "unresolved": [
+    "Exhibit C referenced OpenHarmony SDK agreement inaccessible (HTTP 403)",
+    "exact downstream runtime source revision/patch/build mapping",
+    "delivery of applicable notices and review of terms"
+  ]
+}

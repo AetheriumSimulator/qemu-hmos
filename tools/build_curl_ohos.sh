@@ -17,13 +17,15 @@ unset PKG_CONFIG_PATH PKG_CONFIG_SYSROOT_DIR
 unset CMAKE_PREFIX_PATH CMAKE_INCLUDE_PATH CMAKE_LIBRARY_PATH
 export PKG_CONFIG_LIBDIR="${PREFIX}/lib/pkgconfig"
 
-if [[ ! -d "${SRC}/.git" ]]; then
+# A source delivery has no .git directory. Never fetch over an existing
+# snapshot: verify its complete fixed Git tree offline, including file modes.
+if [[ ! -d "${SRC}" ]]; then
   git init "${SRC}"
   git -C "${SRC}" remote add origin https://github.com/curl/curl.git
+  git -C "${SRC}" fetch --depth=1 origin "${CURL_REVISION}"
+  git -C "${SRC}" checkout --detach "${CURL_REVISION}"
 fi
-git -C "${SRC}" fetch --depth=1 origin "${CURL_REVISION}"
-git -C "${SRC}" checkout --detach "${CURL_REVISION}"
-test "$(git -C "${SRC}" rev-parse HEAD)" = "${CURL_REVISION}"
+python3 "${REPO_ROOT}/tools/verify_curl_source.py" "${SRC}"
 
 cmake -S "${SRC}" -B "${BUILD}" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}" \
