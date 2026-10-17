@@ -49,7 +49,11 @@ unpack_edk2_blobs = true
 have_system = true
 qemu_datadir = 'share/qemu'
 bzip2 = find_program('bzip2')
+xkbcommon = declare_dependency()
+qemu_keymap = find_program('/nonexistent-aetherium-source-replay-keymap', required: false)
 subdir('pc-bios')
+# The parent functional/qtest recipes consume both variables.
+test_deps = [roms, keymap_targets]
 """)
         for enabled in (False, True):
             result = subprocess.run([meson, 'setup', str(probe/str(enabled)), str(probe),

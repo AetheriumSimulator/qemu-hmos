@@ -17,6 +17,8 @@ GUARD = b'''roms = []
 # Preserve the upstream
 # install_blobs=true path, but do not require/build bundled ROMs when disabled.
 if not get_option('install_blobs')
+  # Preserve keyboard maps and the keymap_targets consumed by QEMU tests.
+  subdir('keymaps')
   subdir_done()
 endif
 '''
