@@ -7,6 +7,8 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
+import delivery_policy as policy
 import zipfile
 
 from release_evidence import (ASSETS, REQUIRED_PAYLOAD, REQUIRED_REVIEWS, REQUIRED_SOURCES, digest,
@@ -26,18 +28,29 @@ class ReleaseEvidenceTests(unittest.TestCase):
             name = 'project/compliance/distribution-review/' + topic + '.md'
             self.sources[name] = ('Fixture review of ' + topic).encode()
             self.review['reviews'][topic] = {'path': name, 'sha256': digest(self.sources[name])}
+        self.fixture_notices = {k: ('synthetic notice: ' + k).encode() for k in policy.NOTICE_FILES}
+        self.notice_patch = patch.dict(policy.NOTICE_FILES,
+                                       {k: digest(v) for k, v in self.fixture_notices.items()}, clear=True)
+        self.notice_patch.start()
+        self.addCleanup(self.notice_patch.stop)
+        self.sources.update({policy.notice_path(k): v for k, v in self.fixture_notices.items()})
+        runtime_patch = patch.object(policy, 'RUNTIME_SHA', digest(b'fixture, not a real device binary'))
+        runtime_patch.start()
+        self.addCleanup(runtime_patch.stop)
         self.repack()
         with zipfile.ZipFile(self.out/'aetherium-unsigned.hap', 'w') as archive:
-            for name in sorted(REQUIRED_PAYLOAD):
+            for name in sorted(REQUIRED_PAYLOAD | {policy.RUNTIME_PATH}):
                 archive.writestr(name, b'fixture, not a real device binary')
         with zipfile.ZipFile(self.out/'aetherium-unsigned.hap') as archive:
             payload = [{'path': i.filename, 'sha256': digest(archive.read(i)), 'bytes': i.file_size}
                        for i in archive.infolist()]
         self.evidence = {'schemaVersion': 1, 'unsigned': True, 'commit': 'a'*40,
+                         'deviceTest': 'not-executed', 'testDistribution': policy.disclosure(),
+                         'sdkRuntimeEvidence': policy.runtime_provenance(),
                          'components': [{'path': 'project', 'revision': 'a'*40}],
-                         'sourceMembers': self.members(), 'licenseFiles': [m for m in self.members() if any(word in Path(m['path']).name.lower() for word in ('license', 'licence', 'copying', 'copyright'))],
+                         'sourceMembers': self.members(), 'licenseFiles': [m for m in self.members() if any(word in Path(m['path']).name.lower() for word in ('license', 'licence', 'copying', 'copyright', 'notice'))],
                          'omissions': [], 'sdkInputs': [{'path': 'native', 'sha256': 'b'*64},
-                                                       {'path': 'hap', 'sha256': 'c'*64}],
+                                                       {'path': 'commandline-tools.zip', 'sha256': policy.SDK_SHA}],
                          'payload': payload, 'assets': {}}
         self.save()
         self.review['scopeSha256'] = self.evidence['scopeSha256']
@@ -56,6 +69,52 @@ class ReleaseEvidenceTests(unittest.TestCase):
         self.evidence['assets'] = {n: file_hash(self.out/n) for n in ASSETS - {'release-evidence.json'}}
         self.evidence['scopeSha256'] = scope_hash(self.evidence)
         (self.out/'release-evidence.json').write_text(json.dumps(self.evidence))
+
+    def test_disclosed_test_policy_allows_pending_reviews_without_approval(self):
+        self.assertEqual(verify(self.out, {}, 'a'*40, policy.POLICY), [])
+        self.assertTrue(verify(self.out, {}, 'a'*40))
+        self.assertEqual(self.evidence['testDistribution']['reviewStatus'], 'not-approved')
+
+    def test_disclosure_cannot_claim_approval_or_hide_known_gaps(self):
+        original = copy.deepcopy(self.evidence)
+        for field, value in [('reviewStatus', 'approved'), ('unresolved', {}),
+                             ('fullArchiveRebuild', 'success')]:
+            self.evidence = copy.deepcopy(original)
+            self.evidence['testDistribution'][field] = value
+            self.save()
+            self.assertTrue(verify(self.out, {}, 'a'*40, policy.POLICY))
+
+    def test_test_policy_still_rejects_identity_and_source_defects(self):
+        self.assertTrue(verify(self.out, {}, 'b'*40, policy.POLICY))
+        for name in [policy.notice_path(next(iter(policy.NOTICE_FILES))), 'project/LICENSE']:
+            data = self.sources.pop(name)
+            self.repack()
+            self.evidence['sourceMembers'] = self.members()
+            self.save()
+            self.assertTrue(verify(self.out, {}, 'a'*40, policy.POLICY))
+            self.sources[name] = data
+        self.repack()
+        self.evidence['sourceMembers'] = self.members()
+        self.evidence['sdkInputs'][1]['sha256'] = '0'*64
+        self.save()
+        self.assertTrue(verify(self.out, {}, 'a'*40, policy.POLICY))
+
+    def test_test_policy_rejects_tampered_assets_and_scope(self):
+        self.evidence['scopeSha256'] = '0'*64
+        (self.out/'release-evidence.json').write_text(json.dumps(self.evidence))
+        self.assertTrue(verify(self.out, {}, 'a'*40, policy.POLICY))
+        self.save()
+        with zipfile.ZipFile(self.out/'aetherium-unsigned.hap', 'a') as archive:
+            archive.writestr('unexpected', b'tampered')
+        self.assertTrue(verify(self.out, {}, 'a'*40, policy.POLICY))
+
+    def test_new_source_scope_needs_identity_checks_not_fabricated_reviews(self):
+        self.sources['project/src/main.c'] += b'\n/* changed */'
+        self.repack()
+        self.evidence['sourceMembers'] = self.members()
+        self.save()
+        self.assertEqual(verify(self.out, {}, 'a'*40, policy.POLICY), [])
+        self.assertTrue(verify(self.out, self.review, 'a'*40))
 
     def test_complete_fixture_can_pass_without_signed_hap(self):
         self.assertEqual(verify(self.out, self.review, 'a'*40), [])

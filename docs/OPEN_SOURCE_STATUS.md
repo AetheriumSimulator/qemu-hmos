@@ -90,18 +90,26 @@ publication. The legacy reusable gate still holds unrelated binary jobs.
 | --- | --- |
 | Source checks | Indexed source hygiene, recorded identities and supplementary source replay. Success is not distribution approval. |
 | Native, UEFI, HAP | PRs, main pushes and non-tag manual runs build once on an ephemeral hosted runner. Tags are review-only. |
-| Source/evidence | Collect actual working-tree sources, resolved Git wraps, firmware sources, license file index, source omissions, SDK hashes and HAP member identities. Missing reviews yield `allowed=false`; collection errors fail validation. |
+| Source/evidence | Collect actual working-tree sources, resolved Git wraps, firmware sources, license file index, source omissions, SDK hashes and HAP member identities. Test policy publicly records missing human reviews; integrity/disclosure failures yield `allowed=false`, and collection errors fail validation. Includes exact SDK runtime notices and provenance. |
 | Archive input replay | Extract the collected inputs, regenerate the BTI note, and exercise actual pc-bios Meson behavior without prebuilt ROMs. Targeted replay is not a complete HAP rebuild. |
 | Public Artifact | Only a main push with successful build and `allowed=true` uploads the HAP plus source archive and evidence. Seven-day retention; no separate SO/UEFI binary delivery. PRs/manual runs do not publish. |
 | Test prerelease | Main-only job reverifies downloaded evidence before creating an unsigned test prerelease. Write permission is confined to this job. Signing is not a GPL prerequisite. |
 | Device / guest boot | Not executed. Build, payload checks, source replay, artifact or Release success cannot replace device acceptance. |
 
-No hash-bound component-license, source-completeness or SDK-runtime review is
-present yet. The new gate can pass complete reviewed evidence (tested with
-fixtures), but the repository's real delivery remains blocked until those
-specific gaps are resolved. Its candidate archive is not presented as certified
-complete corresponding source. Existing public artifacts/releases remain
-untouched. A scope change invalidates the review; there is no manual override.
+No hash-bound component-license, source-completeness or SDK-runtime approval is
+present. CI now explicitly selects the project's `test-disclosure-v1` policy:
+missing human reviews are public unresolved items rather than publication
+blockers. The actual GPLv2-only VFIO/static OpenSSL combination, SDK downstream
+runtime source mapping/inaccessible Exhibit C terms, and complete clean
+archive-to-HAP rebuild remain unresolved. This is not a legal compatibility or
+infringement determination. The source candidate is not certified complete
+corresponding source. Original SDK runtime notices/metadata now accompany it.
+
+Hash/manifest/source identity, notice provenance, required inputs and main-only
+publication controls remain mandatory. The default verifier's `strict-review`
+mode remains available. Existing public artifacts/releases are untouched. This
+policy change enables future eligible main pushes to publish unsigned test
+assets; a passing PR run itself does not upload or release anything.
 
 `check_source_inventory.py --require-binary-release` rejects source-only approval
 and directs callers to the built-delivery verifier. Changing an inventory status

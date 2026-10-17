@@ -162,6 +162,16 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertNotIn('--report-only', release['steps'][-2]['run'])
         self.assertFalse(any('release@' in step.get('uses', '') for step in release['steps']))
 
+    def test_explicit_disclosure_policy_on_both_verification_stages(self):
+        build = next(s for s in self.job['steps'] if s.get('id') == 'eligibility')
+        release = self.pipeline['jobs']['release']['steps'][-2]
+        for step in (build, release):
+            self.assertIn('--policy test-disclosure-v1', step['run'])
+            self.assertIn('--expected-commit', step['run'])
+        notes = (ROOT/'tools/publish_hap_prerelease.sh').read_text()
+        for phrase in ('NOT approved', 'GPLv2-only', 'HTTP 403', 'not certified'):
+            self.assertIn(phrase, notes)
+
     def test_summary_reports_actual_outcomes_even_when_upload_fails(self):
         summary = next(s for s in self.job['steps'] if s.get('name') == 'Validation evidence')
         self.assertEqual(summary['env']['UPLOAD'], '${{ steps.upload.outcome }}')

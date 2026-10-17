@@ -102,7 +102,7 @@ jobs:
         id: eligibility
         shell: bash
         run: >-
-          python tools/release_evidence.py verify --out delivery
+          python tools/release_evidence.py verify --policy test-disclosure-v1 --out delivery
           --expected-commit "$(git rev-parse HEAD)" --report-only
       - name: Upload HAP with corresponding source evidence
         id: upload
