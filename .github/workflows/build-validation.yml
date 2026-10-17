@@ -9,6 +9,8 @@ on:
         value: ${{ jobs.validation.outputs.firmware }}
       hap:
         value: ${{ jobs.validation.outputs.hap }}
+      artifact_id:
+        value: ${{ jobs.validation.outputs.artifact_id }}
       upload:
         value: ${{ jobs.validation.outputs.upload }}
       evidence:
@@ -39,6 +41,7 @@ jobs:
       firmware: ${{ steps.firmware.outcome }}
       hap: ${{ steps.hap.outcome }}
       upload: ${{ steps.upload.outcome }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
       evidence: ${{ steps.evidence.outcome }}
       allowed: ${{ steps.eligibility.outputs.allowed }}
     steps:

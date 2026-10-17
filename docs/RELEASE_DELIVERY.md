@@ -39,7 +39,7 @@ the post-build HAP distribution decision.
 PRs (including forks), manual runs and non-main refs **never upload or release**.
 A main push with a successful build and approved distribution evidence uploads
 the three files together for seven days. A separate main-only job downloads that
-exact run/attempt's artifact, verifies it again, and creates a test prerelease
+exact artifact ID emitted by the build (also on release-only retries), verifies it again, and creates a test prerelease
 `test-<full commit SHA>`. The read-only `build-validation.yml` is reused by the main pipeline and legacy entry points; it contains no write-permission job. Only the main pipeline Release job receives `contents: write`; the token is
 passed only to its publication step. The release is created as a draft with all
 three files, then made public. An existing tag must match the commit; existing

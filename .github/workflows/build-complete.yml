@@ -30,7 +30,8 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: aetherium-delivery-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.validation.outputs.artifact_id }}
+          merge-multiple: true
           path: delivery
       - name: Reverify downloaded delivery before publication
         run: python tools/release_evidence.py verify --out delivery --expected-commit "$GITHUB_SHA"

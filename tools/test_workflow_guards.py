@@ -128,6 +128,10 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertTrue(condition(release['if'], 'push', 'refs/heads/main', allowed='true'))
         self.assertFalse(condition(release['if'], 'pull_request', 'refs/pull/1/merge', allowed='true'))
         self.assertTrue(any('download-artifact' in s.get('uses', '') for s in release['steps']))
+        download = next(s for s in release['steps'] if 'download-artifact' in s.get('uses', ''))
+        self.assertEqual(download['with']['artifact-ids'], '${{ needs.validation.outputs.artifact_id }}')
+        self.assertEqual(download['with']['merge-multiple'], 'true')
+        self.assertNotIn('name', download['with'])
         for action in self.actions.values():
             assert_no_transport(self, action['runs']['steps'])
         gate = self.workflows['binary-publication-gate.yml']['jobs']['review']
@@ -197,7 +201,7 @@ class WorkflowGuardTests(unittest.TestCase):
             self.assertNotIn('permissions', job)
         self.assertEqual(self.pipeline['jobs']['validation'],
                          {'uses': './.github/workflows/build-validation.yml'})
-        for name in ('native', 'firmware', 'hap', 'upload', 'evidence', 'allowed'):
+        for name in ('native', 'firmware', 'hap', 'upload', 'artifact_id', 'evidence', 'allowed'):
             self.assertEqual(self.complete['on']['workflow_call']['outputs'][name]['value'],
                              '${{ jobs.validation.outputs.' + name + ' }}')
 
