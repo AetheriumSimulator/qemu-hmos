@@ -110,7 +110,8 @@ def add_file(path, name, files, omissions):
         target = os.readlink(path)
         resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
         if target.startswith('/') or not resolved.startswith('project/'):
-            raise ValueError(f'Unsafe source symlink: {name}')
+            omissions.append({'path': name, 'reason': 'external source symlink excluded', 'target': target})
+            return
         files[name] = ('symlink', target.encode(), 0o777)
         return
     data = path.read_bytes()

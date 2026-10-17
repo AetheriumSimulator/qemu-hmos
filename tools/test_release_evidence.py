@@ -112,6 +112,16 @@ class ReleaseEvidenceTests(unittest.TestCase):
         self.assertNotIn('project/hidden.c', files)
         self.assertEqual(len(omissions), 1)
 
+    def test_external_source_symlink_is_reported_without_reading_host(self):
+        link = self.out/'X11IncludeHack'
+        link.symlink_to('/usr/include/X11')
+        files, omissions = {}, []
+        add_file(link, 'project/third_party/edk2/X11IncludeHack', files, omissions)
+        self.assertFalse(files)
+        self.assertEqual(omissions, [{'path': 'project/third_party/edk2/X11IncludeHack',
+                                     'reason': 'external source symlink excluded',
+                                     'target': '/usr/include/X11'}])
+
     def test_no_device_claim_and_no_publication_outside_main_push(self):
         script = Path(__file__).with_name('publish_hap_prerelease.sh')
         subprocess.run(['bash', '-n', str(script)], check=True)
