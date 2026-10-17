@@ -731,5 +731,11 @@
       "category": "qemu-test-data",
       "assessment": "Test fixture, not a demonstrated HAP runtime input; exclusion narrows test replay."
     }
-  ]
+  ],
+  "observedHeads": [
+    "f618f98760487521b83647ff5a057c3e116b239c",
+    "cdb4b836a24c43a4fd740e66c3f28f59050fa669",
+    "38fc36ab6c966ae0cd83892f9dc2e564e9eb1d4e"
+  ],
+  "qualification": "Historical exclusion set before the subsequent archive-input repairs; read current CI omissions for the repaired candidate."
 }

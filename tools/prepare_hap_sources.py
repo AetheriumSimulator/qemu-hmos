@@ -13,7 +13,8 @@ PC_BIOS_SHA256 = '012dd54e2faf6867582404799ede88a56799afe65b9cc8ac1000daa33e220b
 NOTE_SHA256 = '4cd79611a5b20ea164d0bb517e3babbaa1915f1a5698a7b033b669d35cc4f5d0'
 NOTE_PATH = 'third_party/qemu/roms/edk2/BaseTools/Bin/GnuNoteBti.bin'
 GUARD = b'''roms = []
-# Aetherium builds its HAP firmware from EDK2 separately. Preserve the upstream
+# Modified by Aetherium on 2026-10-17 for its separately built HAP firmware.
+# Preserve the upstream
 # install_blobs=true path, but do not require/build bundled ROMs when disabled.
 if not get_option('install_blobs')
   subdir_done()

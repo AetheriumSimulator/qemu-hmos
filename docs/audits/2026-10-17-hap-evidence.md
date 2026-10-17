@@ -158,7 +158,7 @@ every entry: 53 prebuilt QEMU ROMs, 15 linux-user vDSOs, 14 other QEMU submodule
 one text Makefile, one text test expectation, and the supplementary ports tree.
 These categories explain the observations; they do not approve all exclusions.
 
-Concrete remaining problems:
+Concrete problems found at the audited historical head (repairs follow below):
 
 * `BaseTools/Source/C/Makefiles/ms.app` is a text Makefile with a
   BSD-2-Clause-Patent header. Suffix-based rejection incorrectly calls it compiled
@@ -171,7 +171,7 @@ Concrete remaining problems:
   when `install_blobs` is enabled. The current CI configure command does not
   disable that option. A clean archive replay must resolve this missing-input
   path instead of re-downloading omitted prebuilt ROMs.
-* Conversely, the collector retains **13 prebuilt `pc-bios/*.fd.bz2` files**.
+* Conversely, the audited collector retained **13 prebuilt `pc-bios/*.fd.bz2` files**.
   They bypass the suffix/magic filter as compressed data. Independent
   decompression found firmware volume signatures; their
   [compressed/decompressed identities](2026-10-17-compressed-firmware.json) are

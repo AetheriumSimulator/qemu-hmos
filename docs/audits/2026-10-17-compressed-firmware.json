@@ -1,6 +1,6 @@
 {
   "auditType": "automated-engineering-observation-not-distribution-approval",
-  "finding": "Current source collector retains these compressed prebuilt firmware files; they are not the separately built HAP firmware evidence.",
+  "finding": "Historical candidate retained these compressed prebuilt firmware files; the follow-up archive repair excludes them. They are not the separately built HAP firmware evidence.",
   "files": [
     {
       "path": "project/third_party/qemu/pc-bios/edk2-aarch64-code.fd.bz2",
@@ -93,5 +93,6 @@
       "decompressedSha256": "32807682a9e5c0e2d192ecb6077941d4be8bcfa6b9cd6e60830c3a9f48c0555a",
       "firmwareVolumeSignaturePresent": true
     }
-  ]
+  ],
+  "observedHead": "f618f98760487521b83647ff5a057c3e116b239c"
 }
