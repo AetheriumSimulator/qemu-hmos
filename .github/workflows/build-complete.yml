@@ -58,8 +58,8 @@ jobs:
         run: |
           {
             printf 'Event: %s; ref: %s; SHA: %s\n' "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_SHA"
-            printf 'Source/publication review: %s; allowed: %s; validation: %s\n' "$REVIEW" "${ALLOWED:-unavailable}" "$VALIDATION"
-            echo 'Tag runs are review-only. Skipped validation is not build evidence.'
+            printf 'Source prerequisites: %s; allowed: %s; validation: %s\n' "$REVIEW" "${ALLOWED:-unavailable}" "$VALIDATION"
+            echo 'Tag runs only check source prerequisites. Skipped validation is not build evidence.'
             printf 'Native: %s; UEFI: %s; unsigned HAP: %s; public artifact upload: %s\n' "${NATIVE:-not-run}" "${FIRMWARE:-not-run}" "${HAP:-not-run}" "${UPLOAD:-not-run}"
             printf 'Unsigned test Release job: %s.\n' "$RELEASE"
             echo 'Device test: not executed; no device connected to hosted runner.'

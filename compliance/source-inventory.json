@@ -3,16 +3,17 @@
   "scope": "Initial inventory of QEMU and native display/build dependencies; not a complete release SBOM. RDP/FreeRDP has been removed from the application path.",
   "binaryPublication": {
     "status": "evidence-required",
-    "blockers": [
-      "A source candidate can be collected, but its completeness, exclusions and exact packaged dependency coverage have not been reviewed.",
-      "LibVNC static linkage and same-process QEMU integration require combined-distribution license review.",
-      "Several vendored snapshots and downloaded dependencies lack exact upstream revision/patch provenance.",
-      "Firmware source/build provenance is incomplete; removed binaries must not be replaced by arbitrary downloads.",
-      "The root QEMU 10.1.93 application build lacks a complete source archive matched to its Aetherium HAP; supplementary phone-port evidence does not certify this artifact."
-    ],
     "requirements": [
-      "Verify the built HAP and source archive with tools/release_evidence.py.",
-      "Bind component-license, source-completeness and SDK-runtime review documents to the actual source/SDK scope."
+      "Verify actual HAP/source hashes, required inputs, source scope and commit with tools/release_evidence.py.",
+      "CI test-disclosure-v1 requires exact public unresolved-review disclosures and SDK/runtime notice provenance; missing human approvals alone do not block tests.",
+      "Default strict-review mode additionally requires hash-bound component-license, source-completeness and SDK-runtime approvals."
+    ],
+    "unresolved": [
+      "The actual native graph includes GPLv2-only VFIO and static Apache-2.0 OpenSSL; applicable combined terms/exceptions remain unresolved.",
+      "The current source candidate and targeted extracted-input replay are available; full clean archive-to-HAP reconstruction and source completeness are not certified.",
+      "Several vendored snapshots and the SDK runtime still lack exact upstream revision/patch/build mapping.",
+      "Original SDK runtime notices are delivered by the collector; the referenced Exhibit C URL was inaccessible (HTTP 403) during audit.",
+      "Optional LibVNC client/server archives were absent in the audited HAP build; future actual dependency changes require reassessment."
     ]
   },
   "components": [

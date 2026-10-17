@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate recorded source identities; binary publication stays explicitly blocked."""
+"""Validate recorded source identities; built-delivery policy is checked separately."""
 import argparse
 import configparser
 import hashlib
