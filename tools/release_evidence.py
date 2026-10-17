@@ -216,6 +216,12 @@ def collect(root, hap, out):
     (out/'release-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
     print(f"Source candidate: {len(sources)} entries; {len(components)} source records; "
           f"{len(omissions)} exclusions. Review scope SHA-256: {evidence['scopeSha256']}")
+    # Keep reviewable identities visible even when public artifact upload is held.
+    print(json.dumps({key: evidence[key] for key in (
+        'commit', 'assets', 'components', 'sdkInputs', 'toolVersions',
+        'nativeDynamicDependencies')}, indent=2))
+    print('Packaged native/firmware identities: ' + json.dumps([
+        item for item in payload if item['path'].endswith(('.so', '.fd'))]))
     return evidence
 
 
