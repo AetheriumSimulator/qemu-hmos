@@ -3,6 +3,8 @@ import ast
 import copy
 from pathlib import Path
 import re
+import os
+import tempfile
 import subprocess
 import unittest
 import yaml
@@ -15,8 +17,9 @@ def read(path):
     return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
 
 
-def condition(expression, event, ref, review='success', allowed='false', validation='success'):
+def condition(expression, event, ref, review='success', allowed='false', validation='success', success=True):
     """Evaluate the small, deliberately bounded expression grammar used here."""
+    expression = expression.replace('success()', str(success))
     expression = expression.removeprefix('${{').removesuffix('}}').strip()
     values = {'github.event_name': event, 'github.ref': ref,
               'needs.publication-review.result': review,
@@ -93,16 +96,19 @@ class WorkflowGuardTests(unittest.TestCase):
                     if 'upload-artifact' not in step.get('uses', ''):
                         continue
                     self.assertEqual(job['needs'], 'publication-review')
-                    if job is self.job:
-                        # Validation artifacts are internal, short-retention outputs and may
-                        # upload after a successful build even while publication is blocked.
-                        self.assertIn("needs.publication-review.result == 'success'", job['if'])
-                    else:
-                        # Other artifact sinks remain publication-gated and unreachable
-                        # while allowed=false.
-                        for event, ref in [('pull_request', 'refs/pull/1/merge'), ('push', 'refs/heads/main'),
-                                           ('push', 'refs/tags/v1'), ('workflow_dispatch', 'refs/heads/main')]:
-                            self.assertFalse(condition(job['if'], event, ref, allowed='false'))
+                    gate = step['if'] if job is self.job else job['if']
+                    for event, ref in [('pull_request', 'refs/pull/1/merge'), ('push', 'refs/heads/main'),
+                                       ('push', 'refs/tags/v1'), ('workflow_dispatch', 'refs/heads/main')]:
+                        for allowed in ('false', '', 'true'):
+                            for review in ('success', 'failure', 'cancelled', 'skipped'):
+                                for success in (True, False):
+                                    reachable = condition(job['if'], event, ref, review, allowed)
+                                    upload = condition(gate, event, ref, review, allowed, success=success)
+                                    if job is self.job:
+                                        expected = reachable and review == 'success' and allowed == 'true' and success
+                                        self.assertEqual(reachable and upload, expected)
+                                    elif allowed != 'true':
+                                        self.assertFalse(upload)
                     self.assertEqual(workflow['jobs']['publication-review']['uses'],
                                      './.github/workflows/binary-publication-gate.yml')
         validation_transport_steps = [s for s in self.job['steps']
@@ -124,6 +130,44 @@ class WorkflowGuardTests(unittest.TestCase):
         eligibility = next(s for s in gate['steps'] if s.get('id') == 'eligibility')
         self.assertIn("echo 'allowed=false'", eligibility['run'])
         self.assertNotIn('allowed=true', eligibility['run'])
+
+    def test_release_matrix_and_read_only_permissions(self):
+        release = self.complete['jobs']['release']
+        for event, ref in [('push', 'refs/heads/main'), ('push', 'refs/tags/v1'),
+                           ('pull_request', 'refs/pull/1/merge'),
+                           ('workflow_dispatch', 'refs/heads/main'), ('workflow_call', 'refs/heads/main')]:
+            for allowed in ('true', 'false', ''):
+                for review in ('success', 'failure', 'cancelled', 'skipped'):
+                    for validation in ('success', 'failure', 'cancelled', 'skipped'):
+                        self.assertEqual(condition(release['if'], event, ref, review, allowed, validation),
+                                         event == 'push' and ref == 'refs/heads/main' and
+                                         allowed == 'true' and review == validation == 'success')
+        self.assertNotIn('permissions', release)  # inherited contents: read
+        self.assertEqual(self.complete['jobs']['summary']['needs'],
+                         ['publication-review', 'validation', 'release'])
+        refusal = release['steps'][-1]['run']
+        self.assertIn('exit 1', refusal)
+        self.assertFalse(any('release@' in step.get('uses', '') for step in release['steps']))
+
+    def test_summary_reports_actual_outcomes_even_when_upload_fails(self):
+        summary = next(s for s in self.job['steps'] if s.get('name') == 'Validation evidence')
+        self.assertEqual(summary['env']['UPLOAD'], '${{ steps.upload.outcome }}')
+        pipeline = self.complete['jobs']['summary']['steps'][0]
+        self.assertEqual(pipeline['env']['UPLOAD'], '${{ needs.validation.outputs.upload }}')
+        self.assertEqual(self.job['outputs']['upload'], '${{ steps.upload.outcome }}')
+        for state in ('success', 'failure', 'cancelled', 'skipped', ''):
+            with tempfile.TemporaryDirectory() as temp:
+                path = Path(temp)/'summary'
+                env = dict(os.environ, GITHUB_STEP_SUMMARY=str(path), GITHUB_SHA='abc',
+                           GITHUB_EVENT_NAME='push', GITHUB_REF='refs/heads/main',
+                           NATIVE=state, FIRMWARE=state, HAP=state, IDENTITY=state,
+                           UPLOAD=state, RELEASE=state, REVIEW=state, ALLOWED='false', VALIDATION=state)
+                for step in (summary, pipeline):
+                    subprocess.run(['bash', '-e', '-c', step['run']], env=env, cwd=ROOT, check=True)
+                text = path.read_text()
+                self.assertIn(f'public artifact upload: {state or "not-run"}', text)
+                self.assertIn('Device test: not executed', text)
+                self.assertNotIn('HAP uploaded', text)
 
     def test_transport_regression_is_detected(self):
         for sink in ('actions/upload-artifact@v4', 'actions/download-artifact@v4', 'actions/cache@v4'):
@@ -163,7 +207,7 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertIn('sha256sum', identity['run'])
         summary = next(s for s in self.job['steps'] if s.get('name') == 'Validation evidence')
         self.assertEqual(summary['if'], '${{ always() }}')
-        for marker in ('git rev-parse HEAD', '$GITHUB_SHA', 'unsigned HAP uploaded as a 7-day validation artifact', 'not executed'):
+        for marker in ('git rev-parse HEAD', '$GITHUB_SHA', 'Public HAP artifact upload: %s', 'not executed'):
             self.assertIn(marker, summary['run'])
         for job in self.complete['jobs'].values():
             for step in job.get('steps', []):

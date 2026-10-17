@@ -4,7 +4,7 @@ on:
   workflow_call:
     outputs:
       allowed:
-        description: Whether complete release evidence permits binary publication
+        description: Whether complete distribution evidence permits public binary uploads, including test artifacts
         value: ${{ jobs.review.outputs.allowed }}
 
 permissions:
@@ -28,4 +28,4 @@ jobs:
       - id: eligibility
         run: |
           echo 'allowed=false' >> "$GITHUB_OUTPUT"
-          echo '::notice::Source-only maintenance: binary jobs are held pending complete corresponding-source and distribution evidence. See docs/OPEN_SOURCE_STATUS.md.'
+          echo '::notice::Public binary uploads (including unsigned test artifacts) are held pending complete corresponding-source and distribution evidence; runner-local builds may proceed. See docs/OPEN_SOURCE_STATUS.md.'

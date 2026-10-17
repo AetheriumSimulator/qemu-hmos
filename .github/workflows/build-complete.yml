@@ -18,11 +18,16 @@ jobs:
 
   validation:
     needs: publication-review
-    # Publication eligibility never authorizes this job to upload binaries.
+    # Builds remain available while public binary uploads are held.
     # Fork PRs use the same unprivileged, ephemeral hosted runner.
     if: ${{ needs.publication-review.result == 'success' && !startsWith(github.ref, 'refs/tags/') && (github.event_name == 'workflow_call' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/'))) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    outputs:
+      native: ${{ steps.native.outcome }}
+      firmware: ${{ steps.firmware.outcome }}
+      hap: ${{ steps.hap.outcome }}
+      upload: ${{ steps.upload.outcome }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,7 +70,9 @@ jobs:
           printf 'HAP SHA-256: %s\n' "$(sha256sum "$hap" | cut -d ' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
           printf 'HAP bytes: %s\n' "$(stat -c %s "$hap")" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload unsigned HAP validation artifact
-        if: ${{ success() }}
+        id: upload
+        # Public distribution even when unsigned or retained for only seven days.
+        if: ${{ success() && needs.publication-review.result == 'success' && needs.publication-review.outputs.allowed == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: aetherium-hap-validation-${{ github.sha }}
@@ -81,12 +88,13 @@ jobs:
           FIRMWARE: ${{ steps.firmware.outcome }}
           HAP: ${{ steps.hap.outcome }}
           IDENTITY: ${{ steps.identity.outcome }}
+          UPLOAD: ${{ steps.upload.outcome }}
         run: |
           {
             printf 'Built checkout SHA: %s\n' "$(git rev-parse HEAD)"
             printf 'Event SHA: %s\n' "$GITHUB_SHA"
             printf 'Native: %s; UEFI: %s; HAP: %s; HAP identity: %s\n' "$NATIVE" "$FIRMWARE" "$HAP" "$IDENTITY"
-            echo 'Outputs: unsigned HAP uploaded as a 7-day validation artifact; no distributable binary uploaded.'
+            printf 'Public HAP artifact upload: %s (7-day retention when successful).\n' "$UPLOAD"
             echo 'HAP signing: unsigned. Distributable HAP: blocked. GitHub Release: not created.'
             echo 'Deploy/device smoke: not executed; no device connected to hosted runner.'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -97,8 +105,6 @@ jobs:
     # allow publication, and a signed distributable HAP must be supplied.
     if: ${{ needs.publication-review.result == 'success' && needs.publication-review.outputs.allowed == 'true' && needs.validation.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - name: Download validated HAP artifact
         uses: actions/download-artifact@v4
@@ -115,7 +121,7 @@ jobs:
           exit 1
 
   summary:
-    needs: [publication-review, validation]
+    needs: [publication-review, validation, release]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -124,10 +130,17 @@ jobs:
           REVIEW: ${{ needs.publication-review.result }}
           ALLOWED: ${{ needs.publication-review.outputs.allowed }}
           VALIDATION: ${{ needs.validation.result }}
+          NATIVE: ${{ needs.validation.outputs.native }}
+          FIRMWARE: ${{ needs.validation.outputs.firmware }}
+          HAP: ${{ needs.validation.outputs.hap }}
+          UPLOAD: ${{ needs.validation.outputs.upload }}
+          RELEASE: ${{ needs.release.result }}
         run: |
           {
             printf 'Event: %s; ref: %s; SHA: %s\n' "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_SHA"
             printf 'Source/publication review: %s; allowed: %s; validation: %s\n' "$REVIEW" "${ALLOWED:-unavailable}" "$VALIDATION"
             echo 'Tag runs are review-only. Skipped validation is not build evidence.'
-            echo 'Validation artifact: uploaded only for this run. Formal Release: gate-controlled and not created. Device test: not executed.'
+            printf 'Native: %s; UEFI: %s; unsigned HAP: %s; public artifact upload: %s\n' "${NATIVE:-not-run}" "${FIRMWARE:-not-run}" "${HAP:-not-run}" "${UPLOAD:-not-run}"
+            printf 'Formal Release job: %s; Release creation: not implemented.\n' "$RELEASE"
+            echo 'Device test: not executed; no device connected to hosted runner.'
           } >> "$GITHUB_STEP_SUMMARY"

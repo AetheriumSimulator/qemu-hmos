@@ -1,126 +1,117 @@
 # Open-source distribution status
 
-This is a source-maintenance update, not a binary release or a declaration that
-GPL components have been isolated from every downstream application.
+This review concerns **Aetherium's root application and the components it actually
+packages**. Commercial Aether code, licenses and release status are outside its
+scope. Supplementary phone-port exports do not certify the root application;
+phone-core/API 20 migration is separate work. This is an engineering evidence
+assessment, not a determination of legal compliance or infringement. GPL software
+can be used commercially; repository visibility alone does not establish complete
+corresponding source for a particular binary.
 
-## Completed in this update
+## Verified public distribution history
 
-- Removed 474 generated, precompiled or local-only files from the Git source tree.
-  Maintained sources and upstream license notices are retained. Existing public
-  history is not rewritten.
-- Removed saved machine-local signing configuration from the public build profile.
-- Added checks against the actual Git index, including staged credentials,
-  compiled binaries with misleading filenames, cache directories and native module
-  source availability.
-- Recorded QEMU's pinned revision, local patch/recipe hashes, and seven other
-  component snapshots with license evidence. Unknown upstream revisions remain
-  explicitly unknown; a local Git tree hash is not upstream provenance.
-- Held binary-producing workflows and removed automatic GitHub Release creation.
-  Source checks can pass while binary publication remains blocked.
+On 2026-10-17, remote `main` was
+`54a18f7738b37766ece848d1ed62dec26bca4aa5` (PR #40, after #39).
+[Run 38504885879](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/38504885879)
+reported successful source review, native build, UEFI build, unsigned HAP assembly,
+payload validation and upload, with the Release job **skipped**. The review returned
+`allowed=false` despite that upload.
 
-## Unresolved distribution boundaries
+The run's [artifact metadata](https://api.github.com/repos/AetheriumSimulator/qemu-hmos/actions/artifacts/11867583991)
+identified `aetherium-hap-validation-54a18f7738b37766ece848d1ed62dec26bca4aa5`,
+13,422,128 archive bytes, not expired at inspection, created at
+2026-10-14 03:22:08 UTC and expiring at **2026-10-21 03:22:07 UTC**.
+Its archive digest was
+`sha256:506c8e89b55720033975402a10b5707802cb4dea6ab5d864c3e81a7d8d259a2b`.
+This is the artifact archive digest, not the inner HAP digest. The review
+environment's artifact download received storage HTTP 403, so these observations
+are API/job evidence, not an independent inspection of the archived bytes.
 
-The native build statically links LibVNCClient/LibVNCServer into the N-API library
-when available, using `--whole-archive`. Their GPL notices are retained in the
-headers and the root GPL text. QEMU is loaded in the application's process in
-this version. These are linking/integration relationships, not merely folders
-containing unrelated files.
+There is also a historical [prebuilt-libs prerelease](https://github.com/AetheriumSimulator/qemu-hmos/releases/tag/prebuilt-libs),
+published 2025-09-04, containing `libqemu_full.so`. “No Release created by this
+pipeline” does not mean no historical releases exist. This change neither deletes
+existing artifacts/releases nor changes their retention or repository visibility.
 
-The root Apache-2.0 text for original code does not override third-party licenses
-or automatically authorize every combined distribution. QEMU patches inherit the
-requirements of the upstream code they modify. No contributor's code is relicensed
-by this update. The applicable licenses for the combined application, including
-GPL version compatibility, still require review before binary distribution.
+PR #39's runner-local-only description ceased to describe reality after #40.
+An unsigned seven-day artifact is still a public distribution surface. GitHub's
+[web download procedure](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)
+requires login and repository read access; that does not restrict a public
+repository's artifacts to maintainers. Public metadata and authenticated archive
+downloads are distinct. Retention is not access control, and workflow
+[`permissions`](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions)
+controls `GITHUB_TOKEN`, not artifact audience.
 
-[QEMU license information](https://www.qemu.org/docs/master/about/license.html)
-and the [GPL version 2 text](../LICENSE) describe the relevant upstream terms.
+## Actual root build and remaining evidence gaps
 
-## Corresponding source is still incomplete
+| Input or stage | Evidence and limits |
+| --- | --- |
+| QEMU | `third_party/qemu` pins `9c23f2a7b0b45277693a14074b1aaa827eecdb92` (10.1.93). CI's `validate-so/action.yml` configures it directly, enables curl/slirp/VNC/pixman and relinks the Meson object graph as `libqemu_full.so`. It does **not** invoke the inventoried `build_qemu_full_linux.sh` patch recipe. A recorded recipe is not proof it built this HAP. |
+| GLib, PCRE2, Pixman | `tools/build_ohos_deps.sh` builds static vendored sources; GLib may obtain Meson wraps and the recipe creates missing test scaffolding. The inventory retains source-tree hashes and notices but leaves upstream identities incomplete. PCRE2's retained COPYING refers to a missing LICENCE. |
+| OpenSSL and curl | CI invokes both build recipes. Curl is pinned to `01346829096c61b372692f6dc43ffa778c6caccd` and built statically with OpenSSL. Curl is absent from the initial component inventory; QEMU fallback dependencies and SDK-provided link inputs also need an actual link/payload inventory. |
+| Native wrapper / LibVNC | CMake builds `libqemu_hmos.so`, compiles cJSON, and loads QEMU in-process. LibVNC archives are linked with `--whole-archive` **if present**. This CI does not call `tools/build_libvnc_ohos.sh`; do not infer that its HAP contains those archives merely from the optional CMake branch or separate phone-port evidence. The root LibVNC recipe itself clones an unpinned default branch. |
+| Firmware | CI builds ArmVirtQemu and OVMF from QEMU's recursive EDK2 checkout, then copies the generated `.fd` files into HAP raw resources. This is stronger evidence than an arbitrary firmware download, but there is no artifact-matched firmware source/license/build manifest. `validate_hap.py` checks the module, bytecode and two native libraries; it does not verify firmware contents or correspondence. |
+| Toolchain and packaging | The native SDK downloader has version fallbacks without digest verification; HAP tooling uses the 5.1.0.840 bundle/API 18. Host tooling, wraps, SDK runtime inputs and package dependencies need to be recorded according to what actually enters or is required to build the artifact. SDK origin alone is not an exemption. |
 
-`compliance/source-inventory.json` records QEMU
-`9c23f2a7b0b45277693a14074b1aaa827eecdb92` (VERSION 10.1.93) and the existing patch
-queue. The separate [QEMU 11.1 port source](../ports/qemu-11.1/README.md) now
-publishes the downstream base patch and phone development overlay, with exact
-tree reconstruction from a public upstream commit. It does not replace the
-root application's older QEMU submodule. The export includes reviewed source
-and two portability fixes to the phone recipe; it is not a complete source
-archive matched to an already distributed Aether HAP.
+`compliance/source-inventory.json` is deliberately an **initial** inventory, not
+a complete SBOM or version-bound source archive. The published source and license
+notices are useful evidence; they do not yet cover every actual packaged object
+and required build input. No complete archive matched to this Aetherium HAP was
+established. The separate QEMU 11.1 and LibVNC exports are not substituted for it.
 
-The separate [LibVNC evidence](../ports/libvnc/README.md) includes the pinned
-upstream revision/tree, full license, retained lock and current build recipe.
-The current recipe hash differs from the retained lock. That discrepancy is
-explicit; the old archive hashes cannot certify this recipe's output.
+Review applicable terms per actual component and integration. The root Apache
+text does not replace third-party notices, and optional integration must be
+distinguished from actual inclusion. Independent aggregation should not simply
+be assumed to be a single GPL work. Under
+[GPLv2 section 3](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html#section3),
+corresponding source includes applicable modules, interfaces and build/install
+scripts; equivalent source access can accompany binary access without forcing
+recipients to download both. A
+[byte-identical rebuild](https://www.gnu.org/licenses/gpl-faq.en.html#MustSourceBuildToMatchExactHashOfBinary)
+is not the required standard. Artifact hashes aid identity and traceability;
+they are not a legal test of source completeness.
 
-Several vendored trees, the LibVNC build recipe, firmware and other downloaded
-dependencies still lack complete version/patch/rebuild provenance. The initial
-inventory is not a complete software bill of materials. Source snapshot hashes
-detect changes; they do not establish the provenance of pre-existing snapshots.
+## Current pipeline policy
 
-Before distributing binaries, complete the applicable license review, exact
-dependency and patch inventory, version-bound corresponding-source archive,
-rebuild instructions and clean-build verification. The archive must cover the
-actual distributed objects and their required build/interface material. Simply
-pointing to upstream master is insufficient.
+| Stage | Policy / meaning |
+| --- | --- |
+| Source checks | Validate indexed source hygiene, recorded identities and supplementary source replay. Success is not binary distribution approval. |
+| Native, UEFI, unsigned HAP | PRs (including forks), main pushes and non-tag manual runs build sequentially on one ephemeral hosted runner after successful source review, even when `allowed=false`. Legacy entry points reuse this pipeline. Tags are review-only. |
+| Public HAP Artifact | Upload requires successful build **and** explicit `allowed=true`. Keep the existing seven-day unsigned test-artifact path for when distribution evidence is verified. While blocked, new HAP bytes remain on the runner; old public artifacts remain untouched until normal expiration. |
+| Formal Release | Requires the publication gate and successful main-push validation; the current unsigned-HAP refusal then fails closed. There is no signing or Release creation implementation. The job only needs read permission. |
+| Device / guest boot | Not executed on hosted runners. Build, payload checks, artifact upload, skipped jobs and source replay are not device acceptance. |
 
-## Automated checks and publication hold
+The reusable gate currently returns `allowed=false`. Consequently **new public
+binary uploads are held, not the builds**. This closes #40's upload exception
+without deleting existing test artifacts or removing the future test-upload
+path. Both an unsigned test upload and a formal Release require distribution
+evidence; signing is an additional product requirement, not a substitute for it.
+There is no manual-input override. Completing the verifier and relevant evidence
+requires a reviewed change; changing a manifest flag to `ready` cannot approve
+publication. `check_source_inventory.py --require-binary-release` intentionally
+fails with the remaining blockers.
 
-```sh
-python -m unittest discover -s tools -p 'test_public_source.py' -v
-python -m unittest discover -s tools -p 'test_source_inventory.py' -v
-python tools/check_public_source.py
-python tools/check_source_inventory.py
-python -m unittest discover -s tools -p 'test_port_sources.py' -v
-python tools/verify_port_sources.py
-```
+Stage summaries report actual native/UEFI/HAP/upload outcomes and the Release
+job result, including failure, cancellation and skip, with no unconditional
+“uploaded” claim. Successful assembly records checkout/event SHA, HAP size and
+SHA-256. This policy change's build result must be read from its own PR checks;
+the historical successful run is not evidence that a new revision built.
 
-These commands validate source hygiene and recorded identities. No full HAP,
-device or clean native rebuild was performed for this maintenance update.
-The source workflow additionally obtains the immutable upstream QEMU and
-LibVNC commits and replays the QEMU port into a disposable Git index. An exact
-source-tree match is source evidence, not binary or device acceptance.
-
-`python tools/check_source_inventory.py --require-binary-release` deliberately
-fails with the remaining blockers. Changing a manifest flag to `ready` cannot
-approve a release: the actual release-evidence verifier has not been implemented.
-The reusable workflow returns `allowed=false`, so binary jobs are skipped before
-using a self-hosted runner or downloading SDKs. Removing that hold requires a
-reviewed implementation of the release verification, not a cosmetic flag change.
-
-Updating an indexed dependency, patch, recipe or license also requires refreshing
-its evidence in the inventory after review. SHA-256 values are calculated over
-Git blob bytes (LF), not platform-dependent working-tree line endings.
-
-## Runner-local build validation
-
-The complete workflow now separates source/publication review from build
-validation. PRs (including forks), main pushes and non-tag manual runs perform
-SDK → dependencies/QEMU/NAPI → UEFI → unsigned API 18 HAP assembly and payload
-validation sequentially on one ephemeral GitHub-hosted runner. The three legacy
-build workflow entry points call this same pipeline. Tags only run review.
-
-SO, firmware and HAP bytes stay in the runner workspace; there are no validation
-artifact uploads/downloads, caches, inherited secrets, signing or Release steps.
-Public Actions artifacts are a distribution surface even when called validation
-or unsigned. Renaming an artifact or reducing retention does not make it private.
-The source-only review returns `allowed=false`; its success does not certify a
-binary release. The earlier statement that all binary-producing jobs are skipped
-is superseded only for runner-local validation, not for publication.
-
-Each build summary records the checkout/event SHA, individual stage outcomes and,
-only after successful assembly and payload validation, the unsigned HAP size and
-SHA-256. A skipped or failed build is not HAP evidence. Hosted runners have no
-connected device: deploy and device smoke are explicitly not executed. This
-refactor does not supply clean native/HAP build evidence until its actual CI run
-succeeds, and does not supply any device acceptance evidence.
-
-Formal distributable HAP signing and GitHub Release remain unavailable pending
-combined-distribution license review, version-matched corresponding source and
-rebuild evidence, exact dependency provenance and complete firmware evidence.
-No flag or manual input enables publication. Phone-core/API 20 is separate work.
-
-Workflow topology and publication regressions can be checked with:
+## Verification
 
 ```sh
 python -m pip install 'PyYAML==6.0.2'
 python -m unittest discover -s tools -p 'test_workflow_guards.py' -v
+python -m unittest discover -s tools -p 'test_public_source.py' -v
+python -m unittest discover -s tools -p 'test_source_inventory.py' -v
+python -m unittest discover -s tools -p 'test_port_sources.py' -v
+python tools/check_public_source.py
+python tools/check_source_inventory.py
+python tools/verify_port_sources.py
 ```
+
+Workflow regressions evaluate the actual YAML conditions across PR, fork-style
+PR refs, main/other pushes, tags, manual and reusable calls, gate decisions and
+failed/cancelled/skipped reviews/builds. Summary tests execute the shell with
+success, failure, cancellation, skip and missing outputs. Source evidence checks
+read the Git index: reviewed dependency/recipe/license edits must update their
+recorded hashes, calculated over Git blob bytes, not platform line endings.
