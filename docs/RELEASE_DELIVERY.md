@@ -8,11 +8,11 @@ The complete workflow builds the native libraries, firmware and unsigned HAP
   configuration/link evidence; no standalone SO/UEFI payloads.
 - `release-evidence.json`: HAP/archive hashes, every HAP entry and source member,
   source repository revisions, vendored snapshot identities, license-file index,
-  downloaded SDK archive hashes, ELF dynamic dependencies and explicit omissions.
+  downloaded SDK URLs/archive hashes and tool versions, ELF dynamic dependencies and explicit omissions.
 
 The collector includes root tracked working-tree sources (including changes made
 by build recipes), QEMU and its EDK2 source/submodules, fetched QEMU/GLib Git wraps,
-and the pinned curl source. It preserves the build-created GLib scaffolding,
+and the pinned curl source. Supplementary `ports/` exports are excluded from this root-HAP source delivery. It preserves the build-created GLib scaffolding,
 EDK2 configuration and native link/configuration evidence. Other QEMU ROM
 submodules are excluded because this workflow builds EDK2; compiled upstream
 fixtures/ROMs are also excluded and listed. The candidate must be reviewed for

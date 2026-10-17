@@ -20,6 +20,7 @@ runs:
       for url in "${SDK_URLS[@]}"; do
         echo "Trying: $url"
         if curl -L --retry 3 --fail -o harmonyos-sdk.tar.gz "$url"; then
+          printf '%s\n' "$url" > .ci-native-sdk-url
           echo "✅ SDK downloaded successfully from: $url"
           break
         else

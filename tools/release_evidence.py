@@ -87,6 +87,9 @@ def snapshot(root, prefix, files, components, omissions, recurse=True):
             raise ValueError('Unsafe or unmerged source entry')
         target = root / path
         name = f'{prefix}/{path}'
+        if prefix == 'project' and path.startswith('ports/'):
+            # Supplementary phone/Aether exports are not inputs to this HAP.
+            continue
         if mode == '160000':
             # QEMU's other ROM platforms are not built or packaged by this workflow.
             if prefix == 'project/third_party/qemu' and path != 'roms/edk2':
@@ -123,7 +126,7 @@ def add_file(path, name, files, omissions):
 
 def collect(root, hap, out):
     out.mkdir(parents=True, exist_ok=False)
-    files, components, omissions = {}, [], []
+    files, components, omissions = {}, [], [{'path': 'project/ports', 'reason': 'supplementary phone exports outside this HAP build'}]
     snapshot(root, 'project', files, components, omissions)
     # Meson wraps and curl are fetched during the native build, outside gitlinks.
     dynamic = [root/'third_party/deps/.ohos-build/curl-01346829096c61b372692f6dc43ffa778c6caccd']
@@ -183,7 +186,9 @@ def collect(root, hap, out):
     sdk_inputs = []
     for name in ('harmonyos-sdk.tar.gz', 'commandline-tools.zip'):
         path = root/name
-        sdk_inputs.append({'path': name, 'sha256': file_hash(path)})
+        source_url = ((root/'.ci-native-sdk-url').read_text().strip() if name == 'harmonyos-sdk.tar.gz'
+                      else 'https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip')
+        sdk_inputs.append({'path': name, 'url': source_url, 'sha256': file_hash(path)})
     tool_versions = {}
     for name, executable in {
         'native-clang': Path(os.environ.get('NDK_DIR', '/missing'))/'llvm/bin/clang',
