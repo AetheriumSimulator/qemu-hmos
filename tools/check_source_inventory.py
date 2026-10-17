@@ -60,7 +60,7 @@ def validate(manifest, entries, blobs, source_tree, source_origins=None):
             expected = item.get('sha256', '')
             if not re.fullmatch(r'[a-f0-9]{64}', expected) or hashlib.sha256(blobs[entry[1]]).hexdigest() != expected:
                 errors.append(f'{name}: evidence hash mismatch: {item_path}')
-    # No positive release certification is implemented yet. A flag edit must
+    # This source-only inventory does not certify a built delivery. A flag edit must
     # not turn an incomplete inventory into approval to distribute binaries.
     release = manifest.get('binaryPublication', {})
     if release.get('status') != 'blocked' or not release.get('blockers'):
@@ -92,7 +92,7 @@ def check(root, require_binary_release=False):
 
     errors = validate(manifest, entries, blobs, source_tree, origins)
     if require_binary_release:
-        errors.append('Binary publication is blocked; no complete corresponding-source/release verifier is available')
+        errors.append('Source inventory alone cannot approve publication; verify the built delivery with tools/release_evidence.py')
         for blocker in manifest.get('binaryPublication', {}).get('blockers', []):
             errors.append(str(blocker))
     return errors

@@ -17,14 +17,17 @@ def read(path):
     return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
 
 
-def condition(expression, event, ref, review='success', allowed='false', validation='success', success=True):
+def condition(expression, event, ref, review='success', allowed='false', validation='success', success=True, upload='success'):
     """Evaluate the small, deliberately bounded expression grammar used here."""
     expression = expression.replace('success()', str(success))
     expression = expression.removeprefix('${{').removesuffix('}}').strip()
     values = {'github.event_name': event, 'github.ref': ref,
               'needs.publication-review.result': review,
               'needs.publication-review.outputs.allowed': allowed,
-              'needs.validation.result': validation}
+              'needs.validation.result': validation,
+              'steps.eligibility.outputs.allowed': allowed,
+              'needs.validation.outputs.allowed': allowed,
+              'needs.validation.outputs.upload': upload}
     for key, value in values.items():
         expression = expression.replace(key, repr(value))
     expression = re.sub(r'startsWith\(([^,]+),\s*([^\)]+)\)', r'(\1).startswith(\2)', expression)
@@ -105,7 +108,7 @@ class WorkflowGuardTests(unittest.TestCase):
                                     reachable = condition(job['if'], event, ref, review, allowed)
                                     upload = condition(gate, event, ref, review, allowed, success=success)
                                     if job is self.job:
-                                        expected = reachable and review == 'success' and allowed == 'true' and success
+                                        expected = reachable and review == 'success' and allowed == 'true' and success and event == 'push' and ref == 'refs/heads/main'
                                         self.assertEqual(reachable and upload, expected)
                                     elif allowed != 'true':
                                         self.assertFalse(upload)
@@ -131,7 +134,7 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertIn("echo 'allowed=false'", eligibility['run'])
         self.assertNotIn('allowed=true', eligibility['run'])
 
-    def test_release_matrix_and_read_only_permissions(self):
+    def test_release_matrix_and_scoped_write_permissions(self):
         release = self.complete['jobs']['release']
         for event, ref in [('push', 'refs/heads/main'), ('push', 'refs/tags/v1'),
                            ('pull_request', 'refs/pull/1/merge'),
@@ -142,11 +145,15 @@ class WorkflowGuardTests(unittest.TestCase):
                         self.assertEqual(condition(release['if'], event, ref, review, allowed, validation),
                                          event == 'push' and ref == 'refs/heads/main' and
                                          allowed == 'true' and review == validation == 'success')
-        self.assertNotIn('permissions', release)  # inherited contents: read
+        self.assertEqual(release['permissions'], {'contents': 'write'})
+        self.assertNotIn('permissions', self.job)
+        for upload in ('failure', 'cancelled', 'skipped', ''):
+            self.assertFalse(condition(release['if'], 'push', 'refs/heads/main', allowed='true', upload=upload))
         self.assertEqual(self.complete['jobs']['summary']['needs'],
                          ['publication-review', 'validation', 'release'])
-        refusal = release['steps'][-1]['run']
-        self.assertIn('exit 1', refusal)
+        self.assertIn('publish_hap_prerelease.sh', release['steps'][-1]['run'])
+        self.assertIn('release_evidence.py verify', release['steps'][-2]['run'])
+        self.assertNotIn('--report-only', release['steps'][-2]['run'])
         self.assertFalse(any('release@' in step.get('uses', '') for step in release['steps']))
 
     def test_summary_reports_actual_outcomes_even_when_upload_fails(self):
@@ -161,7 +168,7 @@ class WorkflowGuardTests(unittest.TestCase):
                 env = dict(os.environ, GITHUB_STEP_SUMMARY=str(path), GITHUB_SHA='abc',
                            GITHUB_EVENT_NAME='push', GITHUB_REF='refs/heads/main',
                            NATIVE=state, FIRMWARE=state, HAP=state, IDENTITY=state,
-                           UPLOAD=state, RELEASE=state, REVIEW=state, ALLOWED='false', VALIDATION=state)
+                           UPLOAD=state, EVIDENCE=state, RELEASE=state, REVIEW=state, ALLOWED='false', VALIDATION=state)
                 for step in (summary, pipeline):
                     subprocess.run(['bash', '-e', '-c', step['run']], env=env, cwd=ROOT, check=True)
                 text = path.read_text()

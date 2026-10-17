@@ -4,12 +4,11 @@
   "binaryPublication": {
     "status": "blocked",
     "blockers": [
-      "No complete version-bound corresponding-source archive and clean rebuild evidence.",
+      "A source candidate can be collected, but its completeness, exclusions and exact packaged dependency coverage have not been reviewed.",
       "LibVNC static linkage and same-process QEMU integration require combined-distribution license review.",
       "Several vendored snapshots and downloaded dependencies lack exact upstream revision/patch provenance.",
       "Firmware source/build provenance is incomplete; removed binaries must not be replaced by arbitrary downloads.",
-      "The root QEMU 10.1.93 application build lacks a complete source archive matched to its Aetherium HAP; supplementary phone-port evidence does not certify this artifact.",
-      "The retained PCRE2 COPYING references a missing LICENCE file; header notices are retained but do not replace a complete upstream license inventory."
+      "The root QEMU 10.1.93 application build lacks a complete source archive matched to its Aetherium HAP; supplementary phone-port evidence does not certify this artifact."
     ]
   },
   "components": [
@@ -141,6 +140,10 @@
         {
           "path": "third_party/deps/pcre2/src/src/pcre2.h.generic",
           "sha256": "35d206efd95a4eda06942034d6b0041f1b7a8fca54c58835c1d6f080a03ce97e"
+        },
+        {
+          "path": "third_party/deps/pcre2/src/LICENCE.md",
+          "sha256": "197d8a73ffee0d6b09adba2f9c677b5f5aede24edf89258a68e48248d010d811"
         }
       ],
       "recipes": [

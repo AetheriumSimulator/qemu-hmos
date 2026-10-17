@@ -46,7 +46,7 @@ controls `GITHUB_TOKEN`, not artifact audience.
 | Input or stage | Evidence and limits |
 | --- | --- |
 | QEMU | `third_party/qemu` pins `9c23f2a7b0b45277693a14074b1aaa827eecdb92` (10.1.93). CI's `validate-so/action.yml` configures it directly, enables curl/slirp/VNC/pixman and relinks the Meson object graph as `libqemu_full.so`. It does **not** invoke the inventoried `build_qemu_full_linux.sh` patch recipe. A recorded recipe is not proof it built this HAP. |
-| GLib, PCRE2, Pixman | `tools/build_ohos_deps.sh` builds static vendored sources; GLib may obtain Meson wraps and the recipe creates missing test scaffolding. The inventory retains source-tree hashes and notices but leaves upstream identities incomplete. PCRE2's retained COPYING refers to a missing LICENCE. |
+| GLib, PCRE2, Pixman | `tools/build_ohos_deps.sh` builds static vendored sources; GLib may obtain Meson wraps and the recipe creates missing test scaffolding. The inventory retains source-tree hashes and notices but leaves upstream identities incomplete. PCRE2's COPYING refers to LICENCE, while the full tracked text is LICENCE.md; that text is now hash-recorded rather than treated as missing. |
 | OpenSSL and curl | CI invokes both build recipes. Curl is pinned to `01346829096c61b372692f6dc43ffa778c6caccd` and built statically with OpenSSL. Curl is absent from the initial component inventory; QEMU fallback dependencies and SDK-provided link inputs also need an actual link/payload inventory. |
 | Native wrapper / LibVNC | CMake builds `libqemu_hmos.so`, compiles cJSON, and loads QEMU in-process. LibVNC archives are linked with `--whole-archive` **if present**. This CI does not call `tools/build_libvnc_ohos.sh`; do not infer that its HAP contains those archives merely from the optional CMake branch or separate phone-port evidence. The root LibVNC recipe itself clones an unpinned default branch. |
 | Firmware | CI builds ArmVirtQemu and OVMF from QEMU's recursive EDK2 checkout, then copies the generated `.fd` files into HAP raw resources. This is stronger evidence than an arbitrary firmware download, but there is no artifact-matched firmware source/license/build manifest. `validate_hap.py` checks the module, bytecode and two native libraries; it does not verify firmware contents or correspondence. |
@@ -72,35 +72,39 @@ they are not a legal test of source completeness.
 
 ## Current pipeline policy
 
+The subsequent delivery implementation is described in [HAP delivery and evidence
+review](RELEASE_DELIVERY.md). It preserves a single native → UEFI → unsigned HAP
+build, collects a source candidate with a payload/member manifest, and evaluates
+an actual post-build distribution verifier. Source-only checks do not authorize
+publication. The legacy reusable gate still holds unrelated binary jobs.
+
 | Stage | Policy / meaning |
 | --- | --- |
-| Source checks | Validate indexed source hygiene, recorded identities and supplementary source replay. Success is not binary distribution approval. |
-| Native, UEFI, unsigned HAP | PRs (including forks), main pushes and non-tag manual runs build sequentially on one ephemeral hosted runner after successful source review, even when `allowed=false`. Legacy entry points reuse this pipeline. Tags are review-only. |
-| Public HAP Artifact | Upload requires successful build **and** explicit `allowed=true`. Keep the existing seven-day unsigned test-artifact path for when distribution evidence is verified. While blocked, new HAP bytes remain on the runner; old public artifacts remain untouched until normal expiration. |
-| Formal Release | Requires the publication gate and successful main-push validation; the current unsigned-HAP refusal then fails closed. There is no signing or Release creation implementation. The job only needs read permission. |
-| Device / guest boot | Not executed on hosted runners. Build, payload checks, artifact upload, skipped jobs and source replay are not device acceptance. |
+| Source checks | Indexed source hygiene, recorded identities and supplementary source replay. Success is not distribution approval. |
+| Native, UEFI, HAP | PRs, main pushes and non-tag manual runs build once on an ephemeral hosted runner. Tags are review-only. |
+| Source/evidence | Collect actual working-tree sources, resolved Git wraps, firmware sources, license file index, source omissions, SDK hashes and HAP member identities. Missing reviews yield `allowed=false`; collection errors fail validation. |
+| Public Artifact | Only a main push with successful build and `allowed=true` uploads the HAP plus source archive and evidence. Seven-day retention; no separate SO/UEFI binary delivery. PRs/manual runs do not publish. |
+| Test prerelease | Main-only job reverifies downloaded evidence before creating an unsigned test prerelease. Write permission is confined to this job. Signing is not a GPL prerequisite. |
+| Device / guest boot | Not executed. Build, payload checks, source replay, artifact or Release success cannot replace device acceptance. |
 
-The reusable gate currently returns `allowed=false`. Consequently **new public
-binary uploads are held, not the builds**. This closes #40's upload exception
-without deleting existing test artifacts or removing the future test-upload
-path. Both an unsigned test upload and a formal Release require distribution
-evidence; signing is an additional product requirement, not a substitute for it.
-There is no manual-input override. Completing the verifier and relevant evidence
-requires a reviewed change; changing a manifest flag to `ready` cannot approve
-publication. `check_source_inventory.py --require-binary-release` intentionally
-fails with the remaining blockers.
+No hash-bound component-license, source-completeness or SDK-runtime review is
+present yet. The new gate can pass complete reviewed evidence (tested with
+fixtures), but the repository's real delivery remains blocked until those
+specific gaps are resolved. Its candidate archive is not presented as certified
+complete corresponding source. Existing public artifacts/releases remain
+untouched. A scope change invalidates the review; there is no manual override.
 
-Stage summaries report actual native/UEFI/HAP/upload outcomes and the Release
-job result, including failure, cancellation and skip, with no unconditional
-“uploaded” claim. Successful assembly records checkout/event SHA, HAP size and
-SHA-256. This policy change's build result must be read from its own PR checks;
-the historical successful run is not evidence that a new revision built.
+`check_source_inventory.py --require-binary-release` rejects source-only approval
+and directs callers to the built-delivery verifier. Changing an inventory status
+flag cannot approve a delivery. Current CI outcomes must be read from the PR's
+latest head, not the historical successful run above.
 
 ## Verification
 
 ```sh
 python -m pip install 'PyYAML==6.0.2'
 python -m unittest discover -s tools -p 'test_workflow_guards.py' -v
+python -m unittest discover -s tools -p 'test_release_evidence.py' -v
 python -m unittest discover -s tools -p 'test_public_source.py' -v
 python -m unittest discover -s tools -p 'test_source_inventory.py' -v
 python -m unittest discover -s tools -p 'test_port_sources.py' -v

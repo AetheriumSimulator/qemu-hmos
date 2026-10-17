@@ -1,10 +1,10 @@
-name: Binary publication eligibility
+name: Source prerequisites and legacy publication hold
 
 on:
   workflow_call:
     outputs:
       allowed:
-        description: Whether complete distribution evidence permits public binary uploads, including test artifacts
+        description: Legacy binary jobs remain held; complete HAP pipeline verifies its built delivery separately
         value: ${{ jobs.review.outputs.allowed }}
 
 permissions:
@@ -28,4 +28,4 @@ jobs:
       - id: eligibility
         run: |
           echo 'allowed=false' >> "$GITHUB_OUTPUT"
-          echo '::notice::Public binary uploads (including unsigned test artifacts) are held pending complete corresponding-source and distribution evidence; runner-local builds may proceed. See docs/OPEN_SOURCE_STATUS.md.'
+          echo '::notice::Source prerequisites passed. Legacy binary jobs remain held; the complete HAP pipeline evaluates its collected delivery evidence after building. See docs/OPEN_SOURCE_STATUS.md.'
