@@ -25,6 +25,7 @@ def condition(expression, event, ref, review='success', allowed='false', validat
               'needs.publication-review.result': review,
               'needs.publication-review.outputs.allowed': allowed,
               'needs.validation.result': validation,
+              'needs.validation.outputs.review': review,
               'steps.eligibility.outputs.allowed': allowed,
               'needs.validation.outputs.allowed': allowed,
               'needs.validation.outputs.upload': upload}
@@ -56,7 +57,8 @@ def assert_no_transport(test, steps):
 class WorkflowGuardTests(unittest.TestCase):
     def setUp(self):
         self.workflows = {p.name: read(p) for p in (ROOT/'.github/workflows').glob('*.yml')}
-        self.complete = self.workflows['build-complete.yml']
+        self.pipeline = self.workflows['build-complete.yml']
+        self.complete = self.workflows['build-validation.yml']
         self.job = self.complete['jobs']['validation']
         self.actions = {p.parent.name: read(p) for p in (ROOT/'.github/actions').glob('*/action.yml')}
 
@@ -76,8 +78,8 @@ class WorkflowGuardTests(unittest.TestCase):
                     with self.subTest(event=event, ref=ref, allowed=allowed, review=review):
                         self.assertEqual(condition(self.job['if'], event, ref, review, allowed),
                                          expected and review == 'success')
-        self.assertEqual(self.complete['on']['push'], {'branches': ['main'], 'tags': ['*']})
-        self.assertNotIn('pull_request_target', self.complete['on'])
+        self.assertEqual(self.pipeline['on']['push'], {'branches': ['main'], 'tags': ['*']})
+        self.assertNotIn('pull_request_target', self.pipeline['on'])
 
     def test_single_hosted_runner_and_no_privileged_fork_path(self):
         self.assertEqual(self.job['runs-on'], 'ubuntu-24.04')
@@ -120,8 +122,8 @@ class WorkflowGuardTests(unittest.TestCase):
         upload = next(s for s in self.job['steps'] if 'upload-artifact' in s.get('uses', ''))
         self.assertEqual(upload['with']['if-no-files-found'], 'error')
         self.assertEqual(upload['with']['retention-days'], '7')
-        release = self.complete['jobs']['release']
-        self.assertEqual(release['needs'], ['publication-review', 'validation'])
+        release = self.pipeline['jobs']['release']
+        self.assertEqual(release['needs'], 'validation')
         self.assertFalse(condition(release['if'], 'push', 'refs/heads/main', allowed='false'))
         self.assertTrue(condition(release['if'], 'push', 'refs/heads/main', allowed='true'))
         self.assertFalse(condition(release['if'], 'pull_request', 'refs/pull/1/merge', allowed='true'))
@@ -135,7 +137,7 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertNotIn('allowed=true', eligibility['run'])
 
     def test_release_matrix_and_scoped_write_permissions(self):
-        release = self.complete['jobs']['release']
+        release = self.pipeline['jobs']['release']
         for event, ref in [('push', 'refs/heads/main'), ('push', 'refs/tags/v1'),
                            ('pull_request', 'refs/pull/1/merge'),
                            ('workflow_dispatch', 'refs/heads/main'), ('workflow_call', 'refs/heads/main')]:
@@ -149,8 +151,8 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertNotIn('permissions', self.job)
         for upload in ('failure', 'cancelled', 'skipped', ''):
             self.assertFalse(condition(release['if'], 'push', 'refs/heads/main', allowed='true', upload=upload))
-        self.assertEqual(self.complete['jobs']['summary']['needs'],
-                         ['publication-review', 'validation', 'release'])
+        self.assertEqual(self.pipeline['jobs']['summary']['needs'],
+                         ['validation', 'release'])
         self.assertIn('publish_hap_prerelease.sh', release['steps'][-1]['run'])
         self.assertIn('release_evidence.py verify', release['steps'][-2]['run'])
         self.assertNotIn('--report-only', release['steps'][-2]['run'])
@@ -159,7 +161,7 @@ class WorkflowGuardTests(unittest.TestCase):
     def test_summary_reports_actual_outcomes_even_when_upload_fails(self):
         summary = next(s for s in self.job['steps'] if s.get('name') == 'Validation evidence')
         self.assertEqual(summary['env']['UPLOAD'], '${{ steps.upload.outcome }}')
-        pipeline = self.complete['jobs']['summary']['steps'][0]
+        pipeline = self.pipeline['jobs']['summary']['steps'][0]
         self.assertEqual(pipeline['env']['UPLOAD'], '${{ needs.validation.outputs.upload }}')
         self.assertEqual(self.job['outputs']['upload'], '${{ steps.upload.outcome }}')
         for state in ('success', 'failure', 'cancelled', 'skipped', ''):
@@ -185,8 +187,19 @@ class WorkflowGuardTests(unittest.TestCase):
     def test_legacy_entries_cannot_bypass_pipeline(self):
         for name in ('build-qemu-so.yml', 'build-uefi-firmware.yml', 'build-hap-package.yml'):
             workflow = self.workflows[name]
-            self.assertEqual(workflow['jobs'], {'validation': {'uses': './.github/workflows/build-complete.yml'}})
+            self.assertEqual(workflow['jobs'], {'validation': {'uses': './.github/workflows/build-validation.yml'}})
             self.assertEqual(set(workflow['on']), {'workflow_dispatch', 'workflow_call'})
+
+    def test_reusable_workflow_cannot_escalate_caller_permissions(self):
+        self.assertEqual(set(self.complete['on']), {'workflow_call'})
+        self.assertNotIn('workflow_call', self.pipeline['on'])
+        for job in self.complete['jobs'].values():
+            self.assertNotIn('permissions', job)
+        self.assertEqual(self.pipeline['jobs']['validation'],
+                         {'uses': './.github/workflows/build-validation.yml'})
+        for name in ('native', 'firmware', 'hap', 'upload', 'evidence', 'allowed'):
+            self.assertEqual(self.complete['on']['workflow_call']['outputs'][name]['value'],
+                             '${{ jobs.validation.outputs.' + name + ' }}')
 
     def test_actual_shell_syntax_and_local_payload(self):
         for name, action in self.actions.items():
@@ -216,7 +229,7 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertEqual(summary['if'], '${{ always() }}')
         for marker in ('git rev-parse HEAD', '$GITHUB_SHA', 'Public HAP artifact upload: %s', 'not executed'):
             self.assertIn(marker, summary['run'])
-        for job in self.complete['jobs'].values():
+        for job in list(self.complete['jobs'].values()) + list(self.pipeline['jobs'].values()):
             for step in job.get('steps', []):
                 if 'run' in step:
                     subprocess.run(['bash', '-n'], input=step['run'], text=True, check=True)

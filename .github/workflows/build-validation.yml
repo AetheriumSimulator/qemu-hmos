@@ -1,0 +1,132 @@
+name: Build and collect HAP delivery
+
+on:
+  workflow_call:
+    outputs:
+      native:
+        value: ${{ jobs.validation.outputs.native }}
+      firmware:
+        value: ${{ jobs.validation.outputs.firmware }}
+      hap:
+        value: ${{ jobs.validation.outputs.hap }}
+      upload:
+        value: ${{ jobs.validation.outputs.upload }}
+      evidence:
+        value: ${{ jobs.validation.outputs.evidence }}
+      allowed:
+        value: ${{ jobs.validation.outputs.allowed }}
+      build:
+        value: ${{ jobs.validation.result }}
+      review:
+        value: ${{ jobs.publication-review.result }}
+
+permissions:
+  contents: read
+
+jobs:
+  publication-review:
+    uses: ./.github/workflows/binary-publication-gate.yml
+
+  validation:
+    needs: publication-review
+    # Builds remain available while public binary uploads are held.
+    # Fork PRs use the same unprivileged, ephemeral hosted runner.
+    if: ${{ needs.publication-review.result == 'success' && !startsWith(github.ref, 'refs/tags/') && (github.event_name == 'workflow_call' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/'))) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      native: ${{ steps.native.outcome }}
+      firmware: ${{ steps.firmware.outcome }}
+      hap: ${{ steps.hap.outcome }}
+      upload: ${{ steps.upload.outcome }}
+      evidence: ${{ steps.evidence.outcome }}
+      allowed: ${{ steps.eligibility.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Save host environment
+        shell: bash
+        run: echo "CI_HOST_PATH=$PATH" >> "$GITHUB_ENV"
+      - name: Build SO and native wrapper
+        id: native
+        uses: ./.github/actions/validate-so
+      - name: Restore host tools for firmware and HAP
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          # SO's cross-tool settings must not select OHOS clang for EDK2 host tools.
+          {
+            echo "PATH=$CI_HOST_PATH"
+            echo 'CC=gcc'
+            echo 'CXX=g++'
+            echo 'AR=ar'
+            echo 'RANLIB=ranlib'
+            echo 'STRIP=strip'
+            echo 'PKG_CONFIG=pkg-config'
+            echo 'PKG_CONFIG_PATH='
+            echo 'PKG_CONFIG_LIBDIR='
+          } >> "$GITHUB_ENV"
+      - name: Build UEFI on the same runner
+        id: firmware
+        uses: ./.github/actions/validate-uefi
+      - name: Assemble and validate unsigned HAP on the same runner
+        id: hap
+        uses: ./.github/actions/validate-hap
+      - name: Record HAP identity
+        id: identity
+        shell: bash
+        run: |
+          hap=entry/build/default/outputs/default/entry-default-unsigned.hap
+          test -s "$hap"
+          printf 'HAP SHA-256: %s\n' "$(sha256sum "$hap" | cut -d ' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
+          printf 'HAP bytes: %s\n' "$(stat -c %s "$hap")" >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect exact source and HAP evidence
+        id: evidence
+        shell: bash
+        run: >-
+          python tools/release_evidence.py collect
+          --hap entry/build/default/outputs/default/entry-default-unsigned.hap
+          --out delivery
+      - name: Verify distribution eligibility
+        id: eligibility
+        shell: bash
+        run: >-
+          python tools/release_evidence.py verify --out delivery
+          --expected-commit "$(git rev-parse HEAD)" --report-only
+      - name: Upload HAP with corresponding source evidence
+        id: upload
+        # PR/manual/tag events never publish, even when evidence is sufficient.
+        if: ${{ success() && steps.eligibility.outputs.allowed == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherium-delivery-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            delivery/aetherium-unsigned.hap
+            delivery/aetherium-source.tar.gz
+            delivery/release-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Validation evidence
+        if: ${{ always() }}
+        shell: bash
+        env:
+          NATIVE: ${{ steps.native.outcome }}
+          FIRMWARE: ${{ steps.firmware.outcome }}
+          HAP: ${{ steps.hap.outcome }}
+          IDENTITY: ${{ steps.identity.outcome }}
+          UPLOAD: ${{ steps.upload.outcome }}
+          EVIDENCE: ${{ steps.evidence.outcome }}
+          ALLOWED: ${{ steps.eligibility.outputs.allowed }}
+        run: |
+          {
+            printf 'Built checkout SHA: %s\n' "$(git rev-parse HEAD)"
+            printf 'Event SHA: %s\n' "$GITHUB_SHA"
+            printf 'Native: %s; UEFI: %s; HAP: %s; HAP identity: %s\n' "$NATIVE" "$FIRMWARE" "$HAP" "$IDENTITY"
+            printf 'Public HAP artifact upload: %s (7-day retention when successful).\n' "$UPLOAD"
+            printf 'Source collection: %s; distribution eligible: %s\n' "$EVIDENCE" "${ALLOWED:-unavailable}"
+            echo 'HAP signing: unsigned. Release is a separate main-push job.'
+            echo 'Deploy/device smoke: not executed; no device connected to hosted runner.'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -6,4 +6,4 @@ permissions:
   contents: read
 jobs:
   validation:
-    uses: ./.github/workflows/build-complete.yml
+    uses: ./.github/workflows/build-validation.yml
