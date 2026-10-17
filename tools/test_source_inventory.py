@@ -28,6 +28,13 @@ class SourceInventoryTest(unittest.TestCase):
         self.assertFalse(self.errors())
         self.assertEqual(self.manifest['binaryPublication']['status'], 'blocked')
 
+    def test_evidence_required_policy_is_not_source_only_approval(self):
+        self.manifest['binaryPublication'] = {
+            'status': 'evidence-required', 'requirements': ['verify built delivery']}
+        self.assertFalse(self.errors())
+        self.manifest['binaryPublication']['requirements'] = []
+        self.assertTrue(self.errors())
+
     def test_changed_gitlink_is_rejected(self):
         self.manifest['components'][0]['source']['revision'] = '4' * 40
         self.assertTrue(self.errors())

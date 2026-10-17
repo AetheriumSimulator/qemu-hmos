@@ -63,8 +63,9 @@ def validate(manifest, entries, blobs, source_tree, source_origins=None):
     # This source-only inventory does not certify a built delivery. A flag edit must
     # not turn an incomplete inventory into approval to distribute binaries.
     release = manifest.get('binaryPublication', {})
-    if release.get('status') != 'blocked' or not release.get('blockers'):
-        errors.append('Binary publication requires a separately implemented release-evidence verifier')
+    if not ((release.get('status') == 'blocked' and release.get('blockers')) or
+            (release.get('status') == 'evidence-required' and release.get('requirements'))):
+        errors.append('Source inventory cannot approve publication; built-delivery evidence is required')
     return errors
 
 
@@ -112,7 +113,7 @@ def main():
     for error in errors:
         print(f'FAIL {error}')
     if not errors:
-        print('PASS indexed source identities; binary publication remains blocked')
+        print('PASS indexed source identities; publication requires built-delivery evidence')
     return 1 if errors else 0
 
 
