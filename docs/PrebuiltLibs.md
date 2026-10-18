@@ -1,5 +1,13 @@
 # Prebuilt QEMU Core Library
 
+> Historical integration notes, not the current delivery recipe (checked
+> 2026-10-18, Asia/Shanghai). Use the [verified HAP/source/evidence assets](OPEN_SOURCE_STATUS.md)
+> and [current CI recipes](CLOUD_BUILD_README.md). The old `prebuilt-libs` release
+> is not the dependency bundle for that HAP. The root `StartVm` path now resolves
+> `qemu_init` / `qemu_main_loop` (and optional cleanup) through
+> `EnsureQemuCoreLoaded`; a missing core fails startup. The historical `qemu_main`
+> / “running stub loop” wording below is not a current successful-runtime claim.
+
 This app’s N-API module (`libqemu_hmos.so`) dynamically loads a separate QEMU core library at runtime and calls its `qemu_main`:
 
 - Core library: `libqemu_full.so`

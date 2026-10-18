@@ -1,68 +1,67 @@
 # Aetherium for HarmonyOS（HMOS）
 
-> **源码维护状态**：本次更新移除了预编译库、固件、构建缓存和本机签名配置，并加入源码检查。二进制发布暂缓；GPL 链接边界与完整对应源码尚未验收。参见 [分发状态](docs/OPEN_SOURCE_STATUS.md) 和 [源码构建说明](docs/PUBLIC_SOURCE.md)。
+Aetherium 是实验性的开源本地虚拟机应用：ArkTS 界面通过 C++/N-API 调用进程内 QEMU。目标是让 HarmonyOS 设备运行来宾系统；**目前已验证云端构建和公开测试分发，尚未建立本测试包的真机安装、Windows/Linux 启动及稳定运行验收记录**。
 
-较新 Aether 的 [QEMU 11.1 手机核心源码](ports/qemu-11.1/README.md)及
-[LibVNC 来源和构建材料](ports/libvnc/README.md)现单独提供，可检查并还原固定源码树。
-它们尚未与已分发 HAP 完成对应验证，也不代表手机重复启动或 GPL 隔离已经通过。
+本页核对日期：**2026-10-18（北京时间）**；源码基线为 `220702399b91f90dbfaa39335914b8159fe87c84`。这里描述的是本仓库的 **Aetherium**，不代表商业 **Aether** 的代码、许可证、应用商店版本或产品能力。
 
-## 让鸿蒙也能离线跑 Windows / Linux —— 一个“鸿蒙版 UTM”的实验项目
+## 已验证的测试版与下载
 
-> [!CAUTION]
-> 这个App由AI生成 如果您需要为他做贡献 请注意一下他可能的Bugs 如果遇到任何Bugs 点上方Issue按钮 发一下您的问题 谢谢
+[公开测试 Release：test-2207023](https://github.com/AetheriumSimulator/qemu-hmos/releases/tag/test-220702399b91f90dbfaa39335914b8159fe87c84) 来自 [PR #42](https://github.com/AetheriumSimulator/qemu-hmos/pull/42) 合并后的 [main 构建 39027202185](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39027202185)。原生库、两种 UEFI、HAP、源码收集、归档输入重放、上传和测试 prerelease 发布均成功。
 
-想象一下，你的鸿蒙设备瞬间变身为一台虚拟机：不用 root、不靠破解、尽量少黑魔法，直接在本地跑来宾系统。
+| 下载项 | 内容 |
+| --- | --- |
+| [aetherium-unsigned.hap](https://github.com/AetheriumSimulator/qemu-hmos/releases/download/test-220702399b91f90dbfaa39335914b8159fe87c84/aetherium-unsigned.hap) | 未签名测试应用，55,998,657 字节；设备安装可能需要自行签名和配置。 |
+| [aetherium-source.tar.gz](https://github.com/AetheriumSimulator/qemu-hmos/releases/download/test-220702399b91f90dbfaa39335914b8159fe87c84/aetherium-source.tar.gz) | 与该构建匹配的源码候选归档、构建配方、原始 SDK 通知/元数据及排除项。 |
+| [release-evidence.json](https://github.com/AetheriumSimulator/qemu-hmos/releases/download/test-220702399b91f90dbfaa39335914b8159fe87c84/release-evidence.json) | HAP/源码哈希、成员清单、依赖来源、SDK 身份和未完成评审事项。 |
 
-> ⚠️ **小字说明**：本项目仍处于实验阶段，功能/兼容性在快速迭代中。请仅在合法镜像 / 自测环境下使用。  
-> **免责声明**：请在拥有合法授权的镜像 / 系统环境下使用。本项目不对外提供商业支持，也不承担任何损失或法律责任。  
+三项资产已在 2026-10-17 通过匿名下载及哈希复核，2026-10-18 再次核对发布记录。HAP SHA-256：
 
----
+```text
+0f16e219c3c007e80a607de3060ad5c11cc442af17b184f8c2bcbde733ff7405
+```
 
-## 这是什么？
+请使用上述 **`aetherium-source.tar.gz`**；GitHub 自动生成的 “Source code (zip/tar.gz)” 不是这份构建匹配源码归档。归档输入重放不是完整的干净源码到 HAP 重建，也不证明对应源码已经完整验收。
 
-**Aetherium** 是一个运行在 **HarmonyOS NEXT** 上的虚拟机应用：  
-- ArkTS（UI/页面） + C++（NAPI/桥接）驱动虚拟机生命周期  
-- QEMU 以 **in-process（库形式）**集成到应用里（`libqemu_full.so`），而不是启动一个外部 qemu 进程  
+当前 `test-disclosure-v1` 是**公开披露未完成评审的测试分发策略**，不是许可合规批准。实际组合许可评估、SDK 运行库下游源码/补丁映射及源码完整性审查仍未完成，见 [分发状态](docs/OPEN_SOURCE_STATUS.md) 和 [交付策略](docs/RELEASE_DELIVERY.md)。未签名或短期保留不使产物变成私有。
 
-> 仓库名字历史原因可能仍叫 `qemu-hmos`，但产品/项目名以 **Aetherium** 为准。
+## 当前构建与下一代核心不是同一条链路
 
----
+| 项目 | 当前公开 HAP | 独立开发材料 / 目标 |
+| --- | --- | --- |
+| QEMU | 根子模块固定 `9c23f2a7…`，版本 10.1.93；构建 `libqemu_full.so`，当前只配置 `aarch64-softmmu`。 | [QEMU 11.1 phone-core 源码导出](ports/qemu-11.1/README.md)及重建配方；尚未接入根 HAP。 |
+| HarmonyOS API | [构建配置](build-profile.json5)为 target 5.1.0/API 18、compatible 5.0.5/API 17；这是声明，不是机型兼容认证。 | phone-core/API 20 是后续迁移目标，不能用其材料描述当前包。 |
+| 加速 / 生命周期 | CI 启用 TCG、禁用 KVM；有启动、停止、状态、日志等源码，未验收设备上的完整生命周期。 | phone entry 明确 `reentrant=0`，拒绝第二次会话；不能宣称已支持同进程反复启动或 A→B→A。 |
+| 固件 | 从 EDK2 构建 ArmVirt 和 OVMF 并打包。 | OVMF 在包内不代表当前核心已支持 x86_64 来宾。 |
 
-## 核心特性（已实现 / 实验中）
+[独立 LibVNC 来源材料](ports/libvnc/README.md)也不等于根 HAP 已链接可用的原生 VNC 客户端。源码树重建成功不能替代 HAP 对应关系或设备验收。
 
-- [x] **Windows 11 ARM / Linux ARM64 虚拟机**：在 MatePad / 鸿蒙电脑上运行 aarch64 来宾系统  
-- [x] **网络**：`usernet + hostfwd`（默认 RDP / VNC 端口映射）  
-- [x] **显示链路**：安装和运行阶段均可 **VNC**；如果可以则使用 **RDP** 嵌入渲染  
-- [x] **StartProgram（App 内）**：在 Aetherium 应用内点击图标即可拉起来宾系统里的指定 EXE（通过 RDP 通道）  
-  - 说明：当前不支持把“来宾 App”固定到鸿蒙桌面（RemoteApp / RAIL 尚未实现）；桌面快捷方式目前仅用于快速启动/绑定某个 VM（见 `entry/src/main/resources/base/profile/shortcuts_config.json`）  
-- [x] **文件共享（当前方案）**：通过 **virtiofs** 透传共享目录，把 App 沙箱目录映射为来宾可见目录/盘符  
-  - 说明：**不使用 9P（virtio-9p）** 来透传文件  
-- [x] **音频（实验）**：内置 HarmonyOS **OHAudio audiodev**（`aether-soundkit-hmos`）  
-  - 目标：让 VNC 场景也能听到声音，并支持麦克风回传（需要麦克风权限）  
-- [x] **TPM（实验）**：QEMU 构建显式启用 TPM，并提供 HarmonyOS 环境的最小 TPM2 兜底  
-  - 说明：这保证 `-tpmdev` 参数链路可用、不会把 App 直接带崩；**不承诺通过 Windows 11 完整 TPM 认证**  
+## 实现状态：已有代码不等于真机通过
 
----
+“源码存在”表示有接口或实现；“云构建通过”表示该构建链路成功；“公开测试分发”表示有可下载资产。以下未提供设备记录的项目均不能标为“真机已验证”。
 
-## 还没做（规划中 / 未实现）
+| 能力 | 当前证据与限制 |
+| --- | --- |
+| 原生集成与 HAP | **云构建、打包及公开分发通过**。`libqemu_full.so`、`libqemu_hmos.so`、C++ 运行库及两种固件已校验；不是启动成功证明。见 [构建配置](.github/actions/validate-so/action.yml)。 |
+| Windows 11 ARM / Linux ARM64 | 有来宾参数、磁盘和固件配置代码；**本发布包的安装、引导、桌面及兼容性未验收**，不再宣称已在 MatePad/鸿蒙电脑稳定运行。 |
+| VM 创建、磁盘与日志 | 有创建向导、配置存储、QCOW2 创建、日志和错误报告代码；QCOW2 扩容路径依赖外部 `qemu-img`，当前 HAP 未交付该工具。见 [原生实现](entry/src/main/cpp/napi_init.cpp)、[VM 管理](entry/src/main/ets/managers/QemuVMManager.ets)。 |
+| 启动 / 停止 / 暂停 / 恢复 | 有线程、关闭请求、QMP 和状态处理；完整生命周期、退出清理、并发多 VM、反复启动未验收。暂停/恢复及快照的 wrapper 注册表与主启动路径的接通还需验证，不能用接口返回值代替实际来宾状态。 |
+| 快照 | **不是“完全没做”**：Worker、N-API 和 [wrapper](entry/src/main/cpp/qemu_wrapper.cpp)已有 `savevm/loadvm/delvm/info snapshots` 路径。端到端连接、错误判断、存储一致性和恢复结果尚未验收。 |
+| 网络 | QEMU 构建启用 slirp/curl；[启动参数](entry/src/main/cpp/napi_init.cpp)包含 usernet/hostfwd。端口配置不代表来宾网络或 RDP 客户端已工作，真机联网未验证。 |
+| VNC 显示与输入 | QEMU VNC 服务端已启用；有原生客户端、帧回调、键盘/指针及 ArkTS 页面源码。**当前 CI 缺少 LibVNCClient 静态库，客户端编译为不可用分支**，不能称内置 VNC 可操作。见 [VNC 状态](docs/VNC_NATIVE.md)。 |
+| RDP / RemoteApp / RAIL | **明确不计划实现，不在项目范围**（2026-10-18 产品决定）。旧注释、端口转发和 FreeRDP 材料是历史遗留，不是待开发或待验收承诺。 |
+| 来宾应用启动 / StartProgram | [Apps 页面](entry/src/main/ets/pages/Apps.ets)明确提示远程应用不可用并转向 VNC；基于 RDP/RemoteApp 的旧启动方案不再列入路线图，不能宣称支持一键 EXE 或来宾应用桌面固定。 |
+| 文件共享 | 有配置字段和相关页面，但主启动路径中的 virtio-9p 被注释禁用；未确认接通 virtiofs。不能宣称已映射共享目录、盘符、剪贴板或双向同步。 |
+| 音频 / 麦克风 | 有 [OHAudio 补丁](patches/qemu/0002-ohos-ohaudio-audiodev.patch)及参数代码；当前 CI 不调用应用该补丁的本地构建脚本，实际日志为 `Audio drivers: oss`。不能据此称当前 HAP 已验证 OHAudio 后端，设备播放/录音未验收。 |
+| TPM / Windows 11 配置 | 有配置代码及 [最小 TPM2 补丁](patches/qemu/0001-ohos-builtin-minimal-tpm2.patch)；实际日志 `TPM support: YES` 仅说明通用构建能力，补丁存在不证明当前 CI 应用了它。TPM 行为、Windows 检测及安装兼容性未验证。 |
+| 镜像下载 | 有下载页面、任务/进度与 Range 请求相关代码；下载服务、断点恢复和实况窗等设备行为未验收。不是镜像授权或下载成功承诺。 |
+| AET / Guest Tools | 未找到本仓库完整 AET 交付或与此 HAP 配套的验收记录；[Guest Tools 工作流](.github/workflows/build-guest-tools.yml)仍含 TODO，且其独立旧门禁保持关闭。不能借用商业产品能力填充本仓库状态。 |
+| 硬件虚拟化 / JIT | 有 KVM/JIT 探测代码，但**当前 CI 明确 `--disable-kvm`**；没有 HMV 接入成功或权限获批证据。TCG 构建通过不证明某台设备获得 JIT 权限，也不证明 TCI 自动回退已接通。 |
+| GPU / USB / 摄像头 | 虚拟设备参数、上游设备模型或 VFIO 对象不代表鸿蒙设备直通可用；未建立本包的 GPU/USB/摄像头接入验收。 |
+| 跨设备连续性 / 商业愿景 | 世界日记、Bubbles、CSN、跨设备世界和云端连续性不属于本仓库已交付能力；不将商业 Aether 的描述或商店状态当作 Aetherium 实现证据。 |
 
-- **RemoteApp / RAIL（尚未实现）**：目前仍以“完整桌面 RDP”体验为主  
-- **快照 / 恢复**  
-- 更完善的文件共享（例如 Samba/双向同步/剪贴板集成等）  
-- GPU / USB 等更深度的虚拟化支持与兼容性完善  
+待办与验收顺序见 [路线图](docs/ROADMAP.md)。历史笔记中的勾选项或“完成”字样不应覆盖本页的构建匹配状态。
 
----
-
-## 性能与系统限制（必须先说清）
-
-- **`/dev/kvm` 不可用**：我们发现华为 HarmonyOS NEXT 设备目前**不向第三方应用暴露 `/dev/kvm`**。华为的方法则是使用**HMV（HarmonyOS Virtualization）**，但是这个并不对我们开放。我们正在申请这个相关权限以便在以后获取更加快速的虚拟化性能，如果您掌握这个权限并且想要参与贡献，请务必告诉我们；目前会自动降级到 **TCG**（性能会很卡）。  
-- **JIT / 可执行内存限制**：部分机型/系统版本对 JIT 有权限与签名要求；未满足条件时性能会明显下降。  
-
----
-
-## 构建与开发（重要：别在仓库根目录跑 `./configure`）
-
-### 1) 拉取源码（请您务必带子模块）
+## 构建、安装与贡献
 
 ```bash
 git clone --recurse-submodules https://github.com/AetheriumSimulator/qemu-hmos.git
@@ -70,85 +69,14 @@ cd qemu-hmos
 git submodule update --init --recursive
 ```
 
-**一眼自检：你到底有没有拉到子模块？**
+复现当前测试包请以 [云构建说明](docs/CLOUD_BUILD_README.md)、三个 [原生](.github/actions/validate-so/action.yml) / [固件](.github/actions/validate-uefi/action.yml) / [HAP](.github/actions/validate-hap/action.yml) 构建配方和发布证据为准。`tools/build_qemu_full_linux.sh` 是另一条本地配方，不能未经对比就视为当前 CI 的等价流程。不要在根目录执行 `./configure`，QEMU 源码位于 `third_party/qemu`。
 
-```bash
-# 看到 third_party/qemu/configure 才算子模块正常
-ls third_party/qemu/configure
-```
+发布包未签名。设备测试需在自己的开发环境配置签名/安装材料，记录设备、系统版本、包哈希、启动日志和实际来宾结果；不要提交证书、密钥或密码。Hosted CI 没有连接真机。参见 [源码维护说明](docs/PUBLIC_SOURCE.md)。
 
-### 2) 在 WSL / Linux 里交叉编译 QEMU（推荐）
+本次文档核对对应的回归套件为 73 项；它验证工作流边界、产物证据及源码重建逻辑，不是 73 项真机功能验收。贡献时请把“新增代码”“构建通过”“设备实测”分别报告。
 
-> Windows `cmd.exe` 不能直接运行 `.sh`。请使用 **WSL / Linux / Git Bash**。
+## 许可证与范围
 
-```bash
-export OHOS_NDK_HOME=/path/to/harmonyos-sdk/linux/native
+仓库包含多许可证代码：项目自有代码的 [Apache-2.0](LICENSE-APACHE) 不替代 QEMU 和其他第三方组件的许可证；对第三方的补丁遵循相应上游要求。根 [LICENSE](LICENSE)、组件原文及发布归档中的通知需要结合实际打包内容阅读，不能给整个组合简单贴一个已批准标签。
 
-bash tools/build_ohos_deps.sh
-bash tools/build_qemu_full_linux.sh
-```
-
-产物默认输出到：
-- `entry/src/main/libs/arm64-v8a/libqemu_full.so`（以脚本提示为准）
-
-### 3) App 侧构建/运行
-
-请用 **DevEco Studio** 打包安装到设备（本仓库不建议在终端直接跑 hvigor）。
-
----
-
-## 常见报错（新手必看）
-
-### 1) `./configure: 没有那个文件或目录`
-
-你多半是在 **仓库根目录**执行了 `./configure`。本项目根目录没有 `configure`，正确位置是：
-- `third_party/qemu/configure`
-
-推荐做法：直接跑构建脚本
-- `bash tools/build_qemu_full_linux.sh`
-
-如果你一定要手动编译 QEMU，也请进入子模块目录：
-
-```bash
-cd third_party/qemu
-./configure --target-list=aarch64-softmmu
-```
-
-### 2) `make: *** 没有指明目标并且找不到 makefile。 停止。`
-
-你多半是在 **错误目录**（比如仓库根目录）直接 `make` 了。  
-QEMU 的 `Makefile` 不在根目录，并且通常需要先 `./configure`（或脚本生成构建目录）后再编译。
-
-### 3) “找不到任何 .sh 文件 / 不能运行 .sh”
-
-这通常是因为你在 Windows 的 `cmd.exe` 环境里执行 `.sh`。请改用：
-- WSL
-- Linux 终端
-- Git Bash（能力有限，优先 WSL）
-
-> 经验法则：只要命令里出现 `bash xxx.sh`，就别用 Windows cmd。
-
----
-
-## 许可证（非常重要）
-
-本仓库是**多许可证**结构：
-- **QEMU（`third_party/qemu`）**：遵循上游 QEMU 的 GPL 许可证（见 `third_party/qemu/COPYING`）
-- 我们App使用到的[其他项目（详见星河合伙人页面）](docs/STARRIVER_PARTNER.md)，均遵循其他代码自带的许可证！  
-- **本项目自研代码**（如 `entry/`、`tools/`、`scripts/` 等，不包括第三方代码及其派生修改）：采用 **Apache-2.0** 开源（见 `LICENSE-APACHE`）
-- **对 QEMU 等第三方代码的补丁**：遵循被修改代码的上游许可要求；不能因存放在 `patches/` 就统一视为 Apache-2.0。
-- **其他 third_party 组件**：遵循各自上游许可证（例如 FreeRDP、OpenSSL、GLib/Pixman/PCRE2 等）  
-
-> 说明：根目录的 `LICENSE` 当前放的是 GPL 文本，主要用于对 QEMU 相关分发/修改的合规提示；请以本节的“多许可证说明”理解整个仓库。  
-> 非法律建议：若你要发布二进制或做商业分发，请自行评估 GPL/Apache/第三方许可证的合规要求。  
-
----
-
-## 贡献指南
-
-欢迎大家一起参与，特别需要的方向包括：  
-- UI / 交互体验提升  
-- 稳定性 / 性能优化 / Bug 修复  
-- 新系统 / 来宾镜像模板支持  
-- 音频/输入/显示链路的兼容性完善  
-- 文档 / 教程 / 示例镜像（合法合规）  
+GPL 软件可商业使用；开源仓库可见性、独立 `.so`、`dlopen` 或测试版发布均不自动证明组合许可和完整对应源码已经验收。[分发状态](docs/OPEN_SOURCE_STATUS.md)列出当前证据与缺口。本仓库不提供商业 Aether 的代码或授权结论。

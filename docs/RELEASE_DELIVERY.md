@@ -1,5 +1,12 @@
 # HAP delivery and evidence review
 
+Current verified delivery (2026-10-18, Asia/Shanghai): PR #42 merged as
+`220702399b91f90dbfaa39335914b8159fe87c84`; main run 39027202185 built, uploaded
+and published the unsigned test prerelease. See [actual assets and hashes](OPEN_SOURCE_STATUS.md)
+and [feature/validation limits](../README.MD). This is an executed delivery, not
+just a future pipeline proposal; it remains separate from human approval and
+device acceptance.
+
 The complete workflow builds the native libraries, firmware and unsigned HAP
 **once**. It then creates three candidate delivery files on the same runner:
 

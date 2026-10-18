@@ -47,7 +47,7 @@ import qemu from 'qemu_hmos'
 创建了 `entry/src/main/ets/types/qemu_hmos.d.ts` 文件，提供完整的类型声明：
 - 基础功能接口
 - VM管理接口
-- RDP/VNC客户端接口
+- VNC 客户端接口；旧 RDP 类型/注释仅属历史遗留，RDP/RemoteApp 不计划实现。
 - 诊断和测试接口
 
 ### 5. 调试能力增强

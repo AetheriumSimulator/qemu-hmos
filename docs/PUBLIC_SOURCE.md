@@ -4,6 +4,11 @@ This repository contains source code and build recipes. Generated libraries,
 firmware, package-manager caches, IDE state and machine-local signing settings
 must not be tracked. Existing public history is not rewritten by this cleanup.
 
+Current cloud builds and a public unsigned test delivery now exist; see
+[verified delivery](OPEN_SOURCE_STATUS.md) and [current build recipes](CLOUD_BUILD_README.md).
+The cleanup rules below still apply to tracked files. A published candidate source
+archive does not itself certify full corresponding-source closure.
+
 ## Rebuilding after the cleanup
 
 Initialize the pinned QEMU submodule and install dependencies using the checked-in

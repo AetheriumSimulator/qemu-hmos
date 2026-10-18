@@ -99,8 +99,7 @@ bash tools/build_ohos_deps.sh
 # 构建 LibVNC（如果需要）
 bash tools/build_libvnc_ohos.sh
 
-# 构建 FreeRDP（如果需要）
-bash tools/build_freerdp_ohos.sh
+# RDP / RemoteApp 不计划实现；不再提供 FreeRDP 构建待办。
 ```
 
 ### 3. 构建 libqemu_hmos.so

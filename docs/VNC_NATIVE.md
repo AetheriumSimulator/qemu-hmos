@@ -1,56 +1,26 @@
-# Native VNC Viewer (LibVNCClient)
+# Native VNC: source implementation and packaged availability
 
-Goal: replace the WebView/noVNC path with a native VNC client implemented via N-API, rendering frames in ArkTS.
+Checked 2026-10-18 (Asia/Shanghai), against main `220702399b91f90dbfaa39335914b8159fe87c84` and [run 39027202185](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39027202185).
 
-## Status
-- Build plumbing added: CMake detects `third_party/libvncclient/libvncclient.a` and defines `LIBVNC_HAVE_CLIENT` when present.
-- N-API surface (stubs implemented):
-  - `vncAvailable(): boolean`
-  - `vncCreate(): number` — returns a session id
-  - `vncConnect(id: number, host: string, port: number): boolean`
-  - `vncDisconnect(id: number): boolean`
-  - `vncGetFrame(id: number): { width, height, pixels: ArrayBuffer } | null`
-- ArkTS wrappers:
-  - `entry/src/main/ets/managers/VNCNativeClient.ets`
-  - Page: `pages/VNCNativeViewer` (Start VM with `display: vnc=:1` and attempt native connect)
+## Code that exists
 
-Real frame decoding is not wired yet — code compiles and UI is in place to switch away from noVNC and verify availability. Once `libvncclient.a` is provided, we can implement the event loop and frame callbacks.
+[napi_init.cpp](../entry/src/main/cpp/napi_init.cpp) contains `VncSession`, asynchronous connection/lifecycle handling, framebuffer allocation/update callbacks, render workers, pointer and keyboard dispatch. The ArkTS [client wrapper](../entry/src/main/ets/managers/VNCNativeClient.ets) and [viewer page](../entry/src/main/ets/pages/VNCNativeViewer.ets) exist. It is no longer accurate to say all frame decoding/event-loop work is unwritten.
 
-## How to provide LibVNCClient
+## Current public HAP limitation
 
-Place the prebuilt client static library and headers under:
+[CMake](../entry/src/main/cpp/CMakeLists.txt) enables `LIBVNC_HAVE_CLIENT` only when the optional client archive is present. The verified build logged:
 
-- `entry/src/main/cpp/third_party/libvncclient/libvncclient.a`
-- Headers (expected include root): `entry/src/main/cpp/third_party/libvncclient/include/rfb/rfbclient.h` (and deps)
+```text
+VNC Client: Disabled (missing libvncclient.a)
+VNC Server: Disabled (missing libvncserver.a)
+```
 
-Rebuild native: `hvigor :entry:default@BuildNativeWithNinja`
+These are wrapper-side optional libraries. The separate QEMU core **does** build with `--enable-vnc`; that does not provide the app's native client. Without `LIBVNC_HAVE_CLIENT`, `VncConnect`, `VncSendPointer` and `VncSendKey` return false. The current test HAP must not be advertised as having a working integrated VNC display/input path.
 
-CMake will print:
-- `Found VNC client library: .../libvncclient.a`
-- `LIBVNC_HAVE_CLIENT` defined
+The recipe does not call `tools/build_libvnc_ohos.sh`. The [supplementary LibVNC export](../ports/libvnc/README.md) supplies source/provenance material, not proof that those objects were linked into this HAP. Do not solve the omission by inserting an arbitrary untraceable archive.
 
-## Next steps (implementation plan)
+## Remaining integration and validation
 
-1) Wire LibVNCClient
-- Create `VncSession` (rfbClient*, worker thread)
-- Set callbacks: `MallocFrameBuffer`, `GotFrameBufferUpdate`, `SoftCursor*`, `GotXCutText`
-- Connect via `rfbInitClient()` with `serverHost/Port` set
+Build the required client from identified sources with matching dependencies and notices, connect that recipe to the root HAP, then verify actual payload/link evidence. On a device, verify availability, connection failure handling, frame updates, surface lifecycle, keyboard/pointer/touch input and reconnect/VM teardown with the exact signed package and guest.
 
-2) Frame pipeline
-- Convert rfbClient->frameBuffer (8/16/32 bpp) to RGBA8888
-- Push into a ring buffer protected by mutex
-- Expose via `vncGetFrame()` returning an ArrayBuffer
-
-3) Input
-- N-API: `vncSendPointer(x,y,mask)`, `vncSendKey(key,down)` mapping to LibVNCClient helpers
-
-4) ArkTS rendering
-- Use Canvas (drawPixelMap) or PixelMap to blit RGBA frames
-- Poll on a timer (30–60 fps) and render latest frame
-
-5) Feature parity
-- Resize handling, clipboard, encodings (start with RAW/Tight/ZRLE), perf knobs
-
-## Why client (not server)
-While the project name is LibVNCServer, the same repo ships LibVNCClient which is what we need to connect to QEMU’s VNC server.
-
+No such device acceptance is established by the current hosted build. Historical noVNC/WebView notes describe older paths and are not current validation evidence. RDP and RemoteApp are explicitly **not planned**; they are not a fallback integration roadmap for Aetherium.

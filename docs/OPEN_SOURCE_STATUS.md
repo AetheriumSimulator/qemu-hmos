@@ -8,6 +8,39 @@ assessment, not a determination of legal compliance or infringement. GPL softwar
 can be used commercially; repository visibility alone does not establish complete
 corresponding source for a particular binary.
 
+## Current verified delivery (checked 2026-10-18, Asia/Shanghai)
+
+Main is `220702399b91f90dbfaa39335914b8159fe87c84` (merged PR #42).
+[Run 39027202185](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39027202185)
+succeeded: native SO, ArmVirt/OVMF, unsigned HAP/payload checks, source/notice
+collection, extracted-input replay, upload and independent Release reverification.
+Both post-build and Release verifiers reported `allowed=true` under
+`test-disclosure-v1`, while explicitly retaining **human reviews not approved**.
+
+The [public test prerelease](https://github.com/AetheriumSimulator/qemu-hmos/releases/tag/test-220702399b91f90dbfaa39335914b8159fe87c84)
+is not a draft and contains exactly these delivery assets:
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| aetherium-unsigned.hap | 55998657 | `0f16e219c3c007e80a607de3060ad5c11cc442af17b184f8c2bcbde733ff7405` |
+| aetherium-source.tar.gz | 294827677 | `24d3b5a67362e27e62c819c479b1d5adb9e64faf6aff17510390127a9326cda8` |
+| release-evidence.json | 25987442 | `b29431a65ebea837ce26c24b1971d2c72dbc5225d0acc080a1492ae8a8dea79a` |
+
+All three browser URLs were downloaded without authentication and hash-verified
+on 2026-10-17; release metadata was rechecked on 2026-10-18. The downloaded bundle
+also passed the full verifier, including four original SDK notice/metadata files.
+The candidate has 102,054 source members, 45 source records and 137 exclusions.
+Use the named `aetherium-source.tar.gz`, not GitHub's automatic source ZIP/tarball.
+This is build-matched candidate source, not certification of source completeness.
+
+Actions Artifact `12099471932` uploaded and was downloaded by the Release job;
+its seven-day retention ends 2026-10-24 11:20:38 UTC. An independent local download
+from Actions' Azure storage returned HTTP 403; the public Release downloads above
+succeeded. No signing, device installation, guest boot or runtime acceptance was
+performed. Current root API 18/fullcore and separate QEMU 11.1 phone-core/API 20
+goals must not be conflated; see the [implementation matrix](../README.MD).
+RDP and RemoteApp are explicitly not planned, not pending validation targets.
+
 ## Verified public distribution history
 
 On 2026-10-17, remote `main` was
@@ -107,14 +140,13 @@ corresponding source. Original SDK runtime notices/metadata now accompany it.
 
 Hash/manifest/source identity, notice provenance, required inputs and main-only
 publication controls remain mandatory. The default verifier's `strict-review`
-mode remains available. Existing public artifacts/releases are untouched. This
-policy change enables future eligible main pushes to publish unsigned test
-assets; a passing PR run itself does not upload or release anything.
+mode remains available. Existing public artifacts/releases are untouched. The verified main run above has already published unsigned test assets;
+future eligible main pushes use the same policy; a passing PR run itself does not upload or release anything.
 
 `check_source_inventory.py --require-binary-release` rejects source-only approval
 and directs callers to the built-delivery verifier. Changing an inventory status
-flag cannot approve a delivery. Current CI outcomes must be read from the PR's
-latest head, not the historical successful run above.
+flag cannot approve a delivery. For later changes, read the exact head/run and its actual upload/Release outcomes;
+the verified delivery above does not certify later packages.
 
 ## Verification
 
