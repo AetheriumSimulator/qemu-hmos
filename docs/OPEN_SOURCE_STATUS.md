@@ -168,3 +168,20 @@ failed/cancelled/skipped reviews/builds. Summary tests execute the shell with
 success, failure, cancellation, skip and missing outputs. Source evidence checks
 read the Git index: reviewed dependency/recipe/license edits must update their
 recorded hashes, calculated over Git blob bytes, not platform line endings.
+
+### OHAudio build evidence
+
+The fullcore/API18 path now requires the OHAudio patch in both local and CI builds.
+Missing/drifted patches fail explicitly. CI selects `aether-soundkit-hmos` and
+checks compiled ELF registration, renderer/capturer symbols and the `libohaudio.so`
+dependency before HAP packaging. The source candidate includes the added backend
+C file, patch, recipe and `ohaudio-build-evidence.json`. This adds a platform audio
+dependency; existing SDK terms/source-mapping disclosures remain unresolved.
+
+The backend uses API10 renderer/capturer callback interfaces available in API18,
+and accepts s16 little-endian PCM (NAPI: 48 kHz, stereo output, mono input). Builder,
+configuration, generation and start failures return initialization failure with
+the native result code, rather than reporting successful silent capture.
+Compilation/registration is not device acceptance: playback, microphone permission
+granted/denied, capture, routing, lifecycle and latency still require device tests.
+The publication policy, event boundaries and release disclosures are unchanged.

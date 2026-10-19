@@ -77,9 +77,9 @@ cd "${BUILD_DIR}"
 # ========== Apply local QEMU patches (idempotent) ==========
 # We keep QEMU as an upstream submodule; HarmonyOS-specific fixes are applied as patches at build time.
 # This avoids needing to push to upstream qemu/qemu while keeping the repo PR-friendly.
+python3 "${REPO_ROOT}/tools/apply_ohaudio_patch.py" --source "${QEMU_SRC}"
 QEMU_PATCHES=(
   "${REPO_ROOT}/patches/qemu/0001-ohos-builtin-minimal-tpm2.patch"
-  "${REPO_ROOT}/patches/qemu/0002-ohos-ohaudio-audiodev.patch"
 )
 for p in "${QEMU_PATCHES[@]}"; do
   if [[ -f "${p}" ]]; then
@@ -112,6 +112,7 @@ log "配置 QEMU (使用 configure)..."
 # 运行 configure 生成 meson 交叉编译文件
 ../configure \
     --target-list=aarch64-softmmu \
+    --audio-drv-list=aether-soundkit-hmos \
     --cross-prefix="${CROSS_TRIPLE}-" \
     --cc="${CC}" \
     --cxx="${CXX}" \

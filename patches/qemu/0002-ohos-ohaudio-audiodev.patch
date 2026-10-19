@@ -1,9 +1,9 @@
 diff --git a/audio/aether_soundkit_hmos.c b/audio/aether_soundkit_hmos.c
 new file mode 100644
-index 0000000000..e0ac44929e
+index 0000000..52def7f
 --- /dev/null
 +++ b/audio/aether_soundkit_hmos.c
-@@ -0,0 +1,450 @@
+@@ -0,0 +1,411 @@
 +/*
 + * QEMU audio backend for HarmonyOS (OHAudio / AudioKit)
 + *
@@ -16,16 +16,14 @@ index 0000000000..e0ac44929e
 +#include "qemu/osdep.h"
 +#include "qemu/module.h"
 +#include "qemu/thread.h"
-+#include "audio.h"
++#include "qemu/audio.h"
 +
 +#define AUDIO_CAP "aether-soundkit-hmos"
 +#include "audio_int.h"
 +
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
 +#include <ohaudio/native_audiocapturer.h>
 +#include <ohaudio/native_audiorenderer.h>
 +#include <ohaudio/native_audiostreambuilder.h>
-+#endif
 +
 +typedef struct AetherRingBuffer {
 +    uint8_t *buf;
@@ -104,9 +102,7 @@ index 0000000000..e0ac44929e
 +    QemuMutex mutex;
 +    AetherRingBuffer rb;
 +    bool enabled;
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
 +    OH_AudioRenderer *renderer;
-+#endif
 +} AetherVoiceOut;
 +
 +typedef struct AetherVoiceIn {
@@ -114,37 +110,16 @@ index 0000000000..e0ac44929e
 +    QemuMutex mutex;
 +    AetherRingBuffer rb;
 +    bool enabled;
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
 +    OH_AudioCapturer *capturer;
-+#endif
 +} AetherVoiceIn;
 +
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
-+static OH_AudioStream_SampleFormat aether_to_oh_sample_format(AudioFormat fmt, bool *ok)
-+{
-+    *ok = true;
-+    switch (fmt) {
-+    case AUDIO_FORMAT_U8:
-+        return AUDIOSTREAM_SAMPLE_U8;
-+    case AUDIO_FORMAT_S16:
-+        return AUDIOSTREAM_SAMPLE_S16LE;
-+    case AUDIO_FORMAT_S32:
-+        return AUDIOSTREAM_SAMPLE_S32LE;
-+    case AUDIO_FORMAT_F32:
-+        return AUDIOSTREAM_SAMPLE_F32LE;
-+    default:
-+        *ok = false;
-+        return AUDIOSTREAM_SAMPLE_S16LE;
-+    }
-+}
-+
-+static OH_AudioData_Callback_Result aether_renderer_on_write(OH_AudioRenderer *renderer, void *userData,
++static int32_t aether_renderer_on_write(OH_AudioRenderer *renderer, void *userData,
 +                                                            void *audioData, int32_t audioDataSize)
 +{
 +    AetherVoiceOut *ao = (AetherVoiceOut *)userData;
 +    (void)renderer;
 +    if (!ao || !audioData || audioDataSize <= 0) {
-+        return AUDIO_DATA_CALLBACK_RESULT_VALID;
++        return 0;
 +    }
 +
 +    /* Default to silence, then overwrite with available ring data. */
@@ -154,105 +129,105 @@ index 0000000000..e0ac44929e
 +    (void)aether_ring_read(&ao->rb, (uint8_t *)audioData, (size_t)audioDataSize);
 +    qemu_mutex_unlock(&ao->mutex);
 +
-+    return AUDIO_DATA_CALLBACK_RESULT_VALID;
++    return 0;
 +}
 +
-+static void aether_capturer_on_read(OH_AudioCapturer *capturer, void *userData,
++static int32_t aether_capturer_on_read(OH_AudioCapturer *capturer, void *userData,
 +                                   void *audioData, int32_t audioDataSize)
 +{
 +    AetherVoiceIn *ai = (AetherVoiceIn *)userData;
 +    (void)capturer;
 +    if (!ai || !audioData || audioDataSize <= 0) {
-+        return;
++        return 0;
 +    }
 +
 +    qemu_mutex_lock(&ai->mutex);
 +    (void)aether_ring_write_overwrite(&ai->rb, (const uint8_t *)audioData, (size_t)audioDataSize);
 +    qemu_mutex_unlock(&ai->mutex);
++    return 0;
 +}
 +
-+static void aether_try_start_renderer(AetherVoiceOut *ao, const audsettings *as)
++static int aether_create_renderer(AetherVoiceOut *ao, const audsettings *as)
 +{
 +    OH_AudioStreamBuilder *builder = NULL;
-+    OH_AudioRenderer *renderer = NULL;
++    OH_AudioStream_Result r;
++    OH_AudioRenderer_Callbacks callbacks = {
++        .OH_AudioRenderer_OnWriteData = aether_renderer_on_write,
++    };
 +
++    /* NAPI uses signed 16-bit little-endian PCM. Reject other formats. */
++    if (as->fmt != AUDIO_FORMAT_S16 || as->endianness != 0) {
++        dolog("OHAudio: unsupported renderer PCM format/endian\n");
++        return -1;
++    }
++    r = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_RENDERER);
++    if (r != AUDIOSTREAM_SUCCESS || !builder) {
++        dolog("OHAudio: create renderer builder failed (rc=%d)\n", (int)r);
++        return -1;
++    }
++#define SET_OR_FAIL(call) do { r = (call); if (r != AUDIOSTREAM_SUCCESS) { \
++    dolog("OHAudio: %s failed (rc=%d)\n", #call, (int)r); goto fail; } } while (0)
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetSamplingRate(builder, as->freq));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetChannelCount(builder, as->nchannels));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetSampleFormat(builder, AUDIOSTREAM_SAMPLE_S16LE));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetEncodingType(builder, AUDIOSTREAM_ENCODING_TYPE_RAW));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_NORMAL));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetRendererInfo(builder, AUDIOSTREAM_USAGE_MUSIC));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetRendererCallback(builder, callbacks, ao));
++    SET_OR_FAIL(OH_AudioStreamBuilder_GenerateRenderer(builder, &ao->renderer));
++    SET_OR_FAIL(OH_AudioRenderer_Start(ao->renderer));
++    OH_AudioStreamBuilder_Destroy(builder);
++    return 0;
++fail:
 +    if (ao->renderer) {
-+        return;
++        OH_AudioRenderer_Release(ao->renderer);
++        ao->renderer = NULL;
 +    }
-+
-+    OH_AudioStream_Result r = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_RENDERER);
-+    if (r != AUDIOSTREAM_SUCCESS || !builder) {
-+        dolog("OHAudio: failed to create renderer builder (rc=%d)\n", (int)r);
-+        return;
-+    }
-+
-+    (void)OH_AudioStreamBuilder_SetSamplingRate(builder, as->freq);
-+    (void)OH_AudioStreamBuilder_SetChannelCount(builder, as->nchannels);
-+
-+    bool fmt_ok = false;
-+    OH_AudioStream_SampleFormat sf = aether_to_oh_sample_format(as->fmt, &fmt_ok);
-+    if (!fmt_ok) {
-+        dolog("OHAudio: unsupported sample format %d, will output silence\n", (int)as->fmt);
-+    } else {
-+        (void)OH_AudioStreamBuilder_SetSampleFormat(builder, sf);
-+    }
-+    (void)OH_AudioStreamBuilder_SetEncodingType(builder, AUDIOSTREAM_ENCODING_TYPE_RAW);
-+    (void)OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_NORMAL);
-+    (void)OH_AudioStreamBuilder_SetRendererInfo(builder, AUDIOSTREAM_USAGE_MUSIC);
-+    (void)OH_AudioStreamBuilder_SetRendererWriteDataCallback(builder, aether_renderer_on_write, ao);
-+
-+    r = OH_AudioStreamBuilder_GenerateRenderer(builder, &renderer);
-+    (void)OH_AudioStreamBuilder_Destroy(builder);
-+    if (r != AUDIOSTREAM_SUCCESS || !renderer) {
-+        dolog("OHAudio: failed to generate renderer (rc=%d)\n", (int)r);
-+        return;
-+    }
-+
-+    ao->renderer = renderer;
-+    (void)OH_AudioRenderer_Start(ao->renderer);
++    OH_AudioStreamBuilder_Destroy(builder);
++    return -1;
++#undef SET_OR_FAIL
 +}
 +
-+static void aether_try_start_capturer(AetherVoiceIn *ai, const audsettings *as)
++static int aether_create_capturer(AetherVoiceIn *ai, const audsettings *as)
 +{
 +    OH_AudioStreamBuilder *builder = NULL;
-+    OH_AudioCapturer *capturer = NULL;
++    OH_AudioStream_Result r;
++    OH_AudioCapturer_Callbacks callbacks = {
++        .OH_AudioCapturer_OnReadData = aether_capturer_on_read,
++    };
 +
-+    if (ai->capturer) {
-+        return;
++    /* NAPI uses signed 16-bit little-endian PCM. Reject other formats. */
++    if (as->fmt != AUDIO_FORMAT_S16 || as->endianness != 0) {
++        dolog("OHAudio: unsupported capturer PCM format/endian\n");
++        return -1;
 +    }
-+
-+    OH_AudioStream_Result r = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_CAPTURER);
++    r = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_CAPTURER);
 +    if (r != AUDIOSTREAM_SUCCESS || !builder) {
-+        dolog("OHAudio: failed to create capturer builder (rc=%d)\n", (int)r);
-+        return;
++        dolog("OHAudio: create capturer builder failed (rc=%d)\n", (int)r);
++        return -1;
 +    }
-+
-+    (void)OH_AudioStreamBuilder_SetSamplingRate(builder, as->freq);
-+    (void)OH_AudioStreamBuilder_SetChannelCount(builder, as->nchannels);
-+
-+    bool fmt_ok = false;
-+    OH_AudioStream_SampleFormat sf = aether_to_oh_sample_format(as->fmt, &fmt_ok);
-+    if (!fmt_ok) {
-+        dolog("OHAudio: unsupported capture sample format %d, will capture silence\n", (int)as->fmt);
-+    } else {
-+        (void)OH_AudioStreamBuilder_SetSampleFormat(builder, sf);
++#define SET_OR_FAIL(call) do { r = (call); if (r != AUDIOSTREAM_SUCCESS) { \
++    dolog("OHAudio: %s failed (rc=%d)\n", #call, (int)r); goto fail; } } while (0)
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetSamplingRate(builder, as->freq));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetChannelCount(builder, as->nchannels));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetSampleFormat(builder, AUDIOSTREAM_SAMPLE_S16LE));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetEncodingType(builder, AUDIOSTREAM_ENCODING_TYPE_RAW));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_NORMAL));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetCapturerInfo(builder, AUDIOSTREAM_SOURCE_TYPE_MIC));
++    SET_OR_FAIL(OH_AudioStreamBuilder_SetCapturerCallback(builder, callbacks, ai));
++    SET_OR_FAIL(OH_AudioStreamBuilder_GenerateCapturer(builder, &ai->capturer));
++    SET_OR_FAIL(OH_AudioCapturer_Start(ai->capturer));
++    OH_AudioStreamBuilder_Destroy(builder);
++    return 0;
++fail:
++    if (ai->capturer) {
++        OH_AudioCapturer_Release(ai->capturer);
++        ai->capturer = NULL;
 +    }
-+    (void)OH_AudioStreamBuilder_SetEncodingType(builder, AUDIOSTREAM_ENCODING_TYPE_RAW);
-+    (void)OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_NORMAL);
-+    (void)OH_AudioStreamBuilder_SetCapturerInfo(builder, AUDIOSTREAM_SOURCE_TYPE_MIC);
-+    (void)OH_AudioStreamBuilder_SetCapturerReadDataCallback(builder, aether_capturer_on_read, ai);
-+
-+    r = OH_AudioStreamBuilder_GenerateCapturer(builder, &capturer);
-+    (void)OH_AudioStreamBuilder_Destroy(builder);
-+    if (r != AUDIOSTREAM_SUCCESS || !capturer) {
-+        dolog("OHAudio: failed to generate capturer (rc=%d)\n", (int)r);
-+        return;
-+    }
-+
-+    ai->capturer = capturer;
-+    (void)OH_AudioCapturer_Start(ai->capturer);
++    OH_AudioStreamBuilder_Destroy(builder);
++    return -1;
++#undef SET_OR_FAIL
 +}
-+#endif
 +
 +static int aether_init_out(HWVoiceOut *hw, audsettings *as, void *drv_opaque)
 +{
@@ -269,14 +244,12 @@ index 0000000000..e0ac44929e
 +    const size_t ring_bytes = MAX((size_t)8192, (size_t)as->freq * (size_t)hw->info.bytes_per_frame / 2);
 +    aether_ring_init(&ao->rb, ring_bytes);
 +
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
 +    ao->renderer = NULL;
-+    if (as->endianness != 0) {
-+        dolog("OHAudio: big-endian audio not supported, will output silence\n");
-+        return 0;
++    if (aether_create_renderer(ao, as) < 0) {
++        aether_ring_fini(&ao->rb);
++        qemu_mutex_destroy(&ao->mutex);
++        return -1;
 +    }
-+    aether_try_start_renderer(ao, as);
-+#endif
 +
 +    return 0;
 +}
@@ -285,13 +258,11 @@ index 0000000000..e0ac44929e
 +{
 +    AetherVoiceOut *ao = (AetherVoiceOut *)hw;
 +
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
 +    if (ao->renderer) {
 +        (void)OH_AudioRenderer_Stop(ao->renderer);
 +        (void)OH_AudioRenderer_Release(ao->renderer);
 +        ao->renderer = NULL;
 +    }
-+#endif
 +    aether_ring_fini(&ao->rb);
 +    qemu_mutex_destroy(&ao->mutex);
 +}
@@ -314,16 +285,15 @@ index 0000000000..e0ac44929e
 +    AetherVoiceOut *ao = (AetherVoiceOut *)hw;
 +    ao->enabled = enable;
 +
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
 +    if (!ao->renderer) {
 +        return;
 +    }
-+    if (enable) {
-+        (void)OH_AudioRenderer_Start(ao->renderer);
-+    } else {
-+        (void)OH_AudioRenderer_Pause(ao->renderer);
++    OH_AudioStream_Result r = enable ? OH_AudioRenderer_Start(ao->renderer)
++                                     : OH_AudioRenderer_Pause(ao->renderer);
++    if (r != AUDIOSTREAM_SUCCESS) {
++        ao->enabled = false;
++        dolog("OHAudio: renderer enable=%d failed (rc=%d)\n", enable, (int)r);
 +    }
-+#endif
 +}
 +
 +static int aether_init_in(HWVoiceIn *hw, audsettings *as, void *drv_opaque)
@@ -341,14 +311,12 @@ index 0000000000..e0ac44929e
 +    const size_t ring_bytes = MAX((size_t)8192, (size_t)as->freq * (size_t)hw->info.bytes_per_frame / 2);
 +    aether_ring_init(&ai->rb, ring_bytes);
 +
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
 +    ai->capturer = NULL;
-+    if (as->endianness != 0) {
-+        dolog("OHAudio: big-endian capture not supported, will capture silence\n");
-+        return 0;
++    if (aether_create_capturer(ai, as) < 0) {
++        aether_ring_fini(&ai->rb);
++        qemu_mutex_destroy(&ai->mutex);
++        return -1;
 +    }
-+    aether_try_start_capturer(ai, as);
-+#endif
 +
 +    return 0;
 +}
@@ -357,13 +325,11 @@ index 0000000000..e0ac44929e
 +{
 +    AetherVoiceIn *ai = (AetherVoiceIn *)hw;
 +
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
 +    if (ai->capturer) {
 +        (void)OH_AudioCapturer_Stop(ai->capturer);
 +        (void)OH_AudioCapturer_Release(ai->capturer);
 +        ai->capturer = NULL;
 +    }
-+#endif
 +    aether_ring_fini(&ai->rb);
 +    qemu_mutex_destroy(&ai->mutex);
 +}
@@ -376,18 +342,14 @@ index 0000000000..e0ac44929e
 +    }
 +
 +    if (!ai->enabled) {
-+        audio_pcm_info_clear_buf(&hw->info, buf, size / hw->info.bytes_per_frame);
-+        return size;
++        return 0;
 +    }
 +
 +    qemu_mutex_lock(&ai->mutex);
 +    const size_t got = aether_ring_read(&ai->rb, (uint8_t *)buf, size);
 +    qemu_mutex_unlock(&ai->mutex);
 +
-+    if (got < size) {
-+        memset((uint8_t *)buf + got, 0, size - got);
-+    }
-+    return size;
++    return got;
 +}
 +
 +static void aether_enable_in(HWVoiceIn *hw, bool enable)
@@ -395,16 +357,15 @@ index 0000000000..e0ac44929e
 +    AetherVoiceIn *ai = (AetherVoiceIn *)hw;
 +    ai->enabled = enable;
 +
-+#if defined(__OHOS__) || defined(__HARMONYOS__)
 +    if (!ai->capturer) {
 +        return;
 +    }
-+    if (enable) {
-+        (void)OH_AudioCapturer_Start(ai->capturer);
-+    } else {
-+        (void)OH_AudioCapturer_Pause(ai->capturer);
++    OH_AudioStream_Result r = enable ? OH_AudioCapturer_Start(ai->capturer)
++                                     : OH_AudioCapturer_Pause(ai->capturer);
++    if (r != AUDIOSTREAM_SUCCESS) {
++        ai->enabled = false;
++        dolog("OHAudio: capturer enable=%d failed (rc=%d)\n", enable, (int)r);
 +    }
-+#endif
 +}
 +
 +static void *aether_audio_init(Audiodev *dev, Error **errp)
@@ -455,24 +416,61 @@ index 0000000000..e0ac44929e
 +
 +
 diff --git a/audio/meson.build b/audio/meson.build
-index b2dca2c640..47d50eb0c3 100644
+index b2dca2c..f1e65fe 100644
 --- a/audio/meson.build
 +++ b/audio/meson.build
-@@ -8,6 +8,12 @@ system_ss.add(files(
+@@ -8,6 +8,8 @@ system_ss.add(files(
  # deprecated since v10.2, to be removed
  system_ss.add(files('audio-hmp-cmds.c', 'wavcapture.c'))
  
-+ohaudio = cc.find_library('ohaudio', required: false)
-+have_ohaudio = ohaudio.found() and cc.has_header('ohaudio/native_audiostreambuilder.h')
-+if have_ohaudio
-+  system_ss.add(ohaudio, files('aether_soundkit_hmos.c'))
-+endif
++system_ss.add(when: ohaudio, if_true: files('aether_soundkit_hmos.c'))
 +
  system_ss.add(when: coreaudio, if_true: files('coreaudio.m'))
  system_ss.add(when: dsound, if_true: files('dsoundaudio.c', 'audio_win_int.c'))
  
+diff --git a/meson.build b/meson.build
+index d929329..5db7236 100644
+--- a/meson.build
++++ b/meson.build
+@@ -2301,9 +2301,14 @@ endif
+ config_host_data = configuration_data()
+ 
+ config_host_data.set('CONFIG_HAVE_RUST', have_rust)
++ohaudio = cc.find_library('ohaudio', required: 'aether-soundkit-hmos' in get_option('audio_drv_list'))
++if ohaudio.found()
++  assert(cc.has_header('ohaudio/native_audiostreambuilder.h'), 'Missing OHAudio headers')
++endif
+ audio_drivers_selected = []
+ if have_system
+   audio_drivers_available = {
++    'aether-soundkit-hmos': ohaudio.found(),
+     'alsa': alsa.found(),
+     'coreaudio': coreaudio.found(),
+     'dsound': dsound.found(),
+@@ -2315,7 +2320,7 @@ if have_system
+     'sndio': sndio.found(),
+   }
+   foreach k, v: audio_drivers_available
+-    config_host_data.set('CONFIG_AUDIO_' + k.to_upper(), v)
++    config_host_data.set('CONFIG_AUDIO_' + k.to_upper().replace('-', '_'), v)
+   endforeach
+ 
+   # Default to native drivers first, OSS second, SDL third
+diff --git a/meson_options.txt b/meson_options.txt
+index 2836156..f755184 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -19,7 +19,7 @@ option('tls_priority', type : 'string', value : 'NORMAL',
+ option('default_devices', type : 'boolean', value : true,
+        description: 'Include a default selection of devices in emulators')
+ option('audio_drv_list', type: 'array', value: ['default'],
+-       choices: ['alsa', 'coreaudio', 'default', 'dsound', 'jack', 'oss', 'pa', 'pipewire', 'sdl', 'sndio'],
++       choices: ['aether-soundkit-hmos', 'alsa', 'coreaudio', 'default', 'dsound', 'jack', 'oss', 'pa', 'pipewire', 'sdl', 'sndio'],
+        description: 'Set audio driver list')
+ option('block_drv_rw_whitelist', type : 'string', value : '',
+        description: 'set block driver read-write whitelist (by default affects only QEMU, not tools like qemu-img)')
 diff --git a/qapi/audio.json b/qapi/audio.json
-index 2df87b9710..e540bf4ff3 100644
+index 2df87b9..e540bf4 100644
 --- a/qapi/audio.json
 +++ b/qapi/audio.json
 @@ -484,6 +484,7 @@

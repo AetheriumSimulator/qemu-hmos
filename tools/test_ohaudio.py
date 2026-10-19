@@ -1,0 +1,77 @@
+"""Regression checks for mandatory patching and the compiled audio contract."""
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+from apply_ohaudio_patch import apply
+from verify_ohaudio_build import verify
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class AudioTests(unittest.TestCase):
+    def test_patch_apply_repeat_and_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            source = root/'x'
+            source.write_text('old\n')
+            delta = root/'change.patch'
+            delta.write_text('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n')
+            apply(root, delta)
+            apply(root, delta)
+            self.assertEqual(source.read_text(), 'new\n')
+            source.write_text('unexpected\n')
+            with self.assertRaisesRegex(RuntimeError, 'does not apply cleanly'):
+                apply(root, delta)
+            with self.assertRaisesRegex(RuntimeError, 'missing'):
+                apply(root, root/'missing.patch')
+
+    def test_backend_pcm_and_failure_cleanup(self):
+        # Compile the actual patch-added source against deliberately minimal mocks.
+        # Real QEMU + SDK headers and linking are checked by validate-so CI.
+        delta = (ROOT/'patches/qemu/0002-ohos-ohaudio-audiodev.patch').read_text()
+        chunk = delta.split('+++ b/audio/aether_soundkit_hmos.c\n', 1)[1].split('diff --git ', 1)[0]
+        backend = '\n'.join(line[1:] for line in chunk.splitlines() if line.startswith('+'))
+        backend = '\n'.join(line for line in backend.splitlines() if not line.startswith('#include'))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            (path/'backend.c').write_text(backend)
+            binary = path/'test'
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Werror', '-I', tmp,
+                            str(ROOT/'tools/tests/ohaudio/harness.c'), '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
+    def test_compiled_napi_arguments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp)/'args.cpp'
+            source.write_text('''#include <cassert>
+#include "ohaudio_args.h"
+int main() {
+  assert(BuildOHAudioArgs("snd0") == "aether-soundkit-hmos,id=snd0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=1,in.format=s16");
+  assert(BuildOHAudioArgs("second").find("id=second,") != std::string::npos);
+}''')
+            binary = Path(tmp)/'test'
+            subprocess.run(['c++', '-std=c++17', '-Wall', '-Werror', '-I', str(ROOT/'entry/src/main/cpp'), str(source), '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
+    def test_elf_verifier_rejects_missing_registration_or_linkage(self):
+        symbols = '\n'.join('1: 0 0 FUNC LOCAL DEFAULT 1 '+s for s in (
+            'register_audio_aether_soundkit_hmos', 'aether_audio_driver', 'aether_init_out', 'aether_init_in'))
+        symbols += '\n' + '\n'.join('1: 0 0 FUNC GLOBAL DEFAULT UND '+s for s in (
+            'OH_AudioStreamBuilder_SetRendererCallback', 'OH_AudioStreamBuilder_SetCapturerCallback',
+            'OH_AudioRenderer_Start', 'OH_AudioCapturer_Start'))
+        dynamic = '0 (NEEDED) Shared library: [libohaudio.so]'
+        with patch('verify_ohaudio_build.subprocess.check_output', side_effect=[symbols, dynamic]):
+            self.assertEqual(verify(Path('fixture'))['deviceCapture'], 'not-executed')
+        for bad_symbols, bad_dynamic in [(symbols.replace('aether_init_in', 'missing'), dynamic),
+                                         (symbols.replace('OH_AudioCapturer_Start', 'missing'), dynamic),
+                                         (symbols, '')]:
+            with patch('verify_ohaudio_build.subprocess.check_output', side_effect=[bad_symbols, bad_dynamic]):
+                with self.assertRaises(ValueError):
+                    verify(Path('fixture'))
+
+
+if __name__ == '__main__':
+    unittest.main()

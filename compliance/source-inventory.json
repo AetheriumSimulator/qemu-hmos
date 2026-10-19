@@ -44,13 +44,13 @@
         },
         {
           "path": "patches/qemu/0002-ohos-ohaudio-audiodev.patch",
-          "sha256": "0c3a906a0da7b0f8ca84f59c760b4affb070055a2b9f4575c4fade49b4fbeeec"
+          "sha256": "1813039baae16bbb61fd8cb5daff0ec6a814a8fabb6f6c89515e81927283d5fe"
         }
       ],
       "recipes": [
         {
           "path": "tools/build_qemu_full_linux.sh",
-          "sha256": "37f1835074f85748959976e7030589a537a5e356a7505a9b74b4f04f385b5603"
+          "sha256": "8e5f3d165f770c936cc8365f7ce27682030551884d4b6d61a83efd908f3ada8d"
         }
       ]
     },

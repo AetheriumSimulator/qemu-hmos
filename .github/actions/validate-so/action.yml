@@ -6,6 +6,9 @@ runs:
   - name: Prepare reproducible HAP source inputs
     shell: bash
     run: python3 tools/prepare_hap_sources.py
+  - name: Apply required OHAudio backend
+    shell: bash
+    run: python3 tools/apply_ohaudio_patch.py
   - name: Download and setup HarmonyOS SDK
     run: |
       echo "=== Downloading HarmonyOS SDK ==="
@@ -195,6 +198,7 @@ runs:
         --host-cc="/usr/bin/cc" \
         --extra-cflags="-target aarch64-unknown-linux-ohos --sysroot=$SYSROOT -Wno-error=typedef-redefinition -Wno-error=macro-redefined" \
         --extra-ldflags="-target aarch64-unknown-linux-ohos --sysroot=$SYSROOT" \
+        --audio-drv-list=aether-soundkit-hmos \
         --enable-tcg \
         --enable-vnc \
         --enable-slirp \
@@ -322,6 +326,7 @@ runs:
       print('Running PIC shared link with Meson graph:', ' '.join(shlex.quote(x) for x in cmd))
       subprocess.run(cmd, check=True)
       PY
+      python3 ../../../tools/verify_ohaudio_build.py libqemu_full.so --output ohaudio-build-evidence.json
       test -f libqemu_full.so
       file libqemu_full.so
       readelf -h libqemu_full.so | grep 'Type:[[:space:]]*DYN'
