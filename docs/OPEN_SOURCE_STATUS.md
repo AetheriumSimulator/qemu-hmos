@@ -185,3 +185,12 @@ the native result code, rather than reporting successful silent capture.
 Compilation/registration is not device acceptance: playback, microphone permission
 granted/denied, capture, routing, lifecycle and latency still require device tests.
 The publication policy, event boundaries and release disclosures are unchanged.
+
+API interface reference: OpenHarmony `interface_sdk_c` 5.1 release commit
+[`7de238a336d4e00c6611b269dfc29c44f3e5f211`](https://github.com/openharmony/interface_sdk_c/blob/7de238a336d4e00c6611b269dfc29c44f3e5f211/multimedia/audio_framework/common/native_audiostreambuilder.h)
+declares `SetRendererCallback` and `SetCapturerCallback` since API10. This is an
+interface compatibility reference, not an exact source mapping for the installed
+platform library. The app declares `MICROPHONE` but its current dynamic permission
+request path covers storage only; microphone consent UX remains an explicit gap.
+Do not treat capture initialization failure as permission granted or successful
+recording, and do not bypass device permission controls during testing.

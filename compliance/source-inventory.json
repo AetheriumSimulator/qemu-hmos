@@ -51,6 +51,14 @@
         {
           "path": "tools/build_qemu_full_linux.sh",
           "sha256": "8e5f3d165f770c936cc8365f7ce27682030551884d4b6d61a83efd908f3ada8d"
+        },
+        {
+          "path": "tools/apply_ohaudio_patch.py",
+          "sha256": "6e972d1990f514eeb83fda66870344e9174ba3c28fa39284d5d2e0945a63ca3b"
+        },
+        {
+          "path": "tools/verify_ohaudio_build.py",
+          "sha256": "7204cc05eef82763344571db703ecd7762940c15e808c4d31829cd623e5eeeb4"
         }
       ]
     },

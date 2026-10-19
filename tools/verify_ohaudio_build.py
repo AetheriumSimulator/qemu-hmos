@@ -18,7 +18,7 @@ def verify(core, readelf='readelf'):
             raise ValueError(f'Missing compiled OHAudio symbol: {symbol}')
     for api in ('OH_AudioStreamBuilder_SetRendererCallback', 'OH_AudioStreamBuilder_SetCapturerCallback',
                 'OH_AudioRenderer_Start', 'OH_AudioCapturer_Start'):
-        if not any(' UND ' in line and line.split()[-1].split('@')[0] == api for line in symbols.splitlines()):
+        if not any(' UND ' in line and len(line.split()) >= 8 and line.split()[7].split('@')[0] == api for line in symbols.splitlines()):
             raise ValueError(f'Missing linked OHAudio API: {api}')
     if not any('NEEDED' in line and '[libohaudio.so]' in line for line in dynamic.splitlines()):
         raise ValueError('Core has no libohaudio.so dependency')
