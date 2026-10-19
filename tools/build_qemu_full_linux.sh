@@ -187,6 +187,7 @@ rm -rf meson-* build.ninja 2>/dev/null || true
 ./pyvenv/bin/meson setup \
     --cross-file=config-meson.cross \
     --native-file=config-meson.native \
+    -Daudio_drv_list=aether-soundkit-hmos \
     -Dkvm=disabled \
     -Dxen=disabled \
     -Dvnc=enabled \
@@ -240,6 +241,7 @@ ${CC} -shared -fPIC \
     -lintl \
     -lfdt \
     -lslirp \
+    -lohaudio \
     -lz -lm -lpthread -ldl \
     -Wl,--allow-shlib-undefined \
     -Wl,-soname,libqemu_full.so
@@ -250,6 +252,7 @@ if [[ ! -f "libqemu_full.so" ]]; then
 fi
 
 log ""
+python3 "${REPO_ROOT}/tools/verify_ohaudio_build.py" libqemu_full.so --output ohaudio-build-evidence.json
 log "复制文件到输出目录..."
 mkdir -p "${OUTPUT_DIR}"
 

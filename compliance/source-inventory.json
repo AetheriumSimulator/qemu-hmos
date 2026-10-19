@@ -50,7 +50,7 @@
       "recipes": [
         {
           "path": "tools/build_qemu_full_linux.sh",
-          "sha256": "8e5f3d165f770c936cc8365f7ce27682030551884d4b6d61a83efd908f3ada8d"
+          "sha256": "d5a542570375bacedd146452f587b568f51f70003815dbc0857e9327aec73290"
         },
         {
           "path": "tools/apply_ohaudio_patch.py",
