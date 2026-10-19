@@ -35,7 +35,7 @@ struct audio_pcm_ops {
  size_t (*read)(HWVoiceIn*,void*,size_t); void (*run_buffer_in)(HWVoiceIn*); void (*enable_in)(HWVoiceIn*,bool);
 };
 struct audio_driver {
- const char *name,*descr; void *(*init)(Audiodev*,Error**); void (*fini)(void*);
+ const char *name; void *(*init)(Audiodev*,Error**); void (*fini)(void*);
  struct audio_pcm_ops *pcm_ops; int max_voices_out,max_voices_in; size_t voice_size_out,voice_size_in;
 };
 static struct audio_driver *registered;

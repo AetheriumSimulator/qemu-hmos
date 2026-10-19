@@ -1,9 +1,9 @@
 diff --git a/audio/aether_soundkit_hmos.c b/audio/aether_soundkit_hmos.c
 new file mode 100644
-index 0000000..52def7f
+index 0000000..0962452
 --- /dev/null
 +++ b/audio/aether_soundkit_hmos.c
-@@ -0,0 +1,411 @@
+@@ -0,0 +1,410 @@
 +/*
 + * QEMU audio backend for HarmonyOS (OHAudio / AudioKit)
 + *
@@ -397,7 +397,6 @@ index 0000000..52def7f
 +
 +static struct audio_driver aether_audio_driver = {
 +    .name = "aether-soundkit-hmos",
-+    .descr = "HarmonyOS OHAudio backend (AudioKit)",
 +    .init = aether_audio_init,
 +    .fini = aether_audio_fini,
 +    .pcm_ops = &aether_pcm_ops,
