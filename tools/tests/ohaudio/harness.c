@@ -93,5 +93,15 @@ int main(void) {
  fail_at=calls+1; aether_enable_in(&in.hw,true); assert(!in.enabled);
  aether_fini_in(&in.hw); aether_fini_out(&out.hw); assert(!builders && !streams);
  as.fmt=999; assert(aether_init_out(&out.hw,&as,NULL)==-1); assert(aether_init_in(&in.hw,&as,NULL)==-1);
+ // A denied capture initialization must not release or disable active playback.
+ as.fmt=AUDIO_FORMAT_S16; calls=0; fail_at=0;
+ memset(&out,0,sizeof(out)); memset(&in,0,sizeof(in));
+ assert(!aether_init_out(&out.hw,&as,NULL));
+ fail_at=calls+10; // Capturer Start fails, e.g. a platform permission rejection.
+ assert(aether_init_in(&in.hw,&as,NULL)==-1);
+ assert(streams==1 && out.renderer && out.enabled);
+ aether_write(&out.hw,src,sizeof(src));
+ aether_renderer_on_write(out.renderer,&out,dst,sizeof(dst)); assert(!memcmp(src,dst,sizeof(src)));
+ aether_fini_out(&out.hw); assert(!builders && !streams);
  puts("OHAudio mock lifecycle/failure/PCM tests passed; no device test");
 }

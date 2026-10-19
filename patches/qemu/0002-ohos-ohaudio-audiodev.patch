@@ -414,6 +414,31 @@ index 0000000..0962452
 +type_init(register_audio_aether_soundkit_hmos);
 +
 +
+diff --git a/audio/audio.c b/audio/audio.c
+index 86e6744..f47c6b1 100644
+--- a/audio/audio.c
++++ b/audio/audio.c
+@@ -1988,6 +1988,7 @@ void audio_create_pdos(Audiodev *dev)
+         break
+ 
+         CASE(NONE, none, );
++        CASE(AETHER_SOUNDKIT_HMOS, aether_soundkit_hmos, );
+ #ifdef CONFIG_AUDIO_ALSA
+         CASE(ALSA, alsa, Alsa);
+ #endif
+diff --git a/audio/audio_template.h b/audio/audio_template.h
+index 7a8c431..90b89f2 100644
+--- a/audio/audio_template.h
++++ b/audio/audio_template.h
+@@ -389,6 +389,8 @@ AudiodevPerDirectionOptions *glue(audio_get_pdo_, TYPE)(Audiodev *dev)
+     case AUDIODEV_DRIVER_SPICE:
+         return dev->u.spice.TYPE;
+ #endif
++    case AUDIODEV_DRIVER_AETHER_SOUNDKIT_HMOS:
++        return dev->u.aether_soundkit_hmos.TYPE;
+     case AUDIODEV_DRIVER_WAV:
+         return dev->u.wav.TYPE;
+ 
 diff --git a/audio/meson.build b/audio/meson.build
 index b2dca2c..f1e65fe 100644
 --- a/audio/meson.build

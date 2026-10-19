@@ -35,6 +35,8 @@ REQUIRED_SOURCES = {
     'project/tools/build_curl_ohos.sh', 'project/tools/verify_curl_source.py',
     'project/tools/prepare_hap_sources.py',
     'project/tools/apply_ohaudio_patch.py',
+    'project/tools/verify_ohaudio_api18.py',
+    'project/third_party/qemu/build/ohaudio-api18-evidence.json',
     'project/patches/qemu/0002-ohos-ohaudio-audiodev.patch',
     'project/third_party/qemu/audio/aether_soundkit_hmos.c',
     'project/third_party/qemu/build/ohaudio-build-evidence.json',
@@ -183,6 +185,7 @@ def collect(root, hap, out):
     extra_patterns = [
         'third_party/qemu/audio/aether_soundkit_hmos.c',
         'third_party/qemu/build/ohaudio-build-evidence.json',
+        'third_party/qemu/build/ohaudio-api18-evidence.json',
         'third_party/deps/glib/src/tests/template*.in',
         'third_party/deps/glib/src/tests/lib/__init__.py',
         'third_party/deps/glib/src/.gitlab-ci/thorough-test-wrapper.sh',

@@ -8,7 +8,9 @@ runs:
     run: python3 tools/prepare_hap_sources.py
   - name: Apply required OHAudio backend
     shell: bash
-    run: python3 tools/apply_ohaudio_patch.py
+    run: |
+      python3 tools/apply_ohaudio_patch.py
+      python3 tools/check_ohaudio_dispatch.py
   - name: Download and setup HarmonyOS SDK
     run: |
       echo "=== Downloading HarmonyOS SDK ==="

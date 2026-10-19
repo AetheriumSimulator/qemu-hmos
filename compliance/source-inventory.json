@@ -44,7 +44,7 @@
         },
         {
           "path": "patches/qemu/0002-ohos-ohaudio-audiodev.patch",
-          "sha256": "61a7b7d94af012237b9ae7e2cc353f93284d8c13475534e2dca06a92d0496b02"
+          "sha256": "218e5ec2094386e250fd786649266ca3e455b64c25ff75cec49215be76d2549d"
         }
       ],
       "recipes": [
@@ -59,6 +59,14 @@
         {
           "path": "tools/verify_ohaudio_build.py",
           "sha256": "7204cc05eef82763344571db703ecd7762940c15e808c4d31829cd623e5eeeb4"
+        },
+        {
+          "path": "tools/verify_ohaudio_api18.py",
+          "sha256": "5c4cca892e90e1237a4205b7a9666c8c9379b4dabab9a771f267ce64f3affb0f"
+        },
+        {
+          "path": "tools/check_ohaudio_dispatch.py",
+          "sha256": "aa76825be1e74eff93f8be13628ee2a1a2828994fdba87fe77a1abb793da260a"
         }
       ]
     },

@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 from apply_ohaudio_patch import apply
 from verify_ohaudio_build import verify
@@ -42,6 +43,23 @@ class AudioTests(unittest.TestCase):
             subprocess.run(['cc', '-std=c11', '-Wall', '-Werror', '-I', tmp,
                             str(ROOT/'tools/tests/ohaudio/harness.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
+
+    def test_hap_requires_identical_validated_core(self):
+        from validate_hap import REQUIRED_ENTRIES
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            hap = path/'test.hap'
+            core = path/'core.so'
+            with zipfile.ZipFile(hap, 'w') as archive:
+                for name in REQUIRED_ENTRIES:
+                    archive.writestr(name, b'synthetic core fixture')
+            core.write_bytes(b'synthetic core fixture')
+            command = ['python3', str(ROOT/'tools/validate_hap.py'), str(hap), '--core', str(core)]
+            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            core.write_bytes(b'wrong core')
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('differs from', result.stderr)
 
     def test_compiled_napi_arguments(self):
         with tempfile.TemporaryDirectory() as tmp:

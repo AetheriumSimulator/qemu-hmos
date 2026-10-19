@@ -194,3 +194,15 @@ platform library. The app declares `MICROPHONE` but its current dynamic permissi
 request path covers storage only; microphone consent UX remains an explicit gap.
 Do not treat capture initialization failure as permission granted or successful
 recording, and do not bypass device permission controls during testing.
+
+The HAP stage additionally recompiles the actual backend with its embedded native
+SDK whose `apiVersion` must be 18, links an isolated probe and checks all imported
+audio APIs against that SDK's AArch64 exports. This is backend API18 compatibility
+evidence; the full core's native SDK remains separately recorded (currently SDK6
+preferred by the existing build). HAP packaging must preserve the validated core
+byte-for-byte. QEMU PDO allocation/dispatch is exercised using the actual patched
+functions. A mock capture-start failure test keeps an existing renderer alive and
+checks subsequent PCM output. On a device, rejected capture initialization should
+leave that input voice unavailable and log the native error; it does not tear down
+the independent output voice. These tests do not establish actual device permission
+or recording behavior.

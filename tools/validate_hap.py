@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import zipfile
 from pathlib import Path
 
@@ -18,6 +19,7 @@ REQUIRED_ENTRIES = (
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("hap", type=Path)
+    parser.add_argument("--core", type=Path, help="Require byte-identical validated core in HAP")
     args = parser.parse_args()
 
     if not args.hap.is_file() or args.hap.stat().st_size == 0:
@@ -37,6 +39,11 @@ def main() -> int:
         ]
         if empty:
             raise SystemExit("HAP contains empty required entries: " + ", ".join(empty))
+        if args.core:
+            packaged = archive.read("libs/arm64-v8a/libqemu_full.so")
+            if packaged != args.core.read_bytes():
+                raise SystemExit("HAP core differs from the validated native build")
+            print("HAP/native core SHA-256 match: " + hashlib.sha256(packaged).hexdigest())
         print(f"Validated {args.hap}: {len(entries)} entries")
         for name in REQUIRED_ENTRIES:
             print(f"  {name}: {archive.getinfo(name).file_size} bytes")
