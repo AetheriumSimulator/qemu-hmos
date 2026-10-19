@@ -201,8 +201,10 @@ The HAP stage additionally recompiles the actual backend with its embedded nativ
 SDK whose `apiVersion` must be 18, links an isolated probe and checks all imported
 audio APIs against that SDK's AArch64 exports. This is backend API18 compatibility
 evidence; the full core's native SDK remains separately recorded (currently SDK6
-preferred by the existing build). HAP packaging must preserve the validated core
-byte-for-byte. QEMU PDO allocation/dispatch is exercised using the actual patched
+preferred by the existing build). Hvigor strips debug/symbol information during HAP packaging; verification compares
+all ELF program headers and PT_LOAD bytes, ignoring only section-table header
+metadata. The original and packaged hashes and load-image identity are recorded
+in `ohaudio-hap-evidence.json`. Code/data changes fail the check. QEMU PDO allocation/dispatch is exercised using the actual patched
 functions. A mock capture-start failure test keeps an existing renderer alive and
 checks subsequent PCM output. On a device, rejected capture initialization should
 leave that input voice unavailable and log the native error; it does not tear down

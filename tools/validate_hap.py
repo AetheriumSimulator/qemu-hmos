@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import struct
 import zipfile
 from pathlib import Path
 
@@ -16,10 +18,46 @@ REQUIRED_ENTRIES = (
 )
 
 
+def load_image(data: bytes) -> bytes:
+    """Canonical ELF64 PT_LOAD bytes; ignore only section-table header metadata.
+
+    Hvigor strips non-loaded debug/symbol sections. Program headers, executable
+    bytes, dynamic symbols/relocations and loaded data must remain unchanged.
+    """
+    if len(data) < 64 or data[:6] != b'\x7fELF\x02\x01':
+        raise ValueError('Expected a little-endian ELF64 core')
+    header = bytearray(data[:64])
+    phoff = struct.unpack_from('<Q', data, 32)[0]
+    phsize, count = struct.unpack_from('<HH', data, 54)
+    if phsize != 56 or not count:
+        raise ValueError('Invalid ELF program headers')
+    header[40:48] = b'\0' * 8  # e_shoff
+    header[58:64] = b'\0' * 6  # e_shentsize, e_shnum, e_shstrndx
+    result = bytearray(header)
+    loads = 0
+    for i in range(count):
+        entry = data[phoff+i*phsize:phoff+(i+1)*phsize]
+        kind, flags, offset, vaddr, paddr, filesz, memsz, align = struct.unpack('<IIQQQQQQ', entry)
+        result.extend(entry)  # Keep every program header, including offsets/flags.
+        if kind != 1:
+            continue
+        if offset + filesz > len(data):
+            raise ValueError('Truncated ELF load segment')
+        segment = bytearray(data[offset:offset+filesz])
+        if offset == 0 and filesz >= 64:
+            segment[:64] = header
+        result.extend(segment)
+        loads += 1
+    if not loads:
+        raise ValueError('ELF has no load segments')
+    return bytes(result)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("hap", type=Path)
-    parser.add_argument("--core", type=Path, help="Require byte-identical validated core in HAP")
+    parser.add_argument("--core", type=Path, help="Require identical validated ELF load image in HAP")
+    parser.add_argument("--identity-report", type=Path)
     args = parser.parse_args()
 
     if not args.hap.is_file() or args.hap.stat().st_size == 0:
@@ -41,9 +79,21 @@ def main() -> int:
             raise SystemExit("HAP contains empty required entries: " + ", ".join(empty))
         if args.core:
             packaged = archive.read("libs/arm64-v8a/libqemu_full.so")
-            if packaged != args.core.read_bytes():
-                raise SystemExit("HAP core differs from the validated native build")
-            print("HAP/native core SHA-256 match: " + hashlib.sha256(packaged).hexdigest())
+            original = args.core.read_bytes()
+            try:
+                image = original if packaged == original else load_image(original)
+                if packaged != original and load_image(packaged) != image:
+                    raise ValueError('loaded code/data or program headers changed')
+            except (ValueError, struct.error) as error:
+                raise SystemExit(f"HAP core differs from the validated native build: {error}")
+            report = {'originalSha256': hashlib.sha256(original).hexdigest(),
+                      'packagedSha256': hashlib.sha256(packaged).hexdigest(),
+                      'comparison': 'byte-identical' if packaged == original else 'elf64-pt-load-excluding-section-table-header-fields',
+                      'loadImageSha256': hashlib.sha256(image).hexdigest(),
+                      'result': 'match', 'deviceTest': 'not-executed'}
+            if args.identity_report:
+                args.identity_report.write_text(json.dumps(report, indent=2)+'\n')
+            print('HAP/native core identity: ' + json.dumps(report))
         print(f"Validated {args.hap}: {len(entries)} entries")
         for name in REQUIRED_ENTRIES:
             print(f"  {name}: {archive.getinfo(name).file_size} bytes")

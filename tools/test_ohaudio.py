@@ -44,6 +44,25 @@ class AudioTests(unittest.TestCase):
                             str(ROOT/'tools/tests/ohaudio/harness.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
+    def test_load_image_accepts_stripping_but_rejects_code_change(self):
+        from validate_hap import load_image
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            (p/'core.c').write_text('int audio_fixture(void) { return 42; }')
+            subprocess.run(['cc', '-shared', '-fPIC', '-g', str(p/'core.c'), '-o', str(p/'core.so')], check=True)
+            original = (p/'core.so').read_bytes()
+            subprocess.run(['strip', '--strip-unneeded', str(p/'core.so')], check=True)
+            stripped = (p/'core.so').read_bytes()
+            self.assertNotEqual(original, stripped)
+            self.assertEqual(load_image(original), load_image(stripped))
+            # ELF .text offset from the actual section table, not guessed bytes.
+            import re
+            sections = subprocess.check_output(['readelf', '-SW', str(p/'core.so')], text=True)
+            offset = int(re.search(r'\.text\s+PROGBITS\s+\S+\s+(\S+)', sections)[1], 16)
+            altered = bytearray(stripped)
+            altered[offset] ^= 1
+            self.assertNotEqual(load_image(original), load_image(altered))
+
     def test_hap_requires_identical_validated_core(self):
         from validate_hap import REQUIRED_ENTRIES
         with tempfile.TemporaryDirectory() as tmp:
