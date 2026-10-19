@@ -170,8 +170,12 @@ GPL 的义务不是仅“把自己修改过的几个文件上传”，也不当�
 mock DSO 场景（参数、缺符号、错误 marker、一次性调用、并发）和 C 编译器头文件
 调用均通过。mock 在运行中改写 argv 并返回 17，验证参数拷贝和退出码分离。
 
-**已编写，未验证**：CMake 工作流（当前环境未安装 CMake，实际主机测试通过直接
-编译器完成）、可选 HarmonyOS N-API、ArkTS 声明及 API 20 设备打包。
+**云端已验证**：[主机契约 CI run 39230189755](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39230189755)
+完成 CMake 配置、编译和 CTest（6/6 通过）；[源码 CI run 39230189644](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39230189644)
+通过。上述运行绑定实现提交 `b3dc4720c6e4f160656c8474b4eca1648e7a23a3`。本机没有 CMake，
+本机检查使用直接编译器；云端已补充验证 CMake 路径。
+
+**已编写，未验证**：可选 HarmonyOS N-API、ArkTS 声明及 API 20 设备打包。
 
 **尚未完成**：目标私有仓库身份确认、私有代码比较/迁移、真实 Phone DSO 装载、
 设备启动/退出、LibVNC 重建及哈希漂移修复、fullcore backend 收敛、完整对应源码
