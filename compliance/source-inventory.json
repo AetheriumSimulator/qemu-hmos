@@ -62,11 +62,15 @@
         },
         {
           "path": "tools/verify_ohaudio_api18.py",
-          "sha256": "5c4cca892e90e1237a4205b7a9666c8c9379b4dabab9a771f267ce64f3affb0f"
+          "sha256": "82853363f05aa386316f87dc24352d64435197698e3097ee74a2af0f6ca5d83e"
         },
         {
           "path": "tools/check_ohaudio_dispatch.py",
           "sha256": "aa76825be1e74eff93f8be13628ee2a1a2828994fdba87fe77a1abb793da260a"
+        },
+        {
+          "path": "tools/ohaudio_api18_args.py",
+          "sha256": "f6f8d5b6fff7fdd7dc475b92ca9a26aa336d0225baff95cbb4a586906b64b76a"
         }
       ]
     },

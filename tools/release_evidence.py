@@ -39,6 +39,7 @@ REQUIRED_SOURCES = {
     'project/third_party/deps/glib/src/subprojects/libffi/LICENSE',
     'project/tools/apply_ohaudio_patch.py',
     'project/tools/verify_ohaudio_api18.py',
+    'project/tools/ohaudio_api18_args.py',
     'project/third_party/qemu/build/ohaudio-hap-evidence.json',
     'project/third_party/qemu/build/ohaudio-api18-evidence.json',
     'project/patches/qemu/0002-ohos-ohaudio-audiodev.patch',

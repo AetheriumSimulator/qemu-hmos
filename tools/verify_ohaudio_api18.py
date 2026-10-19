@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Recompile the actual backend with the HAP's API18 compiler/sysroot."""
 import json
+import hashlib
+from ohaudio_api18_args import retarget, check_dependencies
 import os
 from pathlib import Path
 import shlex
@@ -21,16 +23,16 @@ args = entry.get('arguments') or shlex.split(entry['command'])
 compiler = native/'llvm/bin/clang'
 if not compiler.is_file():
     raise SystemExit('API18 compiler missing')
-args[0] = str(compiler)
+old_native = Path(os.environ['NDK_DIR'])
 output = build/'ohaudio-api18.o'
-for i, arg in enumerate(args):
-    if arg.startswith('--sysroot='):
-        args[i] = '--sysroot=' + str(native/'sysroot')
-    elif arg == '-o':
-        args[i+1] = str(output)
-# Fail on incompatible callback signatures or undeclared API calls.
-args += ['-Werror=implicit-function-declaration', '-Werror=incompatible-function-pointer-types']
-subprocess.run(args, cwd=entry['directory'], check=True)
+depfile = build/'ohaudio-api18.d'
+args = retarget(args, old_native, native, output, depfile)
+probe_env = os.environ.copy()
+for key in ('CPATH', 'C_INCLUDE_PATH', 'CPLUS_INCLUDE_PATH', 'OBJC_INCLUDE_PATH'):
+    probe_env.pop(key, None)
+probe_env.update(SYSROOT=str(native/'sysroot'), NDK_DIR=str(native))
+subprocess.run(args, cwd=entry['directory'], env=probe_env, check=True)
+headers = check_dependencies(depfile.read_text(), old_native, native)
 # Resolve the API18 object's native imports against the same API18 system library.
 # QEMU symbols remain undefined in this isolated probe; the complete core link is checked separately.
 probe = build/'ohaudio-api18-probe.so'
@@ -56,6 +58,7 @@ if not required or not required <= exports:
     raise SystemExit('API18 SDK does not export required audio APIs: ' + str(sorted(required - exports)))
 result['api18ExportedApis'] = sorted(required)
 result['nativeSdkMetadata'] = metadata
+result['api18Headers'] = [{'path': str(Path(p).relative_to(native)), 'sha256': hashlib.sha256(Path(p).read_bytes()).hexdigest()} for p in headers]
 result['api18BackendCompile'] = 'verified'
 result['scope'] = 'backend recompile/link probe; full core uses separately recorded native SDK'
 (build/'ohaudio-api18-evidence.json').write_text(json.dumps(result, indent=2)+'\n')

@@ -80,6 +80,24 @@ class AudioTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('differs from', result.stderr)
 
+    def test_api18_command_and_dependency_isolation(self):
+        from ohaudio_api18_args import retarget, check_dependencies
+        args = retarget(['old-cc', '-I/old/sdk/sysroot/usr/include', '-isystem',
+                         '/old/sdk/llvm/lib/clang/include', '--sysroot=/old/sdk/sysroot',
+                         '-o', 'old.o', '-MMD', '-MF', 'old.d', '-c', 'backend.c'],
+                        '/old/sdk', '/api18/sdk', 'new.o', 'new.d')
+        self.assertFalse(any('/old/sdk' in arg for arg in args))
+        self.assertIn('-I/api18/sdk/sysroot/usr/include', args)
+        self.assertIn('-MD', args)
+        self.assertNotIn('-MMD', args)
+        self.assertNotIn('old.d', args)
+        header = '/api18/sdk/sysroot/usr/include/ohaudio/native_audiostreambuilder.h'
+        self.assertEqual(check_dependencies('new.o: '+header, '/old/sdk', '/api18/sdk'), [header])
+        for deps in ('new.o: /old/sdk/sysroot/usr/include/sys/types.h '+header,
+                     'new.o: /foreign/ohaudio/native_audiostreambuilder.h'):
+            with self.assertRaises(ValueError):
+                check_dependencies(deps, '/old/sdk', '/api18/sdk')
+
     def test_compiled_napi_arguments(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp)/'args.cpp'
