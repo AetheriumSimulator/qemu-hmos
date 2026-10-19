@@ -34,6 +34,9 @@ REQUIRED_SOURCES = {
     'project/entry/src/main/cpp/CMakeLists.txt',
     'project/tools/build_curl_ohos.sh', 'project/tools/verify_curl_source.py',
     'project/tools/prepare_hap_sources.py',
+    'project/tools/libffi_source.py',
+    'project/third_party/deps/glib/libffi-source-evidence.json',
+    'project/third_party/deps/glib/src/subprojects/libffi/LICENSE',
     'project/tools/apply_ohaudio_patch.py',
     'project/tools/verify_ohaudio_api18.py',
     'project/third_party/qemu/build/ohaudio-hap-evidence.json',
@@ -181,9 +184,22 @@ def collect(root, hap, out):
         dynamic.extend(p for p in base.iterdir() if p.is_dir() and (p/'.git').exists())
     for path in sorted(set(dynamic)):
         snapshot(path, 'project/' + path.relative_to(root).as_posix(), files, components, omissions)
+    # The locked libffi archive is source-only and intentionally has no .git.
+    # Validate the complete tree before collecting it, including original notices.
+    import libffi_source
+    libffi = root/'third_party/deps/glib/src/subprojects/libffi'
+    libffi_source.verify(libffi)
+    for path in sorted(libffi.rglob('*')):
+        if path.is_file() and '.git' not in path.relative_to(libffi).parts:
+            add_file(path, 'project/' + path.relative_to(root).as_posix(), files, omissions)
+    if not (libffi/'.git').exists():
+        components.append({'path': 'project/' + libffi.relative_to(root).as_posix(),
+                           'revision': libffi_source.REVISION, 'origin': libffi_source.ORIGIN,
+                           'gitTree': libffi_source.TREE, 'sourceKind': 'verified-archive-snapshot'})
     # Preserve build-created GLib scaffolding, firmware configuration and exact
     # configuration/link graphs as reconstruction evidence (never SDK binaries).
     extra_patterns = [
+        'third_party/deps/glib/libffi-source-evidence.json',
         'third_party/qemu/audio/aether_soundkit_hmos.c',
         'third_party/qemu/build/ohaudio-build-evidence.json',
         'third_party/qemu/build/ohaudio-api18-evidence.json',

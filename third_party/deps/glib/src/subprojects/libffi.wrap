@@ -1,7 +1,7 @@
 [wrap-git]
 directory=libffi
 url=https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi.git
-revision=meson
+revision=83d0cfd00d7d37af4b4349511d29f1f0512621b3
 depth=1
 
 [provide]

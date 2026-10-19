@@ -104,7 +104,7 @@
       "source": {
         "kind": "vendored-tree",
         "path": "third_party/deps/glib/src",
-        "gitTree": "d2568e0694869f85804c3091e03093806eea8d9d"
+        "gitTree": "d61c8a095a772898493d297367f7b68923abc415"
       },
       "upstreamRevision": null,
       "licenseEvidence": [
@@ -116,7 +116,11 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "6a68eee7cbf3e792cfa37eb835ad0c17186c56eebdf5aff7d6ee6eba8699809a"
+          "sha256": "a934706fdad7f23f6ee1749cb3e9930aef9a0d5e78b16e3d3bf541d9360f66fe"
+        },
+        {
+          "path": "tools/libffi_source.py",
+          "sha256": "9d605d24578d58786fda22e438dce1dc3594e6d8d6397042ff2f8ee36e66f4a3"
         }
       ]
     },
@@ -139,7 +143,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "6a68eee7cbf3e792cfa37eb835ad0c17186c56eebdf5aff7d6ee6eba8699809a"
+          "sha256": "a934706fdad7f23f6ee1749cb3e9930aef9a0d5e78b16e3d3bf541d9360f66fe"
         }
       ]
     },
@@ -170,7 +174,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "6a68eee7cbf3e792cfa37eb835ad0c17186c56eebdf5aff7d6ee6eba8699809a"
+          "sha256": "a934706fdad7f23f6ee1749cb3e9930aef9a0d5e78b16e3d3bf541d9360f66fe"
         }
       ]
     },

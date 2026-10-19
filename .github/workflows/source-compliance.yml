@@ -24,6 +24,8 @@ jobs:
           python -m unittest discover -s tools -p 'test_workflow_guards.py' -v
       - name: Test delivery evidence and prerelease boundaries
         run: python -m unittest discover -s tools -p 'test_release_evidence.py' -v
+      - name: Test locked libffi source recovery
+        run: python -m unittest discover -s tools -p 'test_libffi_source.py' -v
       - name: Test offline curl source reconstruction
         run: python -m unittest discover -s tools -p 'test_curl_source.py' -v
       - name: Test OHAudio patch and native argument contract

@@ -214,3 +214,9 @@ or recording behavior.
 Constructing an audio voice does not start a stream or microphone capture.
 The existing guest voice activation controls Start/Pause; this PR adds no
 permission request and does not bypass system consent.
+
+The libffi build input is now pinned to its previously delivered revision and tree.
+Official fixed-commit archive and SHA-locked cache recovery are documented in
+[the libffi source audit](audits/2026-10-19-libffi-source-lock.md). No moving branch
+or unverified third-party mirror is used; the complete component and original
+license remain in source delivery. This does not close other provenance/review gaps.
