@@ -44,13 +44,33 @@
         },
         {
           "path": "patches/qemu/0002-ohos-ohaudio-audiodev.patch",
-          "sha256": "0c3a906a0da7b0f8ca84f59c760b4affb070055a2b9f4575c4fade49b4fbeeec"
+          "sha256": "91a37bbee496abd39346f97df95f44cc44fd955b8a24ab36ce91be4a3c006b77"
         }
       ],
       "recipes": [
         {
           "path": "tools/build_qemu_full_linux.sh",
-          "sha256": "37f1835074f85748959976e7030589a537a5e356a7505a9b74b4f04f385b5603"
+          "sha256": "d5a542570375bacedd146452f587b568f51f70003815dbc0857e9327aec73290"
+        },
+        {
+          "path": "tools/apply_ohaudio_patch.py",
+          "sha256": "6e972d1990f514eeb83fda66870344e9174ba3c28fa39284d5d2e0945a63ca3b"
+        },
+        {
+          "path": "tools/verify_ohaudio_build.py",
+          "sha256": "7204cc05eef82763344571db703ecd7762940c15e808c4d31829cd623e5eeeb4"
+        },
+        {
+          "path": "tools/verify_ohaudio_api18.py",
+          "sha256": "82853363f05aa386316f87dc24352d64435197698e3097ee74a2af0f6ca5d83e"
+        },
+        {
+          "path": "tools/check_ohaudio_dispatch.py",
+          "sha256": "aa76825be1e74eff93f8be13628ee2a1a2828994fdba87fe77a1abb793da260a"
+        },
+        {
+          "path": "tools/ohaudio_api18_args.py",
+          "sha256": "f6f8d5b6fff7fdd7dc475b92ca9a26aa336d0225baff95cbb4a586906b64b76a"
         }
       ]
     },
@@ -88,7 +108,7 @@
       "source": {
         "kind": "vendored-tree",
         "path": "third_party/deps/glib/src",
-        "gitTree": "d2568e0694869f85804c3091e03093806eea8d9d"
+        "gitTree": "d61c8a095a772898493d297367f7b68923abc415"
       },
       "upstreamRevision": null,
       "licenseEvidence": [
@@ -100,7 +120,11 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "6a68eee7cbf3e792cfa37eb835ad0c17186c56eebdf5aff7d6ee6eba8699809a"
+          "sha256": "a934706fdad7f23f6ee1749cb3e9930aef9a0d5e78b16e3d3bf541d9360f66fe"
+        },
+        {
+          "path": "tools/libffi_source.py",
+          "sha256": "9d605d24578d58786fda22e438dce1dc3594e6d8d6397042ff2f8ee36e66f4a3"
         }
       ]
     },
@@ -123,7 +147,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "6a68eee7cbf3e792cfa37eb835ad0c17186c56eebdf5aff7d6ee6eba8699809a"
+          "sha256": "a934706fdad7f23f6ee1749cb3e9930aef9a0d5e78b16e3d3bf541d9360f66fe"
         }
       ]
     },
@@ -154,7 +178,7 @@
       "recipes": [
         {
           "path": "tools/build_ohos_deps.sh",
-          "sha256": "6a68eee7cbf3e792cfa37eb835ad0c17186c56eebdf5aff7d6ee6eba8699809a"
+          "sha256": "a934706fdad7f23f6ee1749cb3e9930aef9a0d5e78b16e3d3bf541d9360f66fe"
         }
       ]
     },

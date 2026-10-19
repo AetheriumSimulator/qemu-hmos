@@ -80,6 +80,9 @@ runs:
       } >> "$GITHUB_ENV"
       echo "Using embedded HarmonyOS SDK: $sdk_dir"
     shell: bash
+  - name: Compile OHAudio against embedded API18 native SDK
+    shell: bash
+    run: python3 tools/verify_ohaudio_api18.py
   - name: Verify project SDK target and configure SDK path
     run: |
       set -euxo pipefail
@@ -161,5 +164,5 @@ runs:
       hap='entry/build/default/outputs/default/entry-default-unsigned.hap'
       test -s "$hap"
       unzip -tq "$hap"
-      python3 tools/validate_hap.py "$hap"
+      python3 tools/validate_hap.py "$hap" --core third_party/qemu/build/libqemu_full.so --identity-report third_party/qemu/build/ohaudio-hap-evidence.json
     shell: bash

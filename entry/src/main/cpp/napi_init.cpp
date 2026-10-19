@@ -1,3 +1,4 @@
+#include "ohaudio_args.h"
 #include "napi_compat.h"
 #include "qemu_wrapper.h"
 #include <cstring>
@@ -2827,12 +2828,10 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
     // 注意：sb16, es1370, gus, adlib, cs4231a 是 ISA 设备，只存在于 x86 架构
     // 在 ARM64 (qemu-system-aarch64) 上使用会导致崩溃
     if (!config.audioDevice.empty() && config.audioDevice != "none") {
-        // 使用自定义 HarmonyOS 音频后端（OHAudio/AudioKit），让 VNC 也能听到声音，并支持麦克风回传。
+        // 使用自定义 HarmonyOS 音频后端（OHAudio/AudioKit），在宿主设备播放/采集音频；这不是 VNC 音频传输。
         const std::string audiodevId = "snd0";
         args.push_back("-audiodev");
-        args.push_back("aether-soundkit-hmos,id=" + audiodevId +
-                       ",out.frequency=48000,out.channels=2,out.format=s16" +
-                       ",in.frequency=48000,in.channels=1,in.format=s16");
+        args.push_back(BuildOHAudioArgs(audiodevId));
         HilogPrint("QEMU: [HW] Audio backend = aether-soundkit-hmos (audiodev id=" + audiodevId + ")");
 
         std::string audioDev = config.audioDevice;

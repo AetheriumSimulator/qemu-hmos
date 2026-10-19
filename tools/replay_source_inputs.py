@@ -20,10 +20,11 @@ from release_evidence import TEXT_BUILD_INPUTS, excluded_payload, safe_name
 def replay(archive_path, meson):
     with tempfile.TemporaryDirectory(prefix='hap-source-replay-') as temporary:
         root = Path(temporary) / 'project'
-        selected = TEXT_BUILD_INPUTS | {'project/tools/prepare_hap_sources.py'}
+        selected = TEXT_BUILD_INPUTS | {'project/tools/prepare_hap_sources.py', 'project/tools/libffi_source.py'}
         with tarfile.open(archive_path, 'r:gz') as archive:
             for member in archive:
-                if member.name not in selected and not member.name.startswith('project/third_party/qemu/pc-bios/'):
+                if (member.name not in selected and not member.name.startswith('project/third_party/qemu/pc-bios/')
+                        and not member.name.startswith('project/third_party/deps/glib/src/subprojects/libffi/')):
                     continue
                 if not safe_name(member.name) or not member.isfile():
                     raise ValueError('Unsafe replay source member: ' + member.name)
@@ -35,9 +36,14 @@ def replay(archive_path, meson):
                 if target.exists():
                     raise ValueError('Duplicate replay member')
                 target.write_bytes(data)
+                target.chmod(0o755 if member.mode & 0o111 else 0o644)
         for name in selected:
             if not (Path(temporary) / name).is_file():
                 raise ValueError('Missing replay source: ' + name)
+        subprocess.run([sys.executable, '-c',
+                        "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
+                        "import libffi_source; print('PASS extracted libffi tree:', libffi_source.verify(Path(sys.argv[2])))",
+                        str(root/'tools'), str(root/'third_party/deps/glib/src/subprojects/libffi')], check=True)
         subprocess.run([sys.executable, str(root/'tools/prepare_hap_sources.py'), '--root', str(root)], check=True)
         assert hashlib.sha256((root/NOTE_PATH).read_bytes()).hexdigest() == NOTE_SHA256
         probe = Path(temporary) / 'meson-probe'

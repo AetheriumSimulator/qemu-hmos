@@ -168,3 +168,55 @@ failed/cancelled/skipped reviews/builds. Summary tests execute the shell with
 success, failure, cancellation, skip and missing outputs. Source evidence checks
 read the Git index: reviewed dependency/recipe/license edits must update their
 recorded hashes, calculated over Git blob bytes, not platform line endings.
+
+### OHAudio build evidence
+
+The fullcore/API18 path now requires the OHAudio patch in both local and CI builds.
+Missing/drifted patches fail explicitly. CI selects `aether-soundkit-hmos` and
+checks compiled ELF registration, renderer/capturer symbols and the `libohaudio.so`
+dependency before HAP packaging. The source candidate includes the added backend
+C file, patch, recipe and `ohaudio-build-evidence.json`. This adds a platform audio
+dependency; existing SDK terms/source-mapping disclosures remain unresolved.
+
+The backend uses API10 renderer/capturer callback interfaces available in API18,
+and accepts s16 little-endian PCM (NAPI: 48 kHz, stereo output, mono input). Builder,
+configuration and generation failures return initialization failure with the
+native result code. Streams start only when QEMU activates the corresponding
+voice; a Start/Pause failure logs its native result and disables that voice.
+Inactive capture returns no data rather than reporting successful silent capture.
+Compilation/registration is not device acceptance: playback, microphone permission
+granted/denied, capture, routing, lifecycle and latency still require device tests.
+The publication policy, event boundaries and release disclosures are unchanged.
+
+API interface reference: OpenHarmony `interface_sdk_c` 5.1 release commit
+[`7de238a336d4e00c6611b269dfc29c44f3e5f211`](https://github.com/openharmony/interface_sdk_c/blob/7de238a336d4e00c6611b269dfc29c44f3e5f211/multimedia/audio_framework/common/native_audiostreambuilder.h)
+declares `SetRendererCallback` and `SetCapturerCallback` since API10. This is an
+interface compatibility reference, not an exact source mapping for the installed
+platform library. The app declares `MICROPHONE` but its current dynamic permission
+request path covers storage only; microphone consent UX remains an explicit gap.
+Do not treat capture initialization failure as permission granted or successful
+recording, and do not bypass device permission controls during testing.
+
+The HAP stage additionally recompiles the actual backend with its embedded native
+SDK whose `apiVersion` must be 18, links an isolated probe and checks all imported
+audio APIs against that SDK's AArch64 exports. This is backend API18 compatibility
+evidence; the full core's native SDK remains separately recorded (currently SDK6
+preferred by the existing build). Hvigor strips debug/symbol information during HAP packaging; verification compares
+all ELF program headers and PT_LOAD bytes, ignoring only section-table header
+metadata. The original and packaged hashes and load-image identity are recorded
+in `ohaudio-hap-evidence.json`. Code/data changes fail the check. QEMU PDO allocation/dispatch is exercised using the actual patched
+functions. A mock capture-start failure test keeps an existing renderer alive and
+checks subsequent PCM output. On a device, rejected capture initialization should
+leave that input voice unavailable and log the native error; it does not tear down
+the independent output voice. These tests do not establish actual device permission
+or recording behavior.
+
+Constructing an audio voice does not start a stream or microphone capture.
+The existing guest voice activation controls Start/Pause; this PR adds no
+permission request and does not bypass system consent.
+
+The libffi build input is now pinned to its previously delivered revision and tree.
+Official fixed-commit archive and SHA-locked cache recovery are documented in
+[the libffi source audit](audits/2026-10-19-libffi-source-lock.md). No moving branch
+or unverified third-party mirror is used; the complete component and original
+license remain in source delivery. This does not close other provenance/review gaps.

@@ -51,7 +51,7 @@ Aetherium 是实验性的开源本地虚拟机应用：ArkTS 界面通过 C++/N-
 | RDP / RemoteApp / RAIL | **明确不计划实现，不在项目范围**（2026-10-18 产品决定）。旧注释、端口转发和 FreeRDP 材料是历史遗留，不是待开发或待验收承诺。 |
 | 来宾应用启动 / StartProgram | [Apps 页面](entry/src/main/ets/pages/Apps.ets)明确提示远程应用不可用并转向 VNC；基于 RDP/RemoteApp 的旧启动方案不再列入路线图，不能宣称支持一键 EXE 或来宾应用桌面固定。 |
 | 文件共享 | 有配置字段和相关页面，但主启动路径中的 virtio-9p 被注释禁用；未确认接通 virtiofs。不能宣称已映射共享目录、盘符、剪贴板或双向同步。 |
-| 音频 / 麦克风 | 有 [OHAudio 补丁](patches/qemu/0002-ohos-ohaudio-audiodev.patch)及参数代码；当前 CI 不调用应用该补丁的本地构建脚本，实际日志为 `Audio drivers: oss`。不能据此称当前 HAP 已验证 OHAudio 后端，设备播放/录音未验收。 |
+| 音频 / 麦克风 | CI 与本地 fullcore 构建必须应用 [OHAudio 补丁](patches/qemu/0002-ohos-ohaudio-audiodev.patch)，显式选择后端并验证 ELF 注册及链接；失败阻止 HAP 流程。支持的 PCM 参数为 s16/48kHz（输出双声道、输入单声道）；初始化失败会报告错误。设备播放、录音权限、路由和延迟尚未验收；麦克风动态授权流程仍缺失。不是 VNC 音频传输。 |
 | TPM / Windows 11 配置 | 有配置代码及 [最小 TPM2 补丁](patches/qemu/0001-ohos-builtin-minimal-tpm2.patch)；实际日志 `TPM support: YES` 仅说明通用构建能力，补丁存在不证明当前 CI 应用了它。TPM 行为、Windows 检测及安装兼容性未验证。 |
 | 镜像下载 | 有下载页面、任务/进度与 Range 请求相关代码；下载服务、断点恢复和实况窗等设备行为未验收。不是镜像授权或下载成功承诺。 |
 | AET / Guest Tools | 未找到本仓库完整 AET 交付或与此 HAP 配套的验收记录；[Guest Tools 工作流](.github/workflows/build-guest-tools.yml)仍含 TODO，且其独立旧门禁保持关闭。不能借用商业产品能力填充本仓库状态。 |

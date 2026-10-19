@@ -186,3 +186,7 @@ source-hygiene-*.json
 # Immutable upstream clones used only for source-reconstruction checks.
 .source-cache/
 !ports/qemu-11.1/overlay/qemu_hmos_phone.map
+
+# Downloaded, tree-verified libffi source; archived explicitly by release_evidence.
+/third_party/deps/glib/src/subprojects/libffi/
+/third_party/deps/glib/libffi-source-evidence.json
