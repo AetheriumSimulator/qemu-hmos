@@ -180,8 +180,10 @@ dependency; existing SDK terms/source-mapping disclosures remain unresolved.
 
 The backend uses API10 renderer/capturer callback interfaces available in API18,
 and accepts s16 little-endian PCM (NAPI: 48 kHz, stereo output, mono input). Builder,
-configuration, generation and start failures return initialization failure with
-the native result code, rather than reporting successful silent capture.
+configuration and generation failures return initialization failure with the
+native result code. Streams start only when QEMU activates the corresponding
+voice; a Start/Pause failure logs its native result and disables that voice.
+Inactive capture returns no data rather than reporting successful silent capture.
 Compilation/registration is not device acceptance: playback, microphone permission
 granted/denied, capture, routing, lifecycle and latency still require device tests.
 The publication policy, event boundaries and release disclosures are unchanged.
@@ -206,3 +208,7 @@ checks subsequent PCM output. On a device, rejected capture initialization shoul
 leave that input voice unavailable and log the native error; it does not tear down
 the independent output voice. These tests do not establish actual device permission
 or recording behavior.
+
+Constructing an audio voice does not start a stream or microphone capture.
+The existing guest voice activation controls Start/Pause; this PR adds no
+permission request and does not bypass system consent.

@@ -74,7 +74,7 @@ STREAM(Renderer) STREAM(Capturer)
 int main(void) {
  assert(registered && !strcmp(registered->name,"aether-soundkit-hmos"));
  audsettings as={48000,2,AUDIO_FORMAT_S16,0};
- for (int fail=1;fail<=10;fail++) {
+ for (int fail=1;fail<=9;fail++) {
   AetherVoiceOut out={0}; AetherVoiceIn in={0};
   calls=0;fail_at=fail; assert(registered->pcm_ops->init_out(&out.hw,&as,NULL)==-1);
   assert(!builders && !streams && !out.rb.buf);
@@ -84,6 +84,8 @@ int main(void) {
  fail_at=0; calls=0;
  AetherVoiceOut out={0}; AetherVoiceIn in={0};
  assert(!aether_init_out(&out.hw,&as,NULL)); assert(!aether_init_in(&in.hw,&as,NULL));
+ assert(!out.enabled && !in.enabled);
+ aether_enable_out(&out.hw,true); aether_enable_in(&in.hw,true);
  unsigned char src[16], dst[16]; memset(src,7,sizeof(src));
  assert(aether_write(&out.hw,src,sizeof(src))==sizeof(src));
  aether_renderer_on_write(out.renderer,&out,dst,sizeof(dst)); assert(!memcmp(src,dst,sizeof(src)));
@@ -97,11 +99,19 @@ int main(void) {
  as.fmt=AUDIO_FORMAT_S16; calls=0; fail_at=0;
  memset(&out,0,sizeof(out)); memset(&in,0,sizeof(in));
  assert(!aether_init_out(&out.hw,&as,NULL));
- fail_at=calls+10; // Capturer Start fails, e.g. a platform permission rejection.
+ aether_enable_out(&out.hw,true);
+ fail_at=calls+9; // Capturer generation fails, e.g. permission rejection.
  assert(aether_init_in(&in.hw,&as,NULL)==-1);
  assert(streams==1 && out.renderer && out.enabled);
  aether_write(&out.hw,src,sizeof(src));
  aether_renderer_on_write(out.renderer,&out,dst,sizeof(dst)); assert(!memcmp(src,dst,sizeof(src)));
- aether_fini_out(&out.hw); assert(!builders && !streams);
+ // A later Start rejection also leaves playback intact and input unavailable.
+ fail_at=0; assert(!aether_init_in(&in.hw,&as,NULL));
+ assert(!in.enabled); fail_at=calls+1; aether_enable_in(&in.hw,true);
+ assert(!in.enabled && out.enabled && out.renderer);
+ assert(aether_read(&in.hw,dst,sizeof(dst))==0);
+ aether_write(&out.hw,src,sizeof(src));
+ aether_renderer_on_write(out.renderer,&out,dst,sizeof(dst)); assert(!memcmp(src,dst,sizeof(src)));
+ aether_fini_in(&in.hw); aether_fini_out(&out.hw); assert(!builders && !streams);
  puts("OHAudio mock lifecycle/failure/PCM tests passed; no device test");
 }

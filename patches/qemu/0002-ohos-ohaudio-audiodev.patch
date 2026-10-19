@@ -1,9 +1,9 @@
 diff --git a/audio/aether_soundkit_hmos.c b/audio/aether_soundkit_hmos.c
 new file mode 100644
-index 0000000..0962452
+index 0000000..33a42b1
 --- /dev/null
 +++ b/audio/aether_soundkit_hmos.c
-@@ -0,0 +1,410 @@
+@@ -0,0 +1,408 @@
 +/*
 + * QEMU audio backend for HarmonyOS (OHAudio / AudioKit)
 + *
@@ -175,7 +175,6 @@ index 0000000..0962452
 +    SET_OR_FAIL(OH_AudioStreamBuilder_SetRendererInfo(builder, AUDIOSTREAM_USAGE_MUSIC));
 +    SET_OR_FAIL(OH_AudioStreamBuilder_SetRendererCallback(builder, callbacks, ao));
 +    SET_OR_FAIL(OH_AudioStreamBuilder_GenerateRenderer(builder, &ao->renderer));
-+    SET_OR_FAIL(OH_AudioRenderer_Start(ao->renderer));
 +    OH_AudioStreamBuilder_Destroy(builder);
 +    return 0;
 +fail:
@@ -216,7 +215,6 @@ index 0000000..0962452
 +    SET_OR_FAIL(OH_AudioStreamBuilder_SetCapturerInfo(builder, AUDIOSTREAM_SOURCE_TYPE_MIC));
 +    SET_OR_FAIL(OH_AudioStreamBuilder_SetCapturerCallback(builder, callbacks, ai));
 +    SET_OR_FAIL(OH_AudioStreamBuilder_GenerateCapturer(builder, &ai->capturer));
-+    SET_OR_FAIL(OH_AudioCapturer_Start(ai->capturer));
 +    OH_AudioStreamBuilder_Destroy(builder);
 +    return 0;
 +fail:
@@ -238,7 +236,7 @@ index 0000000..0962452
 +    hw->samples = 1024;
 +
 +    qemu_mutex_init(&ao->mutex);
-+    ao->enabled = true;
++    ao->enabled = false;
 +
 +    /* ~500ms ring buffer */
 +    const size_t ring_bytes = MAX((size_t)8192, (size_t)as->freq * (size_t)hw->info.bytes_per_frame / 2);
@@ -305,7 +303,7 @@ index 0000000..0962452
 +    hw->samples = 1024;
 +
 +    qemu_mutex_init(&ai->mutex);
-+    ai->enabled = true;
++    ai->enabled = false;
 +
 +    /* ~500ms ring buffer */
 +    const size_t ring_bytes = MAX((size_t)8192, (size_t)as->freq * (size_t)hw->info.bytes_per_frame / 2);
