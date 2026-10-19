@@ -1,0 +1,16 @@
+name: Shared phone runtime contract
+on:
+  push:
+    paths: ['runtime/**', '.github/workflows/shared-runtime.yml']
+  pull_request:
+    paths: ['runtime/**', '.github/workflows/shared-runtime.yml']
+permissions:
+  contents: read
+jobs:
+  host-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S runtime -B /tmp/aether-runtime -DAETHER_RUNTIME_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build /tmp/aether-runtime --parallel 2
+      - run: ctest --test-dir /tmp/aether-runtime --output-on-failure
