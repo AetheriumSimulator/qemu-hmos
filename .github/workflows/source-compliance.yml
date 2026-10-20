@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false
+          # The capture regression executes the pinned QEMU AUD_read function.
+          # Fetch that source without recursively fetching its build dependencies.
+          submodules: true
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
