@@ -5,6 +5,7 @@
 
 import worker from '@ohos.worker'
 import deviceInfo from '@ohos.deviceInfo'
+import { MicrophoneManager } from './MicrophoneManager'
 interface NativeVmConfig {
   name: string
   archType: 'aarch64' | 'x86_64' | 'i386'
@@ -486,6 +487,7 @@ export class QemuVMManager {
    * 停止虚拟机
    */
   async stopVM(vmId: string): Promise<StopVMResult> {
+    MicrophoneManager.getInstance().vmStopped(vmId)
     try {
       // Worker 不可用时直接调用 NAPI（否则 sendCommand 会把 stop_vm 忽略掉，表现为“点停止关不了机”）
       if (!this.workerAvailable) {

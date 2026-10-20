@@ -27,6 +27,10 @@ declare module 'qemu_hmos' {
     }): boolean;
     
     stopVm(vmName: string): boolean;
+    // Consent is bound to a running Native session; stale grants are rejected.
+    getMicrophoneSession(vmName: string): number;
+    setMicrophoneEnabled(vmName: string, session: number, enabled: boolean): boolean;
+    getMicrophoneStatus(vmName: string): string;
     getVmStatus(vmName: string): string;
     getVmLogs(vmName: string, startLine?: number): string[];
     getLastError(): QemuLastError;
