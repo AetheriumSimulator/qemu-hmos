@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..33a42b1
 --- /dev/null
 +++ b/audio/aether_soundkit_hmos.c
-@@ -0,0 +1,408 @@
+@@ -0,0 +1,592 @@
 +/*
 + * QEMU audio backend for HarmonyOS (OHAudio / AudioKit)
 + *
@@ -17,6 +17,9 @@ index 0000000..33a42b1
 +#include "qemu/module.h"
 +#include "qemu/thread.h"
 +#include "qemu/audio.h"
++#include "qemu/atomic.h"
++#include <pthread.h>
++#include <accesstoken/ability_access_control.h>
 +
 +#define AUDIO_CAP "aether-soundkit-hmos"
 +#include "audio_int.h"
@@ -111,7 +114,50 @@ index 0000000..33a42b1
 +    AetherRingBuffer rb;
 +    bool enabled;
 +    OH_AudioCapturer *capturer;
++    audsettings settings;
++    bool requested;
++    struct AetherVoiceIn *next;
 +} AetherVoiceIn;
++
++/* Control operations serialize voice lifetime and OHAudio Start/Stop/Release.
++ * Callbacks only use the ring mutex: Stop/Release may wait for a callback.
++ * Never hold a ring mutex across an OHAudio lifecycle call or acquire the BQL
++ * from an ArkTS/NAPI thread. Permission and policy checks fail closed.
++ */
++static pthread_mutex_t aether_input_lock = PTHREAD_MUTEX_INITIALIZER;
++static AetherVoiceIn *aether_inputs;
++static bool aether_mic_allowed;
++static int aether_mic_fault;
++enum {
++    AETHER_MIC_DISABLED, AETHER_MIC_ARMED, AETHER_MIC_CAPTURING,
++    AETHER_MIC_BLOCKED, AETHER_MIC_ERROR
++};
++
++static bool aether_microphone_permitted(void)
++{
++    return qatomic_read(&aether_mic_allowed) &&
++           !qatomic_read(&aether_mic_fault) &&
++           OH_AT_CheckSelfPermission("ohos.permission.MICROPHONE");
++}
++
++static void aether_clear_input(AetherVoiceIn *ai)
++{
++    /* Caller holds the ring mutex; erase storage as well as read positions. */
++    if (ai->rb.buf) {
++        memset(ai->rb.buf, 0, ai->rb.size);
++    }
++    ai->rb.rpos = ai->rb.wpos = ai->rb.used = 0;
++}
++
++static void aether_input_fault(AetherVoiceIn *ai, int fault)
++{
++    qatomic_set(&aether_mic_fault, fault);
++    qemu_mutex_lock(&ai->mutex);
++    ai->enabled = false;
++    aether_clear_input(ai);
++    qemu_mutex_unlock(&ai->mutex);
++}
++
 +
 +static int32_t aether_renderer_on_write(OH_AudioRenderer *renderer, void *userData,
 +                                                            void *audioData, int32_t audioDataSize)
@@ -141,9 +187,40 @@ index 0000000..33a42b1
 +        return 0;
 +    }
 +
++    /* Query the platform outside the ring lock. Recheck local policy inside it. */
++    bool permission = OH_AT_CheckSelfPermission("ohos.permission.MICROPHONE");
 +    qemu_mutex_lock(&ai->mutex);
-+    (void)aether_ring_write_overwrite(&ai->rb, (const uint8_t *)audioData, (size_t)audioDataSize);
++    if (ai->enabled && permission && qatomic_read(&aether_mic_allowed) &&
++        !qatomic_read(&aether_mic_fault)) {
++        (void)aether_ring_write_overwrite(&ai->rb, audioData, (size_t)audioDataSize);
++    } else {
++        if (qatomic_read(&aether_mic_allowed) && !permission) {
++            qatomic_set(&aether_mic_fault, AETHER_MIC_BLOCKED);
++        }
++        ai->enabled = false;
++        aether_clear_input(ai);
++    }
 +    qemu_mutex_unlock(&ai->mutex);
++    return 0;
++}
++
++static int32_t aether_capturer_on_interrupt(OH_AudioCapturer *capturer,
++    void *userData, OH_AudioInterrupt_ForceType type, OH_AudioInterrupt_Hint hint)
++{
++    (void)capturer;
++    (void)type;
++    (void)hint;
++    /* Require a fresh user action after any interruption; no implicit resume. */
++    aether_input_fault(userData, AETHER_MIC_BLOCKED);
++    return 0;
++}
++
++static int32_t aether_capturer_on_error(OH_AudioCapturer *capturer,
++    void *userData, OH_AudioStream_Result error)
++{
++    (void)capturer;
++    (void)error;
++    aether_input_fault(userData, AETHER_MIC_ERROR);
 +    return 0;
 +}
 +
@@ -155,7 +232,7 @@ index 0000000..33a42b1
 +        .OH_AudioRenderer_OnWriteData = aether_renderer_on_write,
 +    };
 +
-+    /* NAPI uses signed 16-bit little-endian PCM. Reject other formats. */
++    /* Support signed 16-bit little-endian PCM only. */
 +    if (as->fmt != AUDIO_FORMAT_S16 || as->endianness != 0) {
 +        dolog("OHAudio: unsupported renderer PCM format/endian\n");
 +        return -1;
@@ -193,9 +270,11 @@ index 0000000..33a42b1
 +    OH_AudioStream_Result r;
 +    OH_AudioCapturer_Callbacks callbacks = {
 +        .OH_AudioCapturer_OnReadData = aether_capturer_on_read,
++        .OH_AudioCapturer_OnInterruptEvent = aether_capturer_on_interrupt,
++        .OH_AudioCapturer_OnError = aether_capturer_on_error,
 +    };
 +
-+    /* NAPI uses signed 16-bit little-endian PCM. Reject other formats. */
++    /* Support signed 16-bit little-endian PCM only. */
 +    if (as->fmt != AUDIO_FORMAT_S16 || as->endianness != 0) {
 +        dolog("OHAudio: unsupported capturer PCM format/endian\n");
 +        return -1;
@@ -294,42 +373,154 @@ index 0000000..33a42b1
 +    }
 +}
 +
++static void aether_stop_input(AetherVoiceIn *ai)
++{
++    qemu_mutex_lock(&ai->mutex);
++    ai->enabled = false;
++    aether_clear_input(ai);
++    qemu_mutex_unlock(&ai->mutex);
++    if (ai->capturer) {
++        OH_AudioStream_Result stopped = OH_AudioCapturer_Stop(ai->capturer);
++        OH_AudioStream_Result released = OH_AudioCapturer_Release(ai->capturer);
++        if (stopped != AUDIOSTREAM_SUCCESS || released != AUDIOSTREAM_SUCCESS) {
++            dolog("OHAudio: capturer Stop/Release rc=%d/%d\n", stopped, released);
++        }
++        ai->capturer = NULL;
++    }
++}
++
++/* Caller owns input_lock. No capture builder exists without explicit consent. */
++static void aether_reconcile_input(AetherVoiceIn *ai)
++{
++    if (!ai->requested || !aether_microphone_permitted()) {
++        if (qatomic_read(&aether_mic_allowed) && !aether_microphone_permitted() &&
++            !qatomic_read(&aether_mic_fault)) {
++            qatomic_set(&aether_mic_fault, AETHER_MIC_BLOCKED);
++        }
++        aether_stop_input(ai);
++        return;
++    }
++    if (ai->capturer) {
++        return;
++    }
++    if (aether_create_capturer(ai, &ai->settings) < 0) {
++        qatomic_set(&aether_mic_fault, AETHER_MIC_ERROR);
++        return;
++    }
++    /* Recheck after creation; authorization may have changed during IPC. */
++    if (!aether_microphone_permitted()) {
++        qatomic_set(&aether_mic_fault, AETHER_MIC_BLOCKED);
++        aether_stop_input(ai);
++        return;
++    }
++    OH_AudioStream_Result r = OH_AudioCapturer_Start(ai->capturer);
++    if (r != AUDIOSTREAM_SUCCESS) {
++        qatomic_set(&aether_mic_fault, AETHER_MIC_ERROR);
++        dolog("OHAudio: capturer Start failed (rc=%d)\n", (int)r);
++        aether_stop_input(ai);
++        return;
++    }
++    qemu_mutex_lock(&ai->mutex);
++    bool started = aether_microphone_permitted();
++    ai->enabled = started;
++    qemu_mutex_unlock(&ai->mutex);
++    if (!started) {
++        aether_stop_input(ai);
++    }
++}
++
++/* Exported narrow control ABI for the existing NAPI bridge. Default is deny.
++ * Disabling closes the gate before waiting for any concurrent Start/Read.
++ */
++__attribute__((visibility("default")))
++int qemu_hmos_set_microphone_enabled(bool enable)
++{
++    if (!enable) {
++        qatomic_set(&aether_mic_allowed, false);
++    }
++    pthread_mutex_lock(&aether_input_lock);
++    qatomic_set(&aether_mic_fault, 0);
++    qatomic_set(&aether_mic_allowed,
++                enable && OH_AT_CheckSelfPermission("ohos.permission.MICROPHONE"));
++    if (enable && !qatomic_read(&aether_mic_allowed)) {
++        qatomic_set(&aether_mic_fault, AETHER_MIC_BLOCKED);
++    }
++    for (AetherVoiceIn *ai = aether_inputs; ai; ai = ai->next) {
++        aether_reconcile_input(ai);
++    }
++    int accepted = qatomic_read(&aether_mic_allowed) && !qatomic_read(&aether_mic_fault);
++    pthread_mutex_unlock(&aether_input_lock);
++    return !enable || accepted;
++}
++
++__attribute__((visibility("default")))
++int qemu_hmos_get_microphone_status(void)
++{
++    pthread_mutex_lock(&aether_input_lock);
++    bool capturing = false;
++    if (qatomic_read(&aether_mic_allowed) &&
++        !OH_AT_CheckSelfPermission("ohos.permission.MICROPHONE")) {
++        qatomic_set(&aether_mic_fault, AETHER_MIC_BLOCKED);
++    }
++    for (AetherVoiceIn *ai = aether_inputs; ai; ai = ai->next) {
++        aether_reconcile_input(ai);
++        qemu_mutex_lock(&ai->mutex);
++        capturing |= ai->enabled;
++        qemu_mutex_unlock(&ai->mutex);
++    }
++    int status = qatomic_read(&aether_mic_fault);
++    if (!status) {
++        status = !qatomic_read(&aether_mic_allowed) ? AETHER_MIC_DISABLED :
++            capturing ? AETHER_MIC_CAPTURING : AETHER_MIC_ARMED;
++    }
++    pthread_mutex_unlock(&aether_input_lock);
++    return status;
++}
++
 +static int aether_init_in(HWVoiceIn *hw, audsettings *as, void *drv_opaque)
 +{
 +    AetherVoiceIn *ai = (AetherVoiceIn *)hw;
-+    (void)drv_opaque;
-+
-+    audio_pcm_init_info(&hw->info, as);
-+    hw->samples = 1024;
-+
-+    qemu_mutex_init(&ai->mutex);
-+    ai->enabled = false;
-+
-+    /* ~500ms ring buffer */
-+    const size_t ring_bytes = MAX((size_t)8192, (size_t)as->freq * (size_t)hw->info.bytes_per_frame / 2);
-+    aether_ring_init(&ai->rb, ring_bytes);
-+
-+    ai->capturer = NULL;
-+    if (aether_create_capturer(ai, as) < 0) {
-+        aether_ring_fini(&ai->rb);
-+        qemu_mutex_destroy(&ai->mutex);
++    Audiodev *dev = drv_opaque;
++    /* AUD_read must call this backend directly. Legacy/custom mixed-input
++     * settings could retain PCM in QEMU queues beyond our privacy gate. */
++    if (!dev || audio_get_pdo_in(dev)->mixing_engine) {
++        dolog("OHAudio: capture requires in.mixing-engine=off\n");
 +        return -1;
 +    }
-+
++    if (as->fmt != AUDIO_FORMAT_S16 || as->endianness != 0) {
++        return -1;
++    }
++    audio_pcm_init_info(&hw->info, as);
++    hw->samples = 1024;
++    qemu_mutex_init(&ai->mutex);
++    ai->enabled = false;
++    ai->requested = false;
++    ai->capturer = NULL;
++    ai->settings = *as;
++    const size_t ring_bytes = MAX((size_t)8192, (size_t)as->freq * hw->info.bytes_per_frame / 2);
++    aether_ring_init(&ai->rb, ring_bytes);
++    pthread_mutex_lock(&aether_input_lock);
++    ai->next = aether_inputs;
++    aether_inputs = ai;
++    pthread_mutex_unlock(&aether_input_lock);
 +    return 0;
 +}
 +
 +static void aether_fini_in(HWVoiceIn *hw)
 +{
 +    AetherVoiceIn *ai = (AetherVoiceIn *)hw;
-+
-+    if (ai->capturer) {
-+        (void)OH_AudioCapturer_Stop(ai->capturer);
-+        (void)OH_AudioCapturer_Release(ai->capturer);
-+        ai->capturer = NULL;
++    pthread_mutex_lock(&aether_input_lock);
++    AetherVoiceIn **link = &aether_inputs;
++    while (*link && *link != ai) {
++        link = &(*link)->next;
 +    }
++    if (*link) {
++        *link = ai->next;
++    }
++    aether_stop_input(ai);
 +    aether_ring_fini(&ai->rb);
 +    qemu_mutex_destroy(&ai->mutex);
++    pthread_mutex_unlock(&aether_input_lock);
 +}
 +
 +static size_t aether_read(HWVoiceIn *hw, void *buf, size_t size)
@@ -338,32 +529,27 @@ index 0000000..33a42b1
 +    if (!buf || size == 0) {
 +        return 0;
 +    }
-+
-+    if (!ai->enabled) {
-+        return 0;
-+    }
-+
++    pthread_mutex_lock(&aether_input_lock);
++    aether_reconcile_input(ai);
 +    qemu_mutex_lock(&ai->mutex);
-+    const size_t got = aether_ring_read(&ai->rb, (uint8_t *)buf, size);
++    size_t got = 0;
++    if (ai->enabled && aether_microphone_permitted()) {
++        got = aether_ring_read(&ai->rb, buf, size);
++    } else {
++        aether_clear_input(ai);
++    }
 +    qemu_mutex_unlock(&ai->mutex);
-+
++    pthread_mutex_unlock(&aether_input_lock);
 +    return got;
 +}
 +
 +static void aether_enable_in(HWVoiceIn *hw, bool enable)
 +{
 +    AetherVoiceIn *ai = (AetherVoiceIn *)hw;
-+    ai->enabled = enable;
-+
-+    if (!ai->capturer) {
-+        return;
-+    }
-+    OH_AudioStream_Result r = enable ? OH_AudioCapturer_Start(ai->capturer)
-+                                     : OH_AudioCapturer_Pause(ai->capturer);
-+    if (r != AUDIOSTREAM_SUCCESS) {
-+        ai->enabled = false;
-+        dolog("OHAudio: capturer enable=%d failed (rc=%d)\n", enable, (int)r);
-+    }
++    pthread_mutex_lock(&aether_input_lock);
++    ai->requested = enable;
++    aether_reconcile_input(ai);
++    pthread_mutex_unlock(&aether_input_lock);
 +}
 +
 +static void *aether_audio_init(Audiodev *dev, Error **errp)
@@ -410,8 +596,6 @@ index 0000000..33a42b1
 +}
 +
 +type_init(register_audio_aether_soundkit_hmos);
-+
-+
 diff --git a/audio/audio.c b/audio/audio.c
 index 86e6744..f47c6b1 100644
 --- a/audio/audio.c
@@ -454,13 +638,16 @@ diff --git a/meson.build b/meson.build
 index d929329..5db7236 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -2301,9 +2301,14 @@ endif
+@@ -2301,9 +2301,17 @@ endif
  config_host_data = configuration_data()
  
  config_host_data.set('CONFIG_HAVE_RUST', have_rust)
 +ohaudio = cc.find_library('ohaudio', required: 'aether-soundkit-hmos' in get_option('audio_drv_list'))
 +if ohaudio.found()
 +  assert(cc.has_header('ohaudio/native_audiostreambuilder.h'), 'Missing OHAudio headers')
++  assert(cc.has_header('accesstoken/ability_access_control.h'), 'Missing API12 access token header')
++  accesscontrol = cc.find_library('ability_access_control', required: true)
++  ohaudio = declare_dependency(dependencies: [ohaudio, accesscontrol])
 +endif
  audio_drivers_selected = []
  if have_system
@@ -469,7 +656,7 @@ index d929329..5db7236 100644
      'alsa': alsa.found(),
      'coreaudio': coreaudio.found(),
      'dsound': dsound.found(),
-@@ -2315,7 +2320,7 @@ if have_system
+@@ -2315,7 +2323,7 @@ if have_system
      'sndio': sndio.found(),
    }
    foreach k, v: audio_drivers_available

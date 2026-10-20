@@ -175,14 +175,18 @@ The fullcore/API18 path now requires the OHAudio patch in both local and CI buil
 Missing/drifted patches fail explicitly. CI selects `aether-soundkit-hmos` and
 checks compiled ELF registration, renderer/capturer symbols and the `libohaudio.so`
 dependency before HAP packaging. The source candidate includes the added backend
-C file, patch, recipe and `ohaudio-build-evidence.json`. This adds a platform audio
-dependency; existing SDK terms/source-mapping disclosures remain unresolved.
+C file, patch, recipe and `ohaudio-build-evidence.json`. Native microphone checks
+also use the public API12 `libability_access_control.so` platform dependency.
+Existing SDK terms/source-mapping disclosures remain unresolved.
 
 The backend uses API10 renderer/capturer callback interfaces available in API18,
-and accepts s16 little-endian PCM (NAPI: 48 kHz, stereo output, mono input). Builder,
+and accepts s16 little-endian PCM (NAPI: 48 kHz stereo output; guest-negotiated
+input rate/channels with input mixing disabled to avoid stale generic queues). Builder,
 configuration and generation failures return initialization failure with the
 native result code. Streams start only when QEMU activates the corresponding
-voice; a Start/Pause failure logs its native result and disables that voice.
+voice; input additionally requires explicit session-bound consent and a current
+Native permission check. A Start/Pause failure logs its native result and disables
+that voice.
 Inactive capture returns no data rather than reporting successful silent capture.
 Compilation/registration is not device acceptance: playback, microphone permission
 granted/denied, capture, routing, lifecycle and latency still require device tests.
@@ -192,8 +196,10 @@ API interface reference: OpenHarmony `interface_sdk_c` 5.1 release commit
 [`7de238a336d4e00c6611b269dfc29c44f3e5f211`](https://github.com/openharmony/interface_sdk_c/blob/7de238a336d4e00c6611b269dfc29c44f3e5f211/multimedia/audio_framework/common/native_audiostreambuilder.h)
 declares `SetRendererCallback` and `SetCapturerCallback` since API10. This is an
 interface compatibility reference, not an exact source mapping for the installed
-platform library. The app declares `MICROPHONE` but its current dynamic permission
-request path covers storage only; microphone consent UX remains an explicit gap.
+platform library. The app declares `MICROPHONE` and now requests it only when the
+user explicitly enables a running VM's microphone. Rejection, settings retry,
+revocation checks and foreground/session boundaries are described in
+[Microphone consent](MICROPHONE_CONSENT.md), including API17 compatibility limits.
 Do not treat capture initialization failure as permission granted or successful
 recording, and do not bypass device permission controls during testing.
 
@@ -212,8 +218,8 @@ the independent output voice. These tests do not establish actual device permiss
 or recording behavior.
 
 Constructing an audio voice does not start a stream or microphone capture.
-The existing guest voice activation controls Start/Pause; this PR adds no
-permission request and does not bypass system consent.
+Input defaults to closed, and guest voice activation cannot bypass consent or
+Native permission checks. Closing input leaves the independent renderer available.
 
 The libffi build input is now pinned to its previously delivered revision and tree.
 Official fixed-commit archive and SHA-locked cache recovery are documented in

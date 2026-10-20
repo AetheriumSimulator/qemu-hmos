@@ -1,4 +1,5 @@
 #include "ohaudio_args.h"
+#include "microphone_session.h"
 #include "napi_compat.h"
 #include "qemu_wrapper.h"
 #include <cstring>
@@ -3038,6 +3039,7 @@ static qemu_shutdown_fn g_qemu_core_shutdown = nullptr;
 static qemu_hmos_get_last_exit_code_fn g_qemu_core_get_last_exit_code = nullptr;
 static qemu_hmos_clear_last_exit_code_fn g_qemu_core_clear_last_exit_code = nullptr;
 static bool g_qemu_initialized = false;
+static MicrophoneSession g_microphone;
 
 // 读取 dlerror() 的安全封装，避免重复调用导致 nullptr
 static std::string SafeDlError()
@@ -3154,7 +3156,7 @@ static bool EnsureQemuCoreLoaded(const std::string& logPath, const std::string& 
     // 如果已经加载了相同架构的库，直接返回
     if (g_qemu_core_qemu_init && g_loaded_arch == archType) {
         HilogPrint("QEMU: Library already loaded for arch: " + archType);
-        return true;
+        return g_microphone.Available();
     }
     
     // 如果加载了不同架构的库，需要先卸载
@@ -3171,12 +3173,13 @@ static bool EnsureQemuCoreLoaded(const std::string& logPath, const std::string& 
         g_qemu_core_clear_last_exit_code = nullptr;
         
         // 卸载之前的库
+        g_microphone.Bind(nullptr, nullptr);
         dlclose(g_qemu_core_handle);
         g_qemu_core_handle = nullptr;
         g_loaded_arch.clear();
     }
     
-    if (g_qemu_core_qemu_init) return true;
+    if (g_qemu_core_qemu_init) return g_microphone.Available();
     
     OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, "QEMU_LOAD", "========== 开始加载 %s ==========", libName.c_str());
     OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, "QEMU_LOAD", "目标架构: %s", archType.c_str());
@@ -3297,6 +3300,12 @@ static bool EnsureQemuCoreLoaded(const std::string& logPath, const std::string& 
     g_qemu_core_clear_last_exit_code =
         reinterpret_cast<qemu_hmos_clear_last_exit_code_fn>(dlsym(g_qemu_core_handle, "qemu_hmos_clear_last_exit_code"));
     
+    g_microphone.Bind(
+        reinterpret_cast<MicrophoneSession::SetEnabled>(
+            dlsym(g_qemu_core_handle, "qemu_hmos_set_microphone_enabled")),
+        reinterpret_cast<MicrophoneSession::GetStatus>(
+            dlsym(g_qemu_core_handle, "qemu_hmos_get_microphone_status")));
+
     OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, "QEMU_SYM", ">>> dlsym 完成 <<<");
 
     // 添加详细的调试日志
@@ -3326,7 +3335,8 @@ static bool EnsureQemuCoreLoaded(const std::string& logPath, const std::string& 
         WriteLog(logPath, "[QEMU] dlsym qemu_system_shutdown_request failed (optional)");
     }
 
-    if (!g_qemu_core_qemu_init || !g_qemu_core_main_loop) {
+    if (!g_qemu_core_qemu_init || !g_qemu_core_main_loop || !g_microphone.Available()) {
+        WriteLog(logPath, "[QEMU] Core must export microphone privacy controls (legacy cores are rejected)");
         WriteLog(logPath, "[QEMU] Required core symbols are missing; startup will fail with CORE_LIB_MISSING");
         HilogPrint("QEMU: required core symbols are missing");
         return false;
@@ -3334,7 +3344,7 @@ static bool EnsureQemuCoreLoaded(const std::string& logPath, const std::string& 
     return true;
 }
 
-static int QemuCoreMainOrStub(int argc, char** argv, const std::string& vmName)
+static int QemuCoreMainOrStub(int argc, char** argv, const std::string& vmName, uint32_t microphoneSession)
 {
     // 提取日志路径用于记录
     std::string logPath;
@@ -3450,6 +3460,7 @@ static int QemuCoreMainOrStub(int argc, char** argv, const std::string& vmName)
             ">>> qemu_init 返回成功！<<<");
         
         g_qemu_initialized = true;
+        g_microphone.Running(microphoneSession);
 
         UpdateVMStatus(vmName, "running");
         SetVmStartupResult(vmName, true, 0, "qemu_init completed");
@@ -3458,6 +3469,8 @@ static int QemuCoreMainOrStub(int argc, char** argv, const std::string& vmName)
         WriteLog(logPath, "[QEMU] qemu_init completed, entering qemu_main_loop...");
         int result = g_qemu_core_main_loop();
         
+        g_microphone.End(microphoneSession);
+
         // 主循环结束，进行清理
         WriteLog(logPath, "[QEMU] qemu_main_loop returned: " + std::to_string(result));
         HilogPrint("QEMU: qemu_main_loop returned: " + std::to_string(result));
@@ -3605,6 +3618,16 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
         return retBool;
     }
     
+    // One embedded core owns the process-wide OHAudio input. A second VM
+    // would share voices and must never inherit the first VM's consent.
+    for (const auto &vm : g_vmRunning) {
+        if (vm.second && vm.second->load()) {
+            SetLastError(VmStartError::ALREADY_RUNNING, "state",
+                         "Another embedded VM is still running or stopping", config.name, config.logPath);
+            return retBool;
+        }
+    }
+
     HilogPrint("QEMU: Starting VM '" + config.name + "' with accel=" + config.accel + " display=" + config.display);
     
     // 创建VM目录结构
@@ -3707,6 +3730,8 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
         return retBool;
     }
 
+    const uint32_t microphoneSession = g_microphone.Begin(config.name);
+
     // 启动VM线程
     if (g_vmRunning.find(config.name) == g_vmRunning.end()) {
         g_vmRunning[config.name] = new std::atomic<bool>(false);
@@ -3723,7 +3748,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     // 保存 vmName 用于在回调中使用
     std::string vmName = config.name;
     
-    g_vmThreads[config.name] = std::thread([config, args, vmName]() {
+    g_vmThreads[config.name] = std::thread([config, args, vmName, microphoneSession]() {
         std::vector<char*> cargs;
         for (const auto &s : args) {
             cargs.push_back(const_cast<char*>(s.c_str()));
@@ -3735,7 +3760,8 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
         WriteLog(config.logPath, "VM thread started");
         // 这里也通过 Hilog 打一条，方便在设备上直接看到 VM 主线程已启动
         HilogPrint("QEMU: VM thread started for VM '" + vmName + "'");
-        int exitCode = QemuCoreMainOrStub(static_cast<int>(cargs.size()), cargs.data(), vmName);
+        int exitCode = QemuCoreMainOrStub(static_cast<int>(cargs.size()), cargs.data(), vmName, microphoneSession);
+        g_microphone.End(microphoneSession);
         WriteLog(config.logPath, "VM exited with code: " + std::to_string(exitCode));
 
         // 退出后释放捕获器，恢复文件描述符并释放 JS 回调
@@ -3784,12 +3810,14 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     }
 
     if (!startupReady) {
+        g_microphone.End(microphoneSession);
         const std::string message = "VM startup timed out before qemu_init completed";
         UpdateVMStatus(config.name, "failed");
         SetLastError(VmStartError::INIT_FAILED, "startup_timeout", message, config.name, config.logPath);
         return retBool;
     }
     if (!startup.success) {
+        g_microphone.End(microphoneSession);
         UpdateVMStatus(config.name, "failed");
         SetLastError(VmStartError::INIT_FAILED, "core_init", startup.message, config.name, config.logPath);
         return retBool;
@@ -3798,6 +3826,47 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     SetLastError(VmStartError::SUCCESS, "startup", "VM startup completed", config.name, config.logPath);
     napi_get_boolean(env, true, &retBool);
     return retBool;
+}
+
+// The UI can authorize only an existing running generation. Native default deny
+// and core permission checks also protect direct/worker NAPI entrypoints.
+static napi_value GetMicrophoneSession(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value argv[1], result;
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    std::string name;
+    const uint32_t session = argc == 1 && NapiGetStringUtf8(env, argv[0], name)
+        ? g_microphone.Session(name) : 0;
+    napi_create_uint32(env, session, &result);
+    return result;
+}
+
+static napi_value SetMicrophoneEnabled(napi_env env, napi_callback_info info)
+{
+    size_t argc = 3;
+    napi_value argv[3], result;
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    std::string name;
+    uint32_t session = 0;
+    bool enabled = false;
+    const bool valid = argc == 3 && NapiGetStringUtf8(env, argv[0], name) &&
+        napi_get_value_uint32(env, argv[1], &session) == napi_ok &&
+        napi_get_value_bool(env, argv[2], &enabled) == napi_ok;
+    napi_get_boolean(env, valid && g_microphone.Enable(name, session, enabled), &result);
+    return result;
+}
+
+static napi_value GetMicrophoneStatus(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value argv[1], result;
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    std::string name;
+    const char *status = argc == 1 && NapiGetStringUtf8(env, argv[0], name)
+        ? g_microphone.Status(name) : "unavailable";
+    napi_create_string_utf8(env, status, NAPI_AUTO_LENGTH, &result);
+    return result;
 }
 
 // Forward declaration: used by StopVm() background watchdog thread.
@@ -3824,6 +3893,7 @@ static napi_value StopVm(napi_env env, napi_callback_info info) {
     std::lock_guard<std::mutex> lock(g_vmMutex);
     
     if (g_vmRunning.find(vmName) != g_vmRunning.end() && g_vmRunning[vmName]->load()) {
+        g_microphone.Stop(vmName);
         // 更新VM状态为停止中
         UpdateVMStatus(vmName, "stopping");
 
@@ -5736,6 +5806,9 @@ static napi_value Init(napi_env env, napi_value exports) {
         { "kvmSupported", 0, KvmSupported, 0, 0, 0, napi_default, 0 },
         { "startVm", 0, StartVm, 0, 0, 0, napi_default, 0 },
         { "stopVm", 0, StopVm, 0, 0, 0, napi_default, 0 },
+        { "getMicrophoneSession", 0, GetMicrophoneSession, 0, 0, 0, napi_default, 0 },
+        { "setMicrophoneEnabled", 0, SetMicrophoneEnabled, 0, 0, 0, napi_default, 0 },
+        { "getMicrophoneStatus", 0, GetMicrophoneStatus, 0, 0, 0, napi_default, 0 },
         { "getVmLogs", 0, GetVmLogs, 0, 0, 0, napi_default, 0 },
         { "getVmStatus", 0, GetVmStatus, 0, 0, 0, napi_default, 0 },
         { "getLastError", 0, GetLastError, 0, 0, 0, napi_default, 0 },
@@ -5789,6 +5862,9 @@ static napi_value Init(napi_env env, napi_value exports) {
         { "kvmSupported", KvmSupported, 0 },
         { "startVm", StartVm, 0 },
         { "stopVm", StopVm, 0 },
+        { "getMicrophoneSession", GetMicrophoneSession, 0 },
+        { "setMicrophoneEnabled", SetMicrophoneEnabled, 0 },
+        { "getMicrophoneStatus", GetMicrophoneStatus, 0 },
         { "getVmLogs", GetVmLogs, 0 },
         { "getVmStatus", GetVmStatus, 0 },
         { "getLastError", GetLastError, 0 },

@@ -37,15 +37,15 @@ headers = check_dependencies(depfile.read_text(), old_native, native)
 # QEMU symbols remain undefined in this isolated probe; the complete core link is checked separately.
 probe = build/'ohaudio-api18-probe.so'
 subprocess.run([str(compiler), '--target=aarch64-unknown-linux-ohos', '--sysroot='+str(native/'sysroot'), '-shared',
-                str(output), '-lohaudio', '-o', str(probe)], check=True)
+                str(output), '-lohaudio', '-lability_access_control', '-o', str(probe)], check=True)
 from verify_ohaudio_build import verify
 result = verify(probe)
 # Shared-object links allow unresolved QEMU symbols. Independently require every
 # imported OH_Audio API to be exported by the actual API18 SDK library.
 imports = subprocess.check_output(['readelf', '--wide', '--dyn-syms', str(probe)], text=True)
 required = {line.split()[7].split('@')[0] for line in imports.splitlines()
-            if ' UND ' in line and len(line.split()) >= 8 and line.split()[7].startswith('OH_Audio')}
-libraries = list((native/'sysroot').rglob('libohaudio.so'))
+            if ' UND ' in line and len(line.split()) >= 8 and line.split()[7].startswith(('OH_Audio', 'OH_AT_'))}
+libraries = list((native/'sysroot').rglob('libohaudio.so')) + list((native/'sysroot').rglob('libability_access_control.so'))
 exports = set()
 for library in libraries:
     header = subprocess.check_output(['readelf', '-h', str(library)], text=True)

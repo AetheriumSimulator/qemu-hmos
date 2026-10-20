@@ -74,6 +74,10 @@ export interface QemuModule {
   kvmSupported(): boolean;
   startVm(config: VMConfig): boolean;
   stopVm(name: string): boolean;
+  // Consent is bound to a running Native session; stale grants are rejected.
+  getMicrophoneSession(vmName: string): number;
+  setMicrophoneEnabled(vmName: string, session: number, enabled: boolean): boolean;
+  getMicrophoneStatus(vmName: string): string;
   getVmLogs(name: string, startLine?: number): string[];
   getVmStatus(name: string): string;
   getLastError?(): QemuLastError;

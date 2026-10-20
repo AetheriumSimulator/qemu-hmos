@@ -21,6 +21,7 @@ import { CommandPalette, VMInfo } from '../components/CommandPalette'
 import { VMCreateWizard, WizardResult } from '../components/VMCreateWizard'
 import deviceInfo from '@ohos.deviceInfo'
 import { vncSettings } from '../managers/VNCSettings'
+import { MicrophoneManager } from '../managers/MicrophoneManager'
 
 // ========== 类型定义 ==========
 interface DeviceOptionBase {
@@ -180,6 +181,11 @@ struct Index {
   @State selectedVmId: string = ''
   @State isLoading: boolean = false
   @State errorMessage: string = ''
+  @StorageLink('microphoneVm') microphoneVm: string = ''
+  @StorageLink('microphoneEnabled') microphoneEnabled: boolean = false
+  @StorageLink('microphoneBusy') microphoneBusy: boolean = false
+  @StorageLink('microphoneStatus') microphoneStatus: string = 'disabled'
+  @StorageLink('microphoneMessage') microphoneMessage: string = '麦克风已关闭，播放不受影响'
   @State testResult: string = '点击检测按钮开始诊断'
   
   // 窗口状态（从 AppStorage 读取）
@@ -312,6 +318,7 @@ struct Index {
   }
   
   aboutToDisappear(): void {
+    MicrophoneManager.getInstance().disable()
     this.stopPreviewTimer()
     this.stopStatusTimer()
   }
@@ -2627,6 +2634,39 @@ struct Index {
                         }
                       }.width('100%').margin({ top: 16 })
                     }.padding(20).backgroundColor($r('app.color.card_background')).borderRadius(16).margin({ top: 16, bottom: 16 })
+
+                    Column({ space: 10 }) {
+                      Text('虚拟机麦克风').fontSize(16).fontWeight(FontWeight.Medium)
+                        .fontColor($r('app.color.text_primary')).width('100%')
+                      Text(this.microphoneMessage).fontSize(13)
+                        .fontColor($r('app.color.text_secondary')).width('100%')
+                      if (this.microphoneVm) {
+                        Text(`录音目标：${this.microphoneVm}`).fontSize(12)
+                          .fontColor($r('app.color.text_secondary')).width('100%')
+                      }
+                      Text('仅本次运行、主窗口在前台时可用；离开后需重新启用。播放不需要麦克风权限。')
+                        .fontSize(12).fontColor($r('app.color.text_tertiary')).width('100%')
+                      Row({ space: 10 }) {
+                        if (this.microphoneEnabled || this.microphoneBusy) {
+                          Button(this.microphoneBusy ? '取消启用' : '关闭麦克风')
+                            .onClick((): void => { MicrophoneManager.getInstance().disable() })
+                        } else {
+                          Button('启用麦克风')
+                            .enabled(this.getSelectedVM()!.status === 'running')
+                            .onClick((): void => {
+                              void MicrophoneManager.getInstance().enable(this.getSelectedVM()!.name)
+                            })
+                        }
+                        if (this.microphoneStatus === 'denied' && !this.microphoneBusy) {
+                          Button('重新授权')
+                            .enabled(this.getSelectedVM()!.status === 'running')
+                            .onClick((): void => {
+                              void MicrophoneManager.getInstance().enable(this.getSelectedVM()!.name, true)
+                            })
+                        }
+                      }.width('100%')
+                    }.padding(20).backgroundColor($r('app.color.card_background'))
+                      .borderRadius(16).margin({ bottom: 16 })
 
                     // ========== 配置信息 ==========
                   Column() {
