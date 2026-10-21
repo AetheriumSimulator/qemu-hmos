@@ -5,12 +5,22 @@
 import common from '@ohos.app.ability.common'
 import hilog from '@ohos.hilog'
 import { QemuVMManager } from '../managers/QemuVMManager'
+import { MicrophoneManager } from '../managers/MicrophoneManager'
+import qemu from 'qemu_hmos'
 
-@Entry
+@Entry({ useSharedStorage: true })
 @Component
 struct ConsoleWindow {
-  @StorageLink('console_vmName') vmName: string = 'VM'
-  @StorageLink('console_vmId') vmId: string = ''
+  @LocalStorageProp('console_vmName') vmName: string = ''
+  @LocalStorageProp('console_vmId') vmId: string = ''
+  @LocalStorageProp('viewer_microphoneSession') viewerMicrophoneSession: number = 0
+  @StorageLink('microphoneVm') microphoneVm: string = ''
+  @StorageLink('microphoneSession') microphoneSession: number = 0
+  @StorageLink('microphoneEnabled') microphoneEnabled: boolean = false
+  @StorageLink('microphoneBusy') microphoneBusy: boolean = false
+  @StorageLink('microphoneStatus') microphoneStatus: string = 'disabled'
+  @StorageLink('microphoneMessage') microphoneMessage: string = '麦克风已关闭'
+  @State microphoneSessionValid: boolean = false
   
   @State consoleOutput: string[] = []
   @State inputText: string = ''
@@ -18,8 +28,13 @@ struct ConsoleWindow {
   
   private scrollerRef: Scroller = new Scroller()
   private maxLines: number = 1000
+  private microphoneTimer: number = -1
   
   aboutToAppear(): void {
+    this.refreshMicrophoneSession()
+    if (this.microphoneTimer === -1) {
+      this.microphoneTimer = setInterval((): void => { this.refreshMicrophoneSession() }, 500)
+    }
     hilog.info(0x0000, 'ConsoleWindow', '页面加载: vmName=%{public}s vmId=%{public}s', this.vmName, this.vmId)
     
     // 注册控制台输出回调
@@ -31,6 +46,55 @@ struct ConsoleWindow {
     this.appendOutput(`\x1b[32m│\x1b[0m  Type commands and press Enter to send`)
     this.appendOutput(`\x1b[32m╰──────────────────────────────────────╯\x1b[0m`)
     this.appendOutput('')
+  }
+
+  aboutToDisappear(): void {
+    if (this.microphoneTimer !== -1) {
+      clearInterval(this.microphoneTimer)
+      this.microphoneTimer = -1
+    }
+  }
+
+  private refreshMicrophoneSession(): void {
+    try {
+      this.microphoneSessionValid = this.viewerMicrophoneSession > 0 &&
+        qemu.getMicrophoneSession(this.vmName) === this.viewerMicrophoneSession
+    } catch (_) {
+      this.microphoneSessionValid = false
+    }
+  }
+
+  private matchesMicrophone(): boolean {
+    return this.viewerMicrophoneSession > 0 && this.microphoneVm === this.vmName &&
+      this.microphoneSession === this.viewerMicrophoneSession
+  }
+
+  private microphoneFeedback(): string {
+    if (!this.microphoneSessionValid || !this.matchesMicrophone()) {
+      return '本窗口录音未启用'
+    }
+    if (this.microphoneStatus === 'suspended') {
+      return '窗口切换中，录音已暂停'
+    }
+    return this.microphoneMessage
+  }
+
+  private canCancelMicrophone(): boolean {
+    return this.microphoneEnabled || this.microphoneBusy || this.microphoneStatus === 'suspended'
+  }
+
+  private microphoneCancelLabel(): string {
+    if (!this.matchesMicrophone()) {
+      return this.microphoneBusy ? '取消其他窗口请求' : '关闭其他窗口录音'
+    }
+    return this.microphoneBusy || this.microphoneStatus === 'suspended' ? '取消录音' : '关闭麦克风'
+  }
+
+  private enableMicrophone(useSettings: boolean = false): void {
+    this.refreshMicrophoneSession()
+    if (!this.microphoneSessionValid) return
+    const context = getContext(this) as common.UIAbilityContext
+    void MicrophoneManager.getInstance().enable(this.vmName, useSettings, context)
   }
   
   private setupConsoleCallback(): void {
@@ -132,6 +196,24 @@ struct ConsoleWindow {
       .height(48)
       .padding({ left: 16, right: 16 })
       .backgroundColor('rgba(30, 30, 30, 0.95)')
+
+      Row({ space: 8 }) {
+        Text(this.microphoneFeedback()).fontSize(12).fontColor('#CCCCCC').layoutWeight(1)
+        if (this.canCancelMicrophone()) {
+          Button(this.microphoneCancelLabel()).fontSize(12).height(32)
+            .onClick((): void => { MicrophoneManager.getInstance().disable() })
+        }
+        if (!this.matchesMicrophone() || !this.canCancelMicrophone()) {
+          Button('启用麦克风').fontSize(12).height(32)
+            .enabled(this.microphoneSessionValid && !this.microphoneBusy)
+            .onClick((): void => { this.enableMicrophone() })
+        }
+        if (this.matchesMicrophone() && this.microphoneStatus === 'denied' && !this.microphoneBusy) {
+          Button('重新授权').fontSize(12).height(32)
+            .enabled(this.microphoneSessionValid)
+            .onClick((): void => { this.enableMicrophone(true) })
+        }
+      }.width('100%').padding({ left: 16, right: 16, top: 6, bottom: 6 })
       
       // 控制台输出区域
       Scroll(this.scrollerRef) {

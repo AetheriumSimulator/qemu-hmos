@@ -126,7 +126,9 @@
         "usedScene": {
           "when": "inuse",
           "abilities": [
-            "EntryAbility"
+            "EntryAbility",
+            "VNCWindowAbility",
+            "ConsoleWindowAbility"
           ]
         }
       },

@@ -9,11 +9,12 @@ import { MicrophoneManager } from '../managers/MicrophoneManager';
 
 export default class EntryAbility extends UIAbility {
   private mainWindow: window.Window | null = null;
+  private microphoneAbilityId: number = 0;
   private displayDensity: number = 2; // 默认 density
   
   onCreate(want: Want, launchParam: object): void {
     hilog.info(0x0000, 'EntryAbility', 'onCreate');
-    MicrophoneManager.getInstance().setContext(this.context);
+    this.microphoneAbilityId = MicrophoneManager.getInstance().registerAbility(this.context, 'EntryAbility');
     
     // 初始化 AppStorage 存储窗口状态
     AppStorage.setOrCreate<boolean>('showCustomTitleBar', true);
@@ -47,6 +48,10 @@ export default class EntryAbility extends UIAbility {
   
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(0x0000, 'EntryAbility', 'onWindowStageCreate');
+    if (this.microphoneAbilityId === 0) {
+      this.microphoneAbilityId = MicrophoneManager.getInstance().registerAbility(this.context, 'EntryAbility');
+    }
+    const microphoneAbilityId = this.microphoneAbilityId;
     
     // 初始化公共目录
     StoragePaths.initPublicDirs(this.context).catch((e: Error): void => {
@@ -54,8 +59,11 @@ export default class EntryAbility extends UIAbility {
     });
     
     // 获取主窗口
+    try {
     windowStage.getMainWindow().then((win: window.Window): void => {
+      if (this.microphoneAbilityId !== microphoneAbilityId) return;
       this.mainWindow = win;
+      MicrophoneManager.getInstance().attachWindow(microphoneAbilityId, win);
       hilog.info(0x0000, 'EntryAbility', '获取主窗口成功');
       
       // 获取显示器信息（用于计算真实的 density）
@@ -130,17 +138,27 @@ export default class EntryAbility extends UIAbility {
       }
       
     }).catch((err: Error): void => {
+      MicrophoneManager.getInstance().windowFailed(microphoneAbilityId);
       hilog.error(0x0000, 'EntryAbility', '获取主窗口失败: %{public}s', err.message);
     });
+    } catch (_) {
+      MicrophoneManager.getInstance().windowFailed(microphoneAbilityId);
+    }
     
     // 加载内容
+    try {
     windowStage.loadContent('pages/Index', (err, data) => {
       if (err.code) {
+        MicrophoneManager.getInstance().windowFailed(microphoneAbilityId);
         hilog.error(0x0000, 'EntryAbility', '加载内容失败: %{public}d, %{public}s', err.code, err.message);
         return;
       }
+      MicrophoneManager.getInstance().contentReady(microphoneAbilityId);
       hilog.info(0x0000, 'EntryAbility', '内容加载成功');
     });
+    } catch (_) {
+      MicrophoneManager.getInstance().windowFailed(microphoneAbilityId);
+    }
   }
   
   // 更新窗口状态
@@ -226,27 +244,30 @@ export default class EntryAbility extends UIAbility {
   
 
   onDestroy(): void {
-    MicrophoneManager.getInstance().destroy();
+    MicrophoneManager.getInstance().removeAbility(this.microphoneAbilityId);
+    this.microphoneAbilityId = 0;
     hilog.info(0x0000, 'EntryAbility', 'onDestroy');
   }
 
   onWindowStageDestroy(): void {
-    MicrophoneManager.getInstance().setForeground(false);
+    MicrophoneManager.getInstance().removeAbility(this.microphoneAbilityId);
+    this.microphoneAbilityId = 0;
     hilog.info(0x0000, 'EntryAbility', 'onWindowStageDestroy');
     // 清理监听器
     if (this.mainWindow) {
       this.mainWindow.off('windowStatusChange');
       this.mainWindow.off('windowSizeChange');
     }
+    this.mainWindow = null;
   }
 
   onForeground(): void {
-    MicrophoneManager.getInstance().setForeground(true);
+    MicrophoneManager.getInstance().foreground(this.microphoneAbilityId, true);
     hilog.info(0x0000, 'EntryAbility', 'onForeground');
   }
 
   onBackground(): void {
-    MicrophoneManager.getInstance().setForeground(false);
+    MicrophoneManager.getInstance().foreground(this.microphoneAbilityId, false);
     hilog.info(0x0000, 'EntryAbility', 'onBackground');
   }
 }
