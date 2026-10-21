@@ -1406,8 +1406,8 @@ struct Index {
       this.vms = [...this.vms]
       const r = await QemuVMManager.getInstance().stopVM(vm.name)
       if (r.success) {
-        vm.status = 'stopped'
-        this.vms = [...this.vms]
+        // Accepted is asynchronous; only native runner completion is terminal.
+        await this.refreshVmStatusesOnce()
       } else {
         // 停止失败时不要假装已关机，尽量恢复真实状态
         let live = ''
@@ -1420,7 +1420,7 @@ struct Index {
         if (live === 'shutdown') live = 'stopped'
         const allowed: VMStatus[] = ['creating', 'preparing', 'starting', 'running', 'stopping', 'stopped', 'failed', 'paused', 'backup']
         if (allowed.includes(live as VMStatus)) vm.status = live as VMStatus
-        else vm.status = 'failed'
+        // An unknown reply cannot replace a terminal state already polled.
         this.vms = [...this.vms]
         this.errorMessage = r.message || '关闭虚拟机失败'
         promptAction.showToast({ message: this.errorMessage, duration: 3000 })
@@ -2580,7 +2580,7 @@ struct Index {
                           Text(this.getSelectedVM()!.name).fontSize(24).fontWeight(FontWeight.Bold).fontColor($r('app.color.text_primary'))
                           Row() {
                             Circle().width(8).height(8).fill(this.getSelectedVM()!.status === 'running' ? '#34C759' : '#888888').margin({ right: 8 })
-                            Text(this.getSelectedVM()!.status === 'running' ? '运行中' : '已停止').fontSize(13).fontColor($r('app.color.text_secondary'))
+                            Text(getStatusDisplayName(this.getSelectedVM()!.status)).fontSize(13).fontColor($r('app.color.text_secondary'))
                             Text(' · ').fontSize(13).fontColor($r('app.color.text_tertiary'))
                             Text(this.getSelectedVM()!.config.archType || 'aarch64').fontSize(13).fontColor($r('app.color.text_tertiary'))
                           }.margin({ top: 6 })
@@ -2627,6 +2627,7 @@ struct Index {
                           .height(44)
                           .width('100%')
                           .backgroundColor('#34C759')
+                          .enabled(this.getSelectedVM()!.status === 'stopped' || this.getSelectedVM()!.status === 'failed')
                           .onClick((): void => {
                             this.startTargetVM = this.getSelectedVM()!
                             this.openSheet('startMode')
@@ -3102,7 +3103,7 @@ struct Index {
                 .fontColor(this.shortcutSelectedVmId === vm.id ? $r('app.color.accent') : $r('app.color.text_primary'))
               Row() {
                 Circle().width(8).height(8).fill(vm.status === 'running' ? '#34C759' : $r('app.color.text_tertiary')).margin({ right: 6 })
-                Text(vm.status === 'running' ? '运行中' : '已停止').fontSize(12).fontColor($r('app.color.text_secondary'))
+                Text(getStatusDisplayName(vm.status)).fontSize(12).fontColor($r('app.color.text_secondary'))
               }.margin({ top: 2 })
             }.layoutWeight(1)
             if (this.shortcutSelectedVmId === vm.id) {
