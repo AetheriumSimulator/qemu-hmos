@@ -1,5 +1,8 @@
 #include "ohaudio_args.h"
 #include "microphone_session.h"
+#include "vm_lifecycle.h"
+#include <exception>
+#include <memory>
 #include "napi_compat.h"
 #include "qemu_wrapper.h"
 #include <cstring>
@@ -164,6 +167,7 @@ extern "C" {
 #include <sys/ioctl.h>
 #include <linux/kvm.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/un.h>
@@ -533,7 +537,7 @@ enum class VmStartError {
 };
 
 static std::map<std::string, std::thread> g_vmThreads;
-static std::map<std::string, std::atomic<bool>*> g_vmRunning;
+static std::map<std::string, std::shared_ptr<aether::VmLifecycle>> g_vmRunning;
 static std::map<std::string, std::vector<std::string>> g_vmLogBuffers;
 static std::map<std::string, std::mutex> g_vmLogMutexes;
 static std::map<std::string, std::string> g_vmStates;
@@ -3038,7 +3042,7 @@ static qemu_cleanup_fn g_qemu_core_cleanup = nullptr;
 static qemu_shutdown_fn g_qemu_core_shutdown = nullptr;
 static qemu_hmos_get_last_exit_code_fn g_qemu_core_get_last_exit_code = nullptr;
 static qemu_hmos_clear_last_exit_code_fn g_qemu_core_clear_last_exit_code = nullptr;
-static bool g_qemu_initialized = false;
+static std::atomic<bool> g_qemu_initialized {false};
 static MicrophoneSession g_microphone;
 
 // 读取 dlerror() 的安全封装，避免重复调用导致 nullptr
@@ -3344,7 +3348,8 @@ static bool EnsureQemuCoreLoaded(const std::string& logPath, const std::string& 
     return true;
 }
 
-static int QemuCoreMainOrStub(int argc, char** argv, const std::string& vmName, uint32_t microphoneSession)
+static int QemuCoreMainOrStub(int argc, char** argv, const std::string& vmName, uint32_t microphoneSession,
+                              const std::shared_ptr<aether::VmLifecycle>& run)
 {
     // 提取日志路径用于记录
     std::string logPath;
@@ -3460,10 +3465,18 @@ static int QemuCoreMainOrStub(int argc, char** argv, const std::string& vmName, 
             ">>> qemu_init 返回成功！<<<");
         
         g_qemu_initialized = true;
-        g_microphone.Running(microphoneSession);
-
-        UpdateVMStatus(vmName, "running");
-        SetVmStartupResult(vmName, true, 0, "qemu_init completed");
+        if (run->MarkRunning()) {
+            g_microphone.Running(microphoneSession);
+            UpdateVMStatus(vmName, "running");
+            SetVmStartupResult(vmName, true, 0, "qemu_init completed");
+        } else {
+            // A timeout/stop during qemu_init must not be overwritten by late
+            // initialization. Enter the main loop only to finish its shutdown.
+            SetVmStartupResult(vmName, false, -1, "VM stopped during initialization");
+            if (g_qemu_core_shutdown) {
+                g_qemu_core_shutdown(SHUTDOWN_CAUSE_HOST);
+            }
+        }
         
         HilogPrint("QEMU: qemu_init completed, entering main loop...");
         WriteLog(logPath, "[QEMU] qemu_init completed, entering qemu_main_loop...");
@@ -3568,6 +3581,8 @@ static napi_value KvmSupported(napi_env env, napi_callback_info info) {
     return out;
 }
 
+static bool RequestVmStop(const std::string& vmName, const std::string& logPath);
+
 static napi_value StartVm(napi_env env, napi_callback_info info) {
     // ============ 诊断：在任何操作之前打印日志 ============
     OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, "QEMU_START", ">>> StartVm 函数入口 <<<");
@@ -3612,7 +3627,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     std::unique_lock<std::mutex> lock(g_vmMutex);
     
     // 检查VM是否已在运行
-    if (g_vmRunning.find(config.name) != g_vmRunning.end() && g_vmRunning[config.name]->load()) {
+    if (g_vmRunning.find(config.name) != g_vmRunning.end() && g_vmRunning[config.name]->BlocksStart()) {
         HilogPrint("QEMU: VM '" + config.name + "' is already running");
         SetLastError(VmStartError::ALREADY_RUNNING, "state", "VM is already running", config.name, config.logPath);
         return retBool;
@@ -3621,9 +3636,21 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     // One embedded core owns the process-wide OHAudio input. A second VM
     // would share voices and must never inherit the first VM's consent.
     for (const auto &vm : g_vmRunning) {
-        if (vm.second && vm.second->load()) {
+        if (vm.second && vm.second->BlocksStart()) {
             SetLastError(VmStartError::ALREADY_RUNNING, "state",
                          "Another embedded VM is still running or stopping", config.name, config.logPath);
+            return retBool;
+        }
+    }
+
+    // A naturally returned runner can still own a joinable std::thread.
+    // Never replace it (std::thread assignment would terminate the process).
+    // Reentry of this process-wide fullcore is not established by this change.
+    for (const auto &runner : g_vmThreads) {
+        if (runner.second.joinable()) {
+            SetLastError(VmStartError::ALREADY_RUNNING, "state",
+                         "Previous embedded runner has not been reaped; restart the application",
+                         config.name, config.logPath);
             return retBool;
         }
     }
@@ -3733,10 +3760,8 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     const uint32_t microphoneSession = g_microphone.Begin(config.name);
 
     // 启动VM线程
-    if (g_vmRunning.find(config.name) == g_vmRunning.end()) {
-        g_vmRunning[config.name] = new std::atomic<bool>(false);
-    }
-    g_vmRunning[config.name]->store(true);
+    const auto run = std::make_shared<aether::VmLifecycle>();
+    g_vmRunning[config.name] = run;
     
     // Mark the VM as starting until qemu_init completes successfully.
     UpdateVMStatus(config.name, "starting");
@@ -3748,7 +3773,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     // 保存 vmName 用于在回调中使用
     std::string vmName = config.name;
     
-    g_vmThreads[config.name] = std::thread([config, args, vmName, microphoneSession]() {
+    g_vmThreads[config.name] = std::thread([config, args, vmName, microphoneSession, run]() {
         std::vector<char*> cargs;
         for (const auto &s : args) {
             cargs.push_back(const_cast<char*>(s.c_str()));
@@ -3760,7 +3785,7 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
         WriteLog(config.logPath, "VM thread started");
         // 这里也通过 Hilog 打一条，方便在设备上直接看到 VM 主线程已启动
         HilogPrint("QEMU: VM thread started for VM '" + vmName + "'");
-        int exitCode = QemuCoreMainOrStub(static_cast<int>(cargs.size()), cargs.data(), vmName, microphoneSession);
+        int exitCode = QemuCoreMainOrStub(static_cast<int>(cargs.size()), cargs.data(), vmName, microphoneSession, run);
         g_microphone.End(microphoneSession);
         WriteLog(config.logPath, "VM exited with code: " + std::to_string(exitCode));
 
@@ -3768,10 +3793,8 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
         g_logCapture.reset();
         
         // A non-zero runtime exit is a failure. Only a clean zero exit is stopped.
-        if (exitCode == 0) {
-            UpdateVMStatus(config.name, "stopped");
-        } else {
-            UpdateVMStatus(config.name, "failed");
+        if (exitCode != 0) {
+            run->Fail("VM exited with code " + std::to_string(exitCode));
             bool startupFailed = false;
             {
                 std::lock_guard<std::mutex> stateLock(g_vmStateMutex);
@@ -3784,12 +3807,13 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
                              "VM exited with code " + std::to_string(exitCode), vmName, config.logPath);
             }
         }
-        g_vmRunning[config.name]->store(false);
-        
-        // 通知 ArkTS 层 VM 已退出
-        VmStartError error = (exitCode == 0) ? VmStartError::SUCCESS : VmStartError::LOOP_CRASHED;
-        std::string errorMsg = (exitCode == 0) ? "" : "VM exited with code " + std::to_string(exitCode);
+        // Keep ownership until capture and callback cleanup have completed.
+        // A clean core return cannot erase an earlier timeout or stop failure.
+        const std::string errorMsg = run->Read().error;
+        const VmStartError error = errorMsg.empty() ? VmStartError::SUCCESS : VmStartError::LOOP_CRASHED;
         NotifyVmStartResult(vmName, error, exitCode, errorMsg);
+        run->Complete(exitCode);
+        UpdateVMStatus(config.name, run->Read().status);
     });
 
     // Wait briefly for qemu_init to either complete or fail so a short startup
@@ -3812,14 +3836,18 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     if (!startupReady) {
         g_microphone.End(microphoneSession);
         const std::string message = "VM startup timed out before qemu_init completed";
-        UpdateVMStatus(config.name, "failed");
+        run->Fail(message);
+        UpdateVMStatus(config.name, run->Read().status);
         SetLastError(VmStartError::INIT_FAILED, "startup_timeout", message, config.name, config.logPath);
+        RequestVmStop(config.name, config.logPath);
         return retBool;
     }
     if (!startup.success) {
         g_microphone.End(microphoneSession);
-        UpdateVMStatus(config.name, "failed");
+        run->Fail(startup.message);
+        UpdateVMStatus(config.name, run->Read().status);
         SetLastError(VmStartError::INIT_FAILED, "core_init", startup.message, config.name, config.logPath);
+        RequestVmStop(config.name, config.logPath);
         return retBool;
     }
 
@@ -3869,150 +3897,132 @@ static napi_value GetMicrophoneStatus(napi_env env, napi_callback_info info)
     return result;
 }
 
-// Forward declaration: used by StopVm() background watchdog thread.
-static std::string QueryVmStatusViaQmp(const std::string& vmName);
-
-static napi_value StopVm(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    napi_value result;
-    
-    if (argc < 1) {
-        napi_get_boolean(env, false, &result);
-        return result;
-    }
-    
-    // 获取VM名称
-    std::string vmName;
-    if (!NapiGetStringUtf8(env, argv[0], vmName)) {
-        napi_get_boolean(env, false, &result);
-        return result;
-    }
-    
-    std::lock_guard<std::mutex> lock(g_vmMutex);
-    
-    if (g_vmRunning.find(vmName) != g_vmRunning.end() && g_vmRunning[vmName]->load()) {
-        g_microphone.Stop(vmName);
-        // 更新VM状态为停止中
-        UpdateVMStatus(vmName, "stopping");
-
-        std::string logPath = "/data/storage/el2/base/haps/entry/files/vms/" + vmName + "/qemu.log";
-        WriteLog(logPath, "StopVm requested by user (non-blocking)");
-
-        // 先发“优雅关机”请求（不会阻塞）
-        qemu_system_shutdown_request(SHUTDOWN_CAUSE_HOST);
-
-        // 关键修复：不要在 NAPI 调用里 join VM 线程（会卡死 UI）
-        // 把 join 放到后台线程里做；超时则通过 QMP 发送 quit 强制退出。
-        std::thread vmThread;
-        auto itTh = g_vmThreads.find(vmName);
-        if (itTh != g_vmThreads.end()) {
-            vmThread = std::move(itTh->second);
-            g_vmThreads.erase(itTh);
+// QMP replies are newline-framed. Match our explicit command ID rather than
+// treating an event, a partial write or a closed socket as accepted shutdown.
+static bool ReadStopQmpReply(int fd, const std::string& id, bool greeting)
+{
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    std::string pending;
+    while (pending.size() < 16384) {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now()).count();
+        if (left <= 0) return false;
+        pollfd ready {fd, POLLIN, 0};
+        if (poll(&ready, 1, static_cast<int>(left)) <= 0) return false;
+        char bytes[1024];
+        const ssize_t count = recv(fd, bytes, sizeof(bytes), MSG_DONTWAIT);
+        if (count <= 0) return false;
+        pending.append(bytes, static_cast<size_t>(count));
+        size_t newline;
+        while ((newline = pending.find('\n')) != std::string::npos) {
+            std::string line = pending.substr(0, newline);
+            pending.erase(0, newline + 1);
+            // Our IDs contain no whitespace. Preserve string contents while
+            // ignoring insignificant JSON whitespace outside strings.
+            std::string compact;
+            bool quoted = false, escaped = false;
+            for (char c : line) {
+                if (quoted || (c != ' ' && c != '\r' && c != '\t')) compact += c;
+                if (quoted && c == '\\' && !escaped) { escaped = true; continue; }
+                if (c == '"' && !escaped) quoted = !quoted;
+                escaped = false;
+            }
+            if (greeting && compact.find("\"QMP\":{") != std::string::npos) return true;
+            if (!greeting && compact.find("\"id\":\"" + id + "\"") != std::string::npos) {
+                return compact.find("\"return\":") != std::string::npos &&
+                    compact.find("\"error\":") == std::string::npos;
+            }
         }
-
-        // QMP: send {"execute":"quit"} to force exit
-        auto sendQmpQuit = [](const std::string& name) -> bool {
-            std::string socketPath = "/data/storage/el2/base/haps/entry/files/vms/" + name + "/qmp.sock";
-            int sock = socket(AF_UNIX, SOCK_STREAM, 0);
-            if (sock < 0) return false;
-
-            struct timeval tv;
-            tv.tv_sec = 2;
-            tv.tv_usec = 0;
-            setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-            setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-            struct sockaddr_un addr;
-            memset(&addr, 0, sizeof(addr));
-            addr.sun_family = AF_UNIX;
-            strncpy(addr.sun_path, socketPath.c_str(), sizeof(addr.sun_path) - 1);
-
-            if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-                close(sock);
-                return false;
-            }
-
-            char buffer[4096];
-            ssize_t n = recv(sock, buffer, sizeof(buffer) - 1, 0); // greeting
-            if (n <= 0) {
-                close(sock);
-                return false;
-            }
-            buffer[n] = '\0';
-
-            const char* capCmd = "{\"execute\": \"qmp_capabilities\"}\n";
-            if (send(sock, capCmd, strlen(capCmd), 0) <= 0) {
-                close(sock);
-                return false;
-            }
-            n = recv(sock, buffer, sizeof(buffer) - 1, 0); // capabilities response (ignore content)
-            (void)n;
-
-            const char* quitCmd = "{\"execute\": \"quit\"}\n";
-            (void)send(sock, quitCmd, strlen(quitCmd), 0);
-            close(sock);
-            return true;
-        };
-
-        // 后台等待退出/强制退出
-        std::thread([vmName, logPath, vmThread = std::move(vmThread), sendQmpQuit]() mutable {
-            // 等待一小段时间让 guest 自己关机
-            const auto start = std::chrono::steady_clock::now();
-            bool forced = false;
-
-            while (true) {
-                // 这里不加全局锁：仅通过 QMP 看状态（失败则认为仍需等待）
-                std::string st = QueryVmStatusViaQmp(vmName);
-                if (st == "stopped" || st == "shutdown") {
-                    break;
-                }
-
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::steady_clock::now() - start).count();
-
-                if (!forced && elapsed >= 5) {
-                    // 超时：强制退出
-                    forced = true;
-                    bool ok = sendQmpQuit(vmName);
-                    WriteLog(logPath, std::string("[STOP] Timeout reached, sent QMP quit: ") + (ok ? "ok" : "failed"));
-                    HilogPrint(std::string("QEMU: [STOP] Timeout, QMP quit sent: ") + (ok ? "ok" : "failed"));
-                }
-
-                if (elapsed >= 12) {
-                    // 再给一点宽限；避免无休止等待
-                    WriteLog(logPath, "[STOP] Force stop watchdog reached 12s, giving up waiting (thread may still exit later)");
-                    break;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            }
-
-            if (vmThread.joinable()) {
-                vmThread.join();
-            }
-
-            {
-                std::lock_guard<std::mutex> lk(g_vmMutex);
-                auto it = g_vmRunning.find(vmName);
-                if (it != g_vmRunning.end() && it->second) {
-                    it->second->store(false);
-                }
-            }
-            bool runtimeFailed = false;
-            {
-                std::lock_guard<std::mutex> stateLock(g_vmStateMutex);
-                auto stateIt = g_vmStates.find(vmName);
-                runtimeFailed = stateIt != g_vmStates.end() && stateIt->second == "failed";
-            }
-            if (!runtimeFailed) {
-                UpdateVMStatus(vmName, "stopped");
-            }
-            WriteLog(logPath, "[STOP] VM stopped (non-blocking stop handler done)");
-        }).detach();
     }
-    
-    napi_get_boolean(env, true, &result);
+    return false;
+}
+
+static bool SendVmQmpQuit(const std::string& socketPath)
+{
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return false;
+    struct timeval timeout {2, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    sockaddr_un address {};
+    address.sun_family = AF_UNIX;
+    if (socketPath.size() >= sizeof(address.sun_path)) { close(fd); return false; }
+    std::memcpy(address.sun_path, socketPath.c_str(), socketPath.size() + 1);
+    bool ok = connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+    auto command = [fd](const char* name, const char* id) {
+        const std::string json = std::string("{\"execute\":\"") + name + "\",\"id\":\"" + id + "\"}\n";
+        return send(fd, json.data(), json.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(json.size()) &&
+            ReadStopQmpReply(fd, id, false);
+    };
+    ok = ok && ReadStopQmpReply(fd, "", true) && command("qmp_capabilities", "aether-stop-cap") &&
+        command("quit", "aether-stop-quit");
+    close(fd);
+    return ok;
+}
+
+static bool RequestVmStop(const std::string& vmName, const std::string& logPath)
+{
+    std::lock_guard<std::mutex> lock(g_vmMutex);
+    auto current = g_vmRunning.find(vmName);
+    if (current == g_vmRunning.end() || !current->second || !current->second->IsActive()) return true;
+    const auto run = current->second;
+    if (!run->ClaimStop()) return true; // The same runner already has one stop owner.
+    g_microphone.Stop(vmName);
+    UpdateVMStatus(vmName, "stopping");
+    try {
+        // Capture no joinable thread: if construction fails, ownership remains
+        // in g_vmThreads and a subsequent stop can retry creating its monitor.
+        std::thread([vmName, logPath, run]() {
+            std::thread runner;
+            {
+                std::lock_guard<std::mutex> ownerLock(g_vmMutex);
+                auto current = g_vmRunning.find(vmName);
+                auto owned = g_vmThreads.find(vmName);
+                if (current == g_vmRunning.end() || current->second != run || owned == g_vmThreads.end()) {
+                    run->Fail("VM stop monitor could not find its owned runner");
+                    run->ReleaseStopOwner();
+                    return;
+                }
+                runner = std::move(owned->second);
+                g_vmThreads.erase(owned);
+            }
+            if (g_qemu_initialized.load()) qemu_system_shutdown_request(SHUTDOWN_CAUSE_HOST);
+            aether::WaitForVmStop(*run,
+                [&]() { return SendVmQmpQuit("/data/storage/el2/base/haps/entry/files/vms/" + vmName + "/qmp.sock"); },
+                []() { return std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count(); },
+                []() { std::this_thread::sleep_for(std::chrono::milliseconds(200)); },
+                [&](const std::string& error) {
+                    SetLastError(VmStartError::LOOP_CRASHED, "stop_timeout", error, vmName, logPath);
+                    WriteLog(logPath, "[STOP] " + error + "; retaining runner ownership until it returns");
+                });
+            if (runner.joinable()) runner.join();
+            // Only the runner calls Complete. This monitor cannot manufacture
+            // a stopped state when QMP is absent or another stop is requested.
+            run->ReleaseStopOwner();
+            WriteLog(logPath, "[STOP] Owned runner joined");
+        }).detach();
+    } catch (const std::exception& error) {
+        const std::string reason = std::string("Could not create VM stop monitor: ") + error.what();
+        run->Fail(reason);
+        run->ReleaseStopOwner();
+        SetLastError(VmStartError::LOOP_CRASHED, "stop_monitor", reason, vmName, logPath);
+        WriteLog(logPath, "[STOP] " + reason);
+        return false;
+    }
+    return true; // Accepted asynchronous request, not completed shutdown.
+}
+
+static napi_value StopVm(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value argv[1], result;
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    std::string vmName;
+    const bool valid = argc >= 1 && NapiGetStringUtf8(env, argv[0], vmName) && !vmName.empty();
+    const bool accepted = valid && RequestVmStop(vmName,
+        "/data/storage/el2/base/haps/entry/files/vms/" + vmName + "/qemu.log");
+    napi_get_boolean(env, accepted, &result);
     return result;
 }
 
@@ -4024,7 +4034,7 @@ static napi_value StopVm(napi_env env, napi_callback_info info) {
 static bool IsVmRunningLocked(const std::string& vmName) {
     auto it = g_vmRunning.find(vmName);
     if (it == g_vmRunning.end() || !it->second) return false;
-    return it->second->load();
+    return it->second->IsActive();
 }
 
 // qemuImgCreateDisk(vmName: string, sizeGB: number, overwrite?: boolean): boolean
@@ -4220,7 +4230,7 @@ static std::string QueryVmStatusViaQmp(const std::string& vmName) {
     if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         close(sock);
         HilogPrint("QMP: Failed to connect to " + socketPath);
-        return "stopped";  // 无法连接说明 VM 未运行
+        return "unknown";  // A disconnected QMP endpoint does not establish runner exit.
     }
     
     // 读取 QMP greeting
@@ -4281,7 +4291,7 @@ static std::string QueryVmStatusViaQmp(const std::string& vmName) {
         return "starting";
     }
     
-    return "stopped";
+    return "unknown";
 }
 
 static napi_value GetVmStatus(napi_env env, napi_callback_info info) {
@@ -4310,15 +4320,21 @@ static napi_value GetVmStatus(napi_env env, napi_callback_info info) {
         }
     }
 
-    // Preserve explicit startup/failure states even when QMP is not ready.
-    if (status != "starting" && status != "preparing" && status != "failed" && status != "stopping") {
+    std::shared_ptr<aether::VmLifecycle> run;
+    {
         std::lock_guard<std::mutex> lock(g_vmMutex);
         auto it = g_vmRunning.find(vmName);
-        if (it != g_vmRunning.end() && it->second && it->second->load()) {
-            status = QueryVmStatusViaQmp(vmName);
-            if (status == "stopped" || status == "unknown") {
-                status = "running";
-            }
+        if (it != g_vmRunning.end()) run = it->second;
+    }
+    if (run) {
+        auto state = run->Read();
+        status = state.status;
+        if (state.active && status == "running") {
+            const std::string qmpStatus = QueryVmStatusViaQmp(vmName);
+            // Re-read after blocking IO so an intervening stop/exit wins.
+            state = run->Read();
+            status = state.status;
+            if (state.active && status == "running" && qmpStatus == "paused") status = "paused";
         }
     }
 
