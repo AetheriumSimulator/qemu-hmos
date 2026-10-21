@@ -13,6 +13,8 @@ export interface MicrophoneConsentPort {
 export class MicrophoneConsentState {
   vmName: string = ''
   session: number = 0
+  // Diagnostic identity only; never use this value to authorize capture.
+  targetSession: number = 0
   enabled: boolean = false
   busy: boolean = false
   status: string = 'disabled'
@@ -38,6 +40,7 @@ export class MicrophoneConsent {
     const result = new MicrophoneConsentState()
     result.vmName = this.state.vmName
     result.session = this.state.session
+    result.targetSession = this.state.targetSession
     result.enabled = this.state.enabled
     result.busy = this.state.busy
     result.status = this.state.status
@@ -52,9 +55,89 @@ export class MicrophoneConsent {
   setForeground(foreground: boolean): void {
     this.foreground = foreground
     if (!foreground) {
-      this.disable('已离开主窗口，麦克风已关闭；返回后请重新启用')
+      this.disable('麦克风已关闭；返回应用后请重新启用')
     } else {
       // Foregrounding never requests permission or restores old consent.
+      this.emit()
+    }
+  }
+
+  /** One-shot internal handoff: stop capture before retaining approved intent. */
+  suspend(): boolean {
+    this.foreground = false
+    if (!this.state.enabled || this.state.busy) {
+      this.disable('窗口正在切换，麦克风保持关闭；请重新启用')
+      return false
+    }
+    this.generation++
+    this.state.enabled = false
+    try {
+      const vmName = this.state.vmName
+      const session = this.state.session
+      if (session <= 0 || this.port.getMicrophoneSession(vmName) !== session) {
+        this.fail('disabled', '虚拟机会话已变化，麦克风已关闭')
+        return false
+      }
+      const stopped = this.port.setMicrophoneEnabled(vmName, session, false)
+      const status = this.port.getMicrophoneStatus(vmName)
+      if (!stopped || status !== 'disabled') {
+        this.fail(status === 'blocked' ? 'blocked' : 'error',
+          '无法确认麦克风已安全暂停，已取消窗口切换后的恢复')
+        return false
+      }
+      this.state.status = 'suspended'
+      this.state.message = '内部窗口切换中，麦克风已暂停'
+      this.emit()
+      return true
+    } catch (_) {
+      this.fail('error', '麦克风暂停失败，已取消窗口切换后的恢复')
+      return false
+    }
+  }
+
+  /** The lifecycle owner must first prove a same-session window is visible. */
+  async resume(): Promise<void> {
+    if (this.state.status !== 'suspended' || this.state.busy) {
+      return
+    }
+    if (!this.foreground) {
+      this.disable('无法确认窗口可见，麦克风保持关闭；请重新启用')
+      return
+    }
+    // A suspended-state poll may still be waiting on a token check.
+    const generation = ++this.generation
+    const vmName = this.state.vmName
+    const session = this.state.session
+    this.state.busy = true
+    this.state.message = '窗口切换完成，正在重新检查麦克风权限'
+    this.emit()
+    try {
+      if (!this.current(generation, vmName, session)) {
+        return
+      }
+      const granted = await this.port.checkPermission()
+      if (!this.current(generation, vmName, session)) {
+        return
+      }
+      if (!granted) {
+        this.fail('blocked', '麦克风权限已撤销；播放不受影响，请重新授权')
+        return
+      }
+      // Disabling must not erase Native faults. A fault while suspended is
+      // terminal and must never be overwritten by a new enable request.
+      const status = this.port.getMicrophoneStatus(vmName)
+      if (status !== 'disabled') {
+        this.fail(status === 'blocked' ? 'blocked' : 'error',
+          '麦克风状态已变化，已取消自动恢复；请检查后重新启用')
+        return
+      }
+      this.enableNative(vmName, session)
+    } catch (_) {
+      if (generation === this.generation) {
+        this.fail('error', '无法确认麦克风权限或状态，已取消自动恢复')
+      }
+    } finally {
+      this.state.busy = false
       this.emit()
     }
   }
@@ -82,11 +165,13 @@ export class MicrophoneConsent {
     }
   }
 
-  private current(generation: number, vmName: string, session: number): boolean {
+  private current(generation: number, vmName: string, session: number,
+    requireForeground: boolean = true): boolean {
     if (generation !== this.generation) {
       return false
     }
-    if (!this.foreground || this.port.getMicrophoneSession(vmName) !== session) {
+    if ((requireForeground && !this.foreground) ||
+      this.port.getMicrophoneSession(vmName) !== session) {
       this.disable('虚拟机或窗口状态已变化，请重新启用麦克风')
       return false
     }
@@ -118,6 +203,19 @@ export class MicrophoneConsent {
     }
   }
 
+  private enableNative(vmName: string, session: number): void {
+    if (!this.port.setMicrophoneEnabled(vmName, session, true)) {
+      const status = this.port.getMicrophoneStatus(vmName)
+      if (status === 'blocked' || status === 'unavailable' || status === 'error') {
+        this.applyNativeStatus(status)
+      } else {
+        this.fail('error', '无法启用麦克风；请检查权限及虚拟机状态后重试')
+      }
+      return
+    }
+    this.applyNativeStatus(this.port.getMicrophoneStatus(vmName))
+  }
+
   /** Only call from an explicit user enable/retry or settings action. */
   async enable(vmName: string, useSettings: boolean = false): Promise<void> {
     if (this.state.busy) {
@@ -130,6 +228,7 @@ export class MicrophoneConsent {
 
     this.disable()
     this.state.vmName = vmName
+    this.state.targetSession = 0
     let session = 0
     try {
       session = this.port.getMicrophoneSession(vmName)
@@ -142,6 +241,7 @@ export class MicrophoneConsent {
       return
     }
     this.state.session = session
+    this.state.targetSession = session
     this.state.busy = true
     this.state.status = 'requesting'
     this.state.message = '正在检查麦克风权限；可随时取消'
@@ -175,16 +275,7 @@ export class MicrophoneConsent {
         this.fail('denied', '未获得麦克风权限；播放不受影响，可重试或前往权限设置')
         return
       }
-      if (!this.port.setMicrophoneEnabled(vmName, session, true)) {
-        const status = this.port.getMicrophoneStatus(vmName)
-        if (status === 'blocked' || status === 'unavailable' || status === 'error') {
-          this.applyNativeStatus(status)
-        } else {
-          this.fail('error', '无法启用麦克风；请检查权限及虚拟机状态后重试')
-        }
-        return
-      }
-      this.applyNativeStatus(this.port.getMicrophoneStatus(vmName))
+      this.enableNative(vmName, session)
     } catch (_) {
       if (generation === this.generation) {
         this.fail('error', '麦克风授权或状态检查失败；播放不受影响，可重试')
@@ -197,8 +288,9 @@ export class MicrophoneConsent {
 
   /** Reconcile revocation, native failure and VM exit without prompting. */
   async synchronize(): Promise<void> {
-    if (this.synchronizing || !this.foreground ||
-      this.state.session <= 0 || (!this.state.enabled && !this.state.busy)) {
+    const suspended = this.state.status === 'suspended'
+    if (this.synchronizing || (!this.foreground && !suspended) ||
+      this.state.session <= 0 || (!this.state.enabled && !this.state.busy && !suspended)) {
       return
     }
     this.synchronizing = true
@@ -206,18 +298,26 @@ export class MicrophoneConsent {
     const vmName = this.state.vmName
     const session = this.state.session
     try {
-      if (!this.current(generation, vmName, session) || this.state.busy) {
+      if (!this.current(generation, vmName, session, !suspended) || this.state.busy) {
         return
       }
       const granted = await this.port.checkPermission()
-      if (!this.current(generation, vmName, session)) {
+      if (!this.current(generation, vmName, session, !suspended)) {
         return
       }
       if (!granted) {
         this.fail('blocked', '麦克风权限已撤销；播放不受影响，请重新授权')
         return
       }
-      this.applyNativeStatus(this.port.getMicrophoneStatus(vmName))
+      const status = this.port.getMicrophoneStatus(vmName)
+      if (suspended) {
+        if (status !== 'disabled') {
+          this.fail(status === 'blocked' ? 'blocked' : 'error',
+            '麦克风状态已变化，已取消自动恢复；请检查后重新启用')
+        }
+      } else {
+        this.applyNativeStatus(status)
+      }
     } catch (_) {
       if (generation === this.generation) {
         this.fail('error', '无法确认麦克风权限，已关闭录音输入；可重试')

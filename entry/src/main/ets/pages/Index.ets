@@ -277,6 +277,7 @@ struct Index {
 
   // ========== 生命周期 ==========
   aboutToAppear(): void {
+    MicrophoneManager.getInstance().pageVisible(getContext(this) as common.UIAbilityContext, true)
     this.setupImmersive()
     // initStore 是异步的：完成后再启动状态轮询，保证“安装模式打开新窗口”时主窗口也能看到状态变化
     this.initStore().then(() => {
@@ -318,7 +319,7 @@ struct Index {
   }
   
   aboutToDisappear(): void {
-    MicrophoneManager.getInstance().disable()
+    MicrophoneManager.getInstance().pageVisible(getContext(this) as common.UIAbilityContext, false)
     this.stopPreviewTimer()
     this.stopStatusTimer()
   }
@@ -1487,6 +1488,10 @@ struct Index {
    */
   private openVNCWindow(vm: VMMeta): void {
     const ctx = getContext(this) as common.UIAbilityContext
+    const microphone = MicrophoneManager.getInstance()
+    let microphoneSession = 0
+    try { microphoneSession = microphone.getMicrophoneSession(vm.name) } catch (_) {}
+    const microphoneHandoff = microphone.beginHandoff(ctx, 'VNCWindowAbility', vm.name)
     
     const vncPort = this.settingsVncNativePort
     hilog.info(0x0000, 'INDEX', 'VNC(原生) 端口: %{public}d', vncPort)
@@ -1498,16 +1503,24 @@ struct Index {
       parameters: {
         vmName: vm.name,
         vmId: vm.id,
+        microphoneSession: microphoneSession,
+        microphoneHandoff: microphoneHandoff,
         vncHost: '127.0.0.1',
         vncPort: vncPort
       }
     }
+    try {
     ctx.startAbility(want).then(() => {
       hilog.info(0x0000, 'INDEX', 'VNC 窗口启动成功: %{public}s', vm.name)
     }).catch((err: Error) => {
+      microphone.handoffFailed(microphoneHandoff)
       hilog.error(0x0000, 'INDEX', 'VNC 窗口启动失败: %{public}s', err.message)
       this.errorMessage = `无法打开 VNC 窗口: ${err.message}`
     })
+    } catch (error) {
+      microphone.handoffFailed(microphoneHandoff)
+      this.errorMessage = `无法打开 VNC 窗口: ${(error as Error).message}`
+    }
   }
 
   /**
@@ -1515,20 +1528,32 @@ struct Index {
    */
   private openConsoleWindow(vm: VMMeta): void {
     const ctx = getContext(this) as common.UIAbilityContext
+    const microphone = MicrophoneManager.getInstance()
+    let microphoneSession = 0
+    try { microphoneSession = microphone.getMicrophoneSession(vm.name) } catch (_) {}
+    const microphoneHandoff = microphone.beginHandoff(ctx, 'ConsoleWindowAbility', vm.name)
     const want: Want = {
       bundleName: ctx.abilityInfo.bundleName,
       abilityName: 'ConsoleWindowAbility',
       parameters: {
         vmName: vm.name,
-        vmId: vm.id
+        vmId: vm.id,
+        microphoneSession: microphoneSession,
+        microphoneHandoff: microphoneHandoff
       }
     }
+    try {
     ctx.startAbility(want).then(() => {
       hilog.info(0x0000, 'INDEX', '串口控制台窗口启动成功: %{public}s', vm.name)
     }).catch((err: Error) => {
+      microphone.handoffFailed(microphoneHandoff)
       hilog.error(0x0000, 'INDEX', '串口控制台窗口启动失败: %{public}s', err.message)
       this.errorMessage = `无法打开控制台窗口: ${err.message}`
     })
+    } catch (error) {
+      microphone.handoffFailed(microphoneHandoff)
+      this.errorMessage = `无法打开控制台窗口: ${(error as Error).message}`
+    }
   }
 
   private async saveAllVMs(): Promise<void> {
@@ -2644,7 +2669,7 @@ struct Index {
                         Text(`录音目标：${this.microphoneVm}`).fontSize(12)
                           .fontColor($r('app.color.text_secondary')).width('100%')
                       }
-                      Text('仅本次运行、主窗口在前台时可用；离开后需重新启用。播放不需要麦克风权限。')
+                      Text('仅本次运行的可见窗口可用；内部切换可延续授权，应用后台或锁屏后需重新启用。播放不需要麦克风权限。')
                         .fontSize(12).fontColor($r('app.color.text_tertiary')).width('100%')
                       Row({ space: 10 }) {
                         if (this.microphoneEnabled || this.microphoneBusy) {
@@ -2654,14 +2679,16 @@ struct Index {
                           Button('启用麦克风')
                             .enabled(this.getSelectedVM()!.status === 'running')
                             .onClick((): void => {
-                              void MicrophoneManager.getInstance().enable(this.getSelectedVM()!.name)
+                              void MicrophoneManager.getInstance().enable(this.getSelectedVM()!.name, false,
+                                getContext(this) as common.UIAbilityContext)
                             })
                         }
                         if (this.microphoneStatus === 'denied' && !this.microphoneBusy) {
                           Button('重新授权')
                             .enabled(this.getSelectedVM()!.status === 'running')
                             .onClick((): void => {
-                              void MicrophoneManager.getInstance().enable(this.getSelectedVM()!.name, true)
+                              void MicrophoneManager.getInstance().enable(this.getSelectedVM()!.name, true,
+                                getContext(this) as common.UIAbilityContext)
                             })
                         }
                       }.width('100%')
