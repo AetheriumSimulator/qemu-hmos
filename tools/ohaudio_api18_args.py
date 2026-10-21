@@ -30,8 +30,9 @@ def check_dependencies(text, old_native, native):
     if str(old_native) in text:
         raise ValueError('API18 probe still depends on the full-core SDK')
     paths = text.replace('\\\n', ' ').split()
-    headers = sorted(set(p for p in paths if '/ohaudio/' in p))
+    headers = sorted(set(p for p in paths if '/ohaudio/' in p or '/accesstoken/' in p))
     expected = str(Path(native)/'sysroot/usr/include/ohaudio/native_audiostreambuilder.h')
-    if expected not in headers or any(not p.startswith(str(Path(native)/'sysroot')+'/') for p in headers):
-        raise ValueError('API18 probe did not use exclusively API18 OHAudio headers')
+    permission = str(Path(native)/'sysroot/usr/include/accesstoken/ability_access_control.h')
+    if expected not in headers or permission not in headers or any(not p.startswith(str(Path(native)/'sysroot')+'/') for p in headers):
+        raise ValueError('API18 probe did not use exclusively API18 OHAudio and access-token headers')
     return headers

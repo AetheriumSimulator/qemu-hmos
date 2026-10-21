@@ -11,19 +11,28 @@ def verify(core, readelf='readelf'):
         return subprocess.check_output([readelf, '--wide', *args, str(core)], text=True)
     symbols = elf('--symbols')
     dynamic = elf('--dynamic')
+    exported = elf('--dyn-syms')
     # These are compiled C registration/implementation symbols, not source text.
     for symbol in ('register_audio_aether_soundkit_hmos', 'aether_audio_driver',
                    'aether_init_out', 'aether_init_in'):
         if not any(line.split()[-1:] == [symbol] and ' UND ' not in line for line in symbols.splitlines()):
             raise ValueError(f'Missing compiled OHAudio symbol: {symbol}')
+    for symbol in ('qemu_hmos_set_microphone_enabled', 'qemu_hmos_get_microphone_status'):
+        if not any(len(fields := line.split()) >= 8 and
+                   fields[3:6] == ['FUNC', 'GLOBAL', 'DEFAULT'] and
+                   fields[6] != 'UND' and fields[7] == symbol
+                   for line in exported.splitlines()):
+            raise ValueError(f'Missing exported microphone privacy ABI: {symbol}')
     for api in ('OH_AudioStreamBuilder_SetRendererCallback', 'OH_AudioStreamBuilder_SetCapturerCallback',
-                'OH_AudioRenderer_Start', 'OH_AudioCapturer_Start'):
+                'OH_AudioRenderer_Start', 'OH_AudioCapturer_Start', 'OH_AT_CheckSelfPermission'):
         if not any(' UND ' in line and len(line.split()) >= 8 and line.split()[7].split('@')[0] == api for line in symbols.splitlines()):
             raise ValueError(f'Missing linked OHAudio API: {api}')
     if not any('NEEDED' in line and '[libohaudio.so]' in line for line in dynamic.splitlines()):
         raise ValueError('Core has no libohaudio.so dependency')
+    if not any('NEEDED' in line and '[libability_access_control.so]' in line for line in dynamic.splitlines()):
+        raise ValueError('Core has no libability_access_control.so dependency')
     return {'backend': 'aether-soundkit-hmos', 'compiledRegistration': 'verified',
-            'nativeDependency': 'libohaudio.so', 'devicePlayback': 'not-executed',
+            'nativeDependency': 'libohaudio.so', 'permissionDependency': 'libability_access_control.so', 'devicePlayback': 'not-executed',
             'deviceCapture': 'not-executed'}
 
 

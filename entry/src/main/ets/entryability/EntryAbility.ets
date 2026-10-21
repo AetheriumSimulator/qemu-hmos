@@ -5,6 +5,7 @@ import display from '@ohos.display';
 import hilog from '@ohos.hilog';
 import { StoragePaths } from '../utils/StoragePaths';
 import { initBreakpointStorage, updateBreakpointStorage } from '../utils/BreakpointSystem';
+import { MicrophoneManager } from '../managers/MicrophoneManager';
 
 export default class EntryAbility extends UIAbility {
   private mainWindow: window.Window | null = null;
@@ -12,6 +13,7 @@ export default class EntryAbility extends UIAbility {
   
   onCreate(want: Want, launchParam: object): void {
     hilog.info(0x0000, 'EntryAbility', 'onCreate');
+    MicrophoneManager.getInstance().setContext(this.context);
     
     // 初始化 AppStorage 存储窗口状态
     AppStorage.setOrCreate<boolean>('showCustomTitleBar', true);
@@ -224,10 +226,12 @@ export default class EntryAbility extends UIAbility {
   
 
   onDestroy(): void {
+    MicrophoneManager.getInstance().destroy();
     hilog.info(0x0000, 'EntryAbility', 'onDestroy');
   }
 
   onWindowStageDestroy(): void {
+    MicrophoneManager.getInstance().setForeground(false);
     hilog.info(0x0000, 'EntryAbility', 'onWindowStageDestroy');
     // 清理监听器
     if (this.mainWindow) {
@@ -237,10 +241,12 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
+    MicrophoneManager.getInstance().setForeground(true);
     hilog.info(0x0000, 'EntryAbility', 'onForeground');
   }
 
   onBackground(): void {
+    MicrophoneManager.getInstance().setForeground(false);
     hilog.info(0x0000, 'EntryAbility', 'onBackground');
   }
 }

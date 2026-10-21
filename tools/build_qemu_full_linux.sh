@@ -241,7 +241,7 @@ ${CC} -shared -fPIC \
     -lintl \
     -lfdt \
     -lslirp \
-    -lohaudio \
+    -lohaudio -lability_access_control \
     -lz -lm -lpthread -ldl \
     -Wl,--allow-shlib-undefined \
     -Wl,-soname,libqemu_full.so

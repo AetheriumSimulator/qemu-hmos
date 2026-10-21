@@ -39,10 +39,24 @@ class AudioTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             (path/'backend.c').write_text(backend)
+            # Execute QEMU's real guest-facing dispatch as well as the backend:
+            # a resampling queue must never bypass the current permission gate.
+            audio = (ROOT/'third_party/qemu/audio/audio.c').read_text()
+            start = audio.index('size_t AUD_read(SWVoiceIn *sw, void *buf, size_t size)')
+            end = audio.index('\n}\n', start) + 3
+            (path/'aud_read.c').write_text(audio[start:end])
             binary = path/'test'
-            subprocess.run(['cc', '-std=c11', '-Wall', '-Werror', '-I', tmp,
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Werror', '-pthread', '-I', tmp,
                             str(ROOT/'tools/tests/ohaudio/harness.c'), '-o', str(binary)], check=True)
-            subprocess.run([str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, timeout=15)
+
+    def test_native_microphone_session_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp)/'session'
+            subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                            '-pthread', '-I', str(ROOT/'entry/src/main/cpp'),
+                            str(ROOT/'tools/tests/ohaudio/session.cpp'), '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, timeout=15)
 
     def test_load_image_accepts_stripping_but_rejects_code_change(self):
         from validate_hap import load_image
@@ -92,9 +106,13 @@ class AudioTests(unittest.TestCase):
         self.assertNotIn('-MMD', args)
         self.assertNotIn('old.d', args)
         header = '/api18/sdk/sysroot/usr/include/ohaudio/native_audiostreambuilder.h'
-        self.assertEqual(check_dependencies('new.o: '+header, '/old/sdk', '/api18/sdk'), [header])
+        permission = '/api18/sdk/sysroot/usr/include/accesstoken/ability_access_control.h'
+        self.assertEqual(check_dependencies('new.o: '+header+' '+permission,
+                                             '/old/sdk', '/api18/sdk'), [permission, header])
         for deps in ('new.o: /old/sdk/sysroot/usr/include/sys/types.h '+header,
-                     'new.o: /foreign/ohaudio/native_audiostreambuilder.h'):
+                     'new.o: /foreign/ohaudio/native_audiostreambuilder.h',
+                     'new.o: '+header,
+                     'new.o: '+header+' /foreign/accesstoken/ability_access_control.h'):
             with self.assertRaises(ValueError):
                 check_dependencies(deps, '/old/sdk', '/api18/sdk')
 
@@ -104,7 +122,7 @@ class AudioTests(unittest.TestCase):
             source.write_text('''#include <cassert>
 #include "ohaudio_args.h"
 int main() {
-  assert(BuildOHAudioArgs("snd0") == "aether-soundkit-hmos,id=snd0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=1,in.format=s16");
+  assert(BuildOHAudioArgs("snd0") == "aether-soundkit-hmos,id=snd0,out.frequency=48000,out.channels=2,out.format=s16,in.mixing-engine=off,in.voices=1");
   assert(BuildOHAudioArgs("second").find("id=second,") != std::string::npos);
 }''')
             binary = Path(tmp)/'test'
@@ -114,17 +132,32 @@ int main() {
     def test_elf_verifier_rejects_missing_registration_or_linkage(self):
         symbols = '\n'.join('1: 0 0 FUNC LOCAL DEFAULT 1 '+s for s in (
             'register_audio_aether_soundkit_hmos', 'aether_audio_driver', 'aether_init_out', 'aether_init_in'))
+        exports = '\n'.join('1: 0 0 FUNC GLOBAL DEFAULT 1 '+s for s in (
+            'qemu_hmos_set_microphone_enabled', 'qemu_hmos_get_microphone_status'))
+        symbols += '\n' + exports
         symbols += '\n' + '\n'.join('1: 0 0 FUNC GLOBAL DEFAULT UND '+s for s in (
             'OH_AudioStreamBuilder_SetRendererCallback', 'OH_AudioStreamBuilder_SetCapturerCallback',
-            'OH_AudioRenderer_Start', 'OH_AudioCapturer_Start'))
-        dynamic = '0 (NEEDED) Shared library: [libohaudio.so]'
-        with patch('verify_ohaudio_build.subprocess.check_output', side_effect=[symbols, dynamic]):
+            'OH_AudioRenderer_Start', 'OH_AudioCapturer_Start', 'OH_AT_CheckSelfPermission'))
+        dynamic = ('0 (NEEDED) Shared library: [libohaudio.so]\n'
+                   '0 (NEEDED) Shared library: [libability_access_control.so]')
+        with patch('verify_ohaudio_build.subprocess.check_output', side_effect=[symbols, dynamic, exports]):
             self.assertEqual(verify(Path('fixture'))['deviceCapture'], 'not-executed')
         for bad_symbols, bad_dynamic in [(symbols.replace('aether_init_in', 'missing'), dynamic),
                                          (symbols.replace('OH_AudioCapturer_Start', 'missing'), dynamic),
+                                         (symbols.replace('OH_AT_CheckSelfPermission', 'missing'), dynamic),
+                                         (symbols, dynamic.replace('libability_access_control.so', 'missing')),
                                          (symbols, '')]:
-            with patch('verify_ohaudio_build.subprocess.check_output', side_effect=[bad_symbols, bad_dynamic]):
+            with patch('verify_ohaudio_build.subprocess.check_output', side_effect=[bad_symbols, bad_dynamic, exports]):
                 with self.assertRaises(ValueError):
+                    verify(Path('fixture'))
+        for bad_exports in ('', exports.replace('GLOBAL', 'LOCAL'),
+                            exports.replace('DEFAULT', 'HIDDEN'),
+                            exports.replace('DEFAULT 1', 'DEFAULT UND'),
+                            exports.replace('qemu_hmos_set_microphone_enabled', 'missing'),
+                            exports.replace('qemu_hmos_get_microphone_status', 'missing')):
+            with patch('verify_ohaudio_build.subprocess.check_output',
+                       side_effect=[symbols, dynamic, bad_exports]):
+                with self.assertRaisesRegex(ValueError, 'exported microphone privacy ABI'):
                     verify(Path('fixture'))
 
 

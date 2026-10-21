@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false
+          # The capture regression executes the pinned QEMU AUD_read function.
+          # Fetch that source without recursively fetching its build dependencies.
+          submodules: true
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -30,6 +32,11 @@ jobs:
         run: python -m unittest discover -s tools -p 'test_curl_source.py' -v
       - name: Test OHAudio patch and native argument contract
         run: python -m unittest discover -s tools -p 'test_ohaudio.py' -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test microphone consent races without platform access
+        run: python -m unittest discover -s tools -p 'test_microphone_consent.py' -v
       - name: Test reconstructed firmware inputs
         run: python -m unittest discover -s tools -p 'test_hap_source_inputs.py' -v
       - name: Test index and credential boundaries
