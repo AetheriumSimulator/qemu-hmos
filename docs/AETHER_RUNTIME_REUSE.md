@@ -1,17 +1,17 @@
 # Aether / Aetherium 运行时复用方案
 
-核对时间：2026-10-19（北京时间）。源码基线：
-`98b4d7b583911cb45a3e46b08bce4c64e2137b9f`（PR #44 合并后）。
+更新核对：2026-10-21。公开源码基线：
+`5d17567824c1744afb9a3b3ae38f232e67e83e96`（PR #46 合并后）。
 本文及 `runtime/` 是公开侧工程准备，不是私有 Aether 已接入、真机可用或闭源组合发行获准的证明。
 
 ## 仓库身份与授权范围
 
-本次 GitHub 连接列出 37 个可访问仓库；后续偏移页为空。检查仓库元数据、
-与产品相关的搜索结果及一份候选仓库 README，未找到足以确认其为目标
-**私有 Aether 消费者 App** 的证据。不依据相似名称推定身份。
-不能据此断言目标不存在，只能认定本次连接未确认目标。
-不在公开文档中公布无关私有仓库清单，不复制其文件或配置。
-私有侧比较、修改与迁移均未完成。
+最初的 GitHub 连接清单没有确认私有目标；这项历史限制已被后续获得用户授权的
+本地源码检查更新。现已确认私有 Aether App 的 Phone Core、Supervisor 与调用链，
+并检查单次启动、就绪、停止和异常清理。源码存在、静态产物检查、宿主回归与
+HarmonyOS 真机验收分别记录，不能相互替代。
+公开变更只涉及通用运行时接口、聚焦修复及必要测试；不复制整个消费者 App、
+无关私有模块、签名材料、凭据、SDK 或用户世界。私有 App 尚未接入这里的适配器。
 
 [PR #36](https://github.com/AetheriumSimulator/qemu-hmos/pull/36)
 确认的公开范围继续有效：QEMU / LibVNC 移植及通用运行时可以公开维护；
@@ -28,10 +28,25 @@ Onboarding、Bubbles、世界手账、品牌素材等不因本次工作被自动
 | LibVNC viewer | `napi_init.cpp` 的 `LIBVNC_HAVE_CLIENT` 分支、`entry/src/main/cpp/third_party/libvncclient/` | N-API 直接使用 rfbClient 等类型；不是纯 ArkUI 展示层。CMake 根据 archive 是否存在启用客户端。 |
 | LibVNC 静态链接 | `entry/src/main/cpp/CMakeLists.txt` | 条件地用 `--whole-archive` 链入 libvncclient.a / libvncserver.a；缺失时走 stub/受限路径。构建配置不是已进入某个 HAP 的证据。 |
 | ArkUI / ArkTS | `entry/src/main/ets/managers/QemuVMManager.ets`、`VNCNativeClient.ets`、`pages/VNCNativeViewer.ets` | VM 管理器经 Worker / N-API 调用 Native；viewer 包含具体图像和输入适配。管理器现有 `startVm(): boolean` 不能表达完整启动状态。 |
-| 产品模块 | 私有目标未确认 | 不推定具体依赖；只建立运行时结果与产品状态之间的转换契约，不迁移消费者页面。 |
+| 产品模块 | 已确认私有目标及相关运行时调用点 | 只归纳运行时结果与产品状态之间的转换契约，不复制消费者页面或配置。 |
 
 [当前开源状态](OPEN_SOURCE_STATUS.md)描述的成功构建、测试 Release 与来源收集只适用于
 其指定 fullcore 包。Phone 源码重建、单个符号和 ABI 检查均不能替代这个对应关系。
+
+### 已确认的私有侧差异
+
+- 私有 Phone Core 是 QEMU 11.1.0、API20+、native TCG/MTTCG；其 marker 为
+  `aether_phone_core_abi=1;backend=tcg;thread=multi;signals=host;reentrant=0`。
+  当前公开 overlay 与适配器仍使用 TCI 契约。更换一个字符串不能证明 MTTCG 的
+  构建、退出和线程清理已经迁移；适配器继续拒绝该不同契约，并测试拒绝后不卸载。
+- 私有 Supervisor 按实例记录运行与错误；N-API 持有实际 runner，QMP readiness
+  与函数返回分开。它还耦合 NativeChildProcess、TPM、virtiofs 与探测流程，
+  不能整文件复制进当前 fullcore 路径。可独立回流的是实例身份、失败原因保留、
+  停止请求受理与实际完成的区分，以及 runner 仍存活时保持 active 的约束。
+- 私有 RFB 客户端与这里条件链接的 LibVNC 客户端不是同一实现。初始化前取消的
+  VNC 线程回归仅覆盖该竞态，不能用作公开 LibVNC 或真机画面的验收证据。
+- 两边均未完成本轮真机单次启停验收。Phone 的 `reentrant=0` 与 consumed 保护
+  必须保留；没有 A→B→A 或卸载后重启的可用性结论。
 
 ## 本次实现：独立、可复用的 Phone 适配器
 
@@ -62,6 +77,9 @@ Onboarding、Bubbles、世界手账、品牌素材等不因本次工作被自动
 4. 状态为 `UNLOADED → READY → RUNNING → CONSUMED`；参数错误不消耗会话。
    核心一经调用，即使初始化失败也消耗会话。并发调用返回 BUSY。
    重复 load 相同路径不重置状态，不能绕过一次性限制。
+   `dlopen` 成功后的不匹配候选进入 `REJECTED`，保留句柄至进程结束；其 constructor
+   已经执行，不能假设卸载能恢复状态。此后相同或不同路径的 load、以及 run 均拒绝。
+   只有未取得句柄的装载失败才允许重试。不调用真实 QEMU 的卸载路径来测试恢复。
 5. `AETHER_OK` 表示函数成功返回；QEMU 非零退出码是单独字段。
    Promise 在 QEMU 返回后才完成，不能用它表示“启动成功”或“来宾就绪”。
 6. 本版不实现 QMP stop/pause/snapshot、画面、输入或 guest-ready 事件。
@@ -109,13 +127,13 @@ N-API 模块与 `libaether_runtime.so` 均须进入目标 HAP 的 Native 依赖�
 | --- | --- | --- |
 | `ports/qemu-11.1/**` | 继续在公开仓库维护；固定 patch/overlay/manifest 构建，输出源码身份及哈希 | 保留，不改历史来源清单 |
 | `runtime/**` | 两项目唯一 Phone ABI 适配实现 | 新增；主机合成核心验证，设备未验证 |
-| `qemu_wrapper.cpp` 的 load/run 与 N-API 的核心调用 | 确认私有目标及核心版本后，逐调用点接到同一运行时；先删除旧双路径再启用新路径 | 未搬移；根 HAP 仍使用旧 fullcore |
+| `qemu_wrapper.cpp` 的 load/run 与 N-API 的核心调用 | 按已确认的私有核心版本逐调用点接入；先解决 TCI/MTTCG 契约与真实退出验证，再启用新路径 | 未接通；根 HAP 仍使用 QEMU 10.1.93/fullcore |
 | `napi_init.cpp` 的参数规划、QMP、日志 | 拆成公开配置/控制/诊断模块，保留原行为测试；不要整体复制进消费者 App | 清单阶段 |
 | N-API 表面 | Phone 宿主可选使用新的小桥；fullcore 需另写版本化 backend，不能套 Phone marker | 新小桥已写，SDK 编译未验证；fullcore backend 未实现 |
 | `ports/libvnc/**` 与 vendor headers | 对齐固定上游、构建 recipe 和 archive 实际身份，再整理 viewer；保留 GPL 来源 | 未修改；recipe hash 漂移仍未解决 |
 | Native VNC / XComponent | 公开 viewer 运行时，UI 仅消费独立帧/输入契约；实际包含关系需发行审查 | 未搬移；不能把 GPL 类型简单藏在私有 N-API 内 |
 | ArkTS VM Manager / Worker | 改为识别 bridgeCode、coreExitCode、QMP-ready 与 consumed；移除“bool 即成功”假设 | 新声明已给出；现有管理器未改 |
-| Onboarding / Bubbles / 世界手账 / 账号 / 品牌 | 保持在已确认的消费者仓库；只交换用户意图与运行时状态 | 未读取或复制目标代码 |
+| Onboarding / Bubbles / 世界手账 / 账号 / 品牌 | 保持本轮聚焦运行时的公开范围；具体组合边界仍按来源审查 | 不复制这些消费者模块 |
 | signing / AGC / SDK 配置 | 留在宿主本地/私有配置；公开模板不含凭据 | 无变更 |
 
 需完成两个独立里程碑：先以 mock 与真实 Phone core 验证独立运行时；然后选定一款
@@ -139,7 +157,7 @@ HarmonyOS 宿主验收启动、失败、退出、权限拒绝及 UI 可观察状
 | Pixman / PCRE2 / cJSON | vendored COPYING（MIT 主体）、LICENCE.md（BSD-3-Clause WITH PCRE2-exception）、cJSON.h（MIT） | 保留各自通知与适用例外；逐文件不同声明仍需清单，不被根 Apache 声明覆盖。 |
 | libffi / libslirp / gettext / zlib 等实际依赖 | 构建记录与 release source collection | 只有构建选择的版本和文件清单能确定具体义务；逐个收集 LICENSE、静态/动态输入、来源身份。未对新 Phone 包完成此项，不能照搬旧 fullcore 的通过结果。 |
 | UEFI / EDK2 / 固件 | 单独固件构建与 notices | 固件是独立组件，不能仅以 QEMU GPL 概括。应绑定每个固件哈希和对应来源/声明。 |
-| 产品资源与商店条款 | 权利人/发行渠道材料未提供 | 品牌/插画与程序许可分别处理；商店 EULA、DRM、签名与禁止逆向条款不得冲突于适用自由软件义务。未核对私有目标，不自动公开其资源。 |
+| 产品资源与商店条款 | 权利人/发行渠道材料未提供 | 品牌/插画与程序许可分别处理；商店 EULA、DRM、签名与禁止逆向条款不得冲突于适用自由软件义务。未核对私有资源的权利材料，不自动公开其资源。 |
 
 GPLv2 源码供应可选择 §3(a) 随附完整源码等有效方式；若选择 §3(b) 的书面要约，
 需至少三年有效且适用于任何第三方，不能把七天 Actions Artifact 当作该要约的履行。
@@ -166,18 +184,30 @@ GPL 的义务不是仅“把自己修改过的几个文件上传”，也不当�
 
 ## 验证状态与交付前证据
 
-**已验证**：独立适配器用 g++ C++17、`-Wall -Wextra -Werror` 编译并链接；五组
+**本轮拒绝后保留句柄的回归**：g++/gcc 13.3.0 直接编译，C++17、
+`-Wall -Wextra -Werror`；8 个 runtime 场景（arguments、missing、wrong、mttcg、
+no_marker、once、concurrent、throwing）及 C 头文件链接测试共 9/9 通过。
+constructor/destructor/run 计数证明拒绝后未卸载、未调用核心且不能重试换核心；
+正常及异常返回后的 consumed 保护均保留。输入源码哈希在测试前后相同。
+本机 WSL 未安装 CMake，未执行 CMake/CTest；该路径须由最终 head CI 验证。
+这些是合成核心测试，没有执行真实 QEMU 或本机此前被暂停的 VNC 线程测试。
+
+**历史基线验证**：独立适配器用 g++ C++17、`-Wall -Wextra -Werror` 编译并链接；五组
 mock DSO 场景（参数、缺符号、错误 marker、一次性调用、并发）和 C 编译器头文件
 调用均通过。mock 在运行中改写 argv 并返回 17，验证参数拷贝和退出码分离。
 
-**云端已验证**：[主机契约 CI run 39230189755](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39230189755)
-完成 CMake 配置、编译和 CTest（6/6 通过）；[源码 CI run 39230189644](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39230189644)
-通过。上述运行绑定实现提交 `b3dc4720c6e4f160656c8474b4eca1648e7a23a3`。本机没有 CMake，
-本机检查使用直接编译器；云端已补充验证 CMake 路径。
+**历史 head 的云端验证**：提交 `41dbd53921083f0a274c0d75ad4b9442ea4cdb06` 的
+[主机契约 CI 39230338302](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39230338302)
+完成 CMake、编译和 CTest（6/6）；[源码 CI 39230338273](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39230338273)
+通过；[完整构建 39230338350](https://github.com/AetheriumSimulator/qemu-hmos/actions/runs/39230338350)
+验证根 fullcore HAP，上传和 Release 跳过。该构建没有启用可选 Phone N-API。
+这些旧结果不覆盖本轮拒绝后保留句柄的修复；最新 head 的测试与 CI 结果须在 PR 中
+单独核对。新回归仅使用合成 DSO，观察 constructor/destructor、拒绝后的状态与重复
+请求，不装载或卸载真实 QEMU。
 
 **已编写，未验证**：可选 HarmonyOS N-API、ArkTS 声明及 API 20 设备打包。
 
-**尚未完成**：目标私有仓库身份确认、私有代码比较/迁移、真实 Phone DSO 装载、
+**尚未完成**：私有 MTTCG 核心到共享适配器的接入与构建迁移、真实 Phone DSO 装载、
 设备启动/退出、LibVNC 重建及哈希漂移修复、fullcore backend 收敛、完整对应源码
 审查、商店/签名条款审查。同进程多次启动明确不支持。
 

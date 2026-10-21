@@ -15,7 +15,17 @@ unloads or resets QEMU. Stop/pause, QMP readiness, VNC, input and guest boot
 acceptance are not implemented here. The core can still terminate the process
 on native fatal errors; this module does not claim crash isolation.
 
+A DSO that opens but fails the marker/entry check stays pinned in `REJECTED`.
+Every later load/run returns `AETHER_ABI_MISMATCH`; recovery requires a new host
+process. A failed `dlopen` leaves `UNLOADED` and can be retried. The accepted
+marker remains the public TCI contract; the newer MTTCG marker is deliberately
+rejected until that backend receives a separate adapter and core review.
+
 Host-only synthetic-core contract tests:
+
+The nine tests include constructor/destructor observation without an extra DSO
+reference, rejected-core retry/run blocking, and consumed state after a synthetic
+exception. They do not load real QEMU or establish device shutdown/reentry safety.
 
 ```sh
 cmake -S runtime -B /tmp/aether-runtime -DAETHER_RUNTIME_TESTS=ON
