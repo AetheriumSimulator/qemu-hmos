@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..33a42b1
 --- /dev/null
 +++ b/audio/aether_soundkit_hmos.c
-@@ -0,0 +1,592 @@
+@@ -0,0 +1,600 @@
 +/*
 + * QEMU audio backend for HarmonyOS (OHAudio / AudioKit)
 + *
@@ -194,7 +194,9 @@ index 0000000..33a42b1
 +        !qatomic_read(&aether_mic_fault)) {
 +        (void)aether_ring_write_overwrite(&ai->rb, audioData, (size_t)audioDataSize);
 +    } else {
-+        if (qatomic_read(&aether_mic_allowed) && !permission) {
++        /* A final callback during Stop still reports revocation to a paused
++         * handoff. Closing the gate must not hide a permission failure. */
++        if (!permission && !qatomic_read(&aether_mic_fault)) {
 +            qatomic_set(&aether_mic_fault, AETHER_MIC_BLOCKED);
 +        }
 +        ai->enabled = false;
@@ -431,6 +433,8 @@ index 0000000..33a42b1
 +
 +/* Exported narrow control ABI for the existing NAPI bridge. Default is deny.
 + * Disabling closes the gate before waiting for any concurrent Start/Read.
++ * Preserve faults across pause/teardown so a handoff cannot treat an error as
++ * a clean disabled state. Only an explicit enable attempt clears the latch.
 + */
 +__attribute__((visibility("default")))
 +int qemu_hmos_set_microphone_enabled(bool enable)
@@ -439,10 +443,12 @@ index 0000000..33a42b1
 +        qatomic_set(&aether_mic_allowed, false);
 +    }
 +    pthread_mutex_lock(&aether_input_lock);
-+    qatomic_set(&aether_mic_fault, 0);
-+    qatomic_set(&aether_mic_allowed,
-+                enable && OH_AT_CheckSelfPermission("ohos.permission.MICROPHONE"));
-+    if (enable && !qatomic_read(&aether_mic_allowed)) {
++    if (enable) {
++        qatomic_set(&aether_mic_fault, 0);
++    }
++    bool permitted = OH_AT_CheckSelfPermission("ohos.permission.MICROPHONE");
++    qatomic_set(&aether_mic_allowed, enable && permitted);
++    if (!permitted && !qatomic_read(&aether_mic_fault)) {
 +        qatomic_set(&aether_mic_fault, AETHER_MIC_BLOCKED);
 +    }
 +    for (AetherVoiceIn *ai = aether_inputs; ai; ai = ai->next) {
@@ -458,8 +464,10 @@ index 0000000..33a42b1
 +{
 +    pthread_mutex_lock(&aether_input_lock);
 +    bool capturing = false;
-+    if (qatomic_read(&aether_mic_allowed) &&
-+        !OH_AT_CheckSelfPermission("ohos.permission.MICROPHONE")) {
++    /* Check even while paused: disabled is a safe handoff result only while
++     * permission remains granted and no callback has latched a fault. */
++    if (!OH_AT_CheckSelfPermission("ohos.permission.MICROPHONE") &&
++        !qatomic_read(&aether_mic_fault)) {
 +        qatomic_set(&aether_mic_fault, AETHER_MIC_BLOCKED);
 +    }
 +    for (AetherVoiceIn *ai = aether_inputs; ai; ai = ai->next) {

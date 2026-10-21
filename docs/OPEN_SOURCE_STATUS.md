@@ -200,6 +200,12 @@ platform library. The app declares `MICROPHONE` and now requests it only when th
 user explicitly enables a running VM's microphone. Rejection, settings retry,
 revocation checks and foreground/session boundaries are described in
 [Microphone consent](MICROPHONE_CONSENT.md), including API17 compatibility limits.
+Approved input can follow a same-session visible VNC/Console window; an internal
+handoff with unproven visibility immediately pauses Native input and rechecks
+permission before resuming. Application background, lock/screen-off, failures
+and VM replacement revoke the handoff. Window parameters are instance-local.
+These policies have host regression coverage; real-device cross-window recording
+and API17 device behavior remain unaccepted.
 Do not treat capture initialization failure as permission granted or successful
 recording, and do not bypass device permission controls during testing.
 

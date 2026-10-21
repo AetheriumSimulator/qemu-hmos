@@ -72,6 +72,9 @@ struct OH_AudioCapturer { OH_AudioCapturer_Callbacks cb; void *user; };
 typedef struct { OH_AudioCapturer_Callbacks cb; void *user; } OH_AudioStreamBuilder;
 static int calls, fail_at, builders, streams, capture_starts;
 static bool permission = true, revoke_on_generate, callback_on_start, callback_on_stop;
+static bool revoke_on_stop;
+/* 1 = interruption, 2 = error; both may arrive while Stop/Release completes. */
+static int fault_on_stop, fault_on_release;
 static bool OH_AT_CheckSelfPermission(const char *name) {
  assert(!strcmp(name,"ohos.permission.MICROPHONE")); return qatomic_read(&permission);
 }
@@ -102,10 +105,23 @@ static void callback_pcm(OH_AudioCapturer *s) {
 static int OH_AudioCapturer_Start(OH_AudioCapturer *s) {
  assert(s); capture_starts++; int r=result(); if(!r && callback_on_start) callback_pcm(s); return r;
 }
-static int OH_AudioCapturer_Stop(OH_AudioCapturer *s) {
- assert(s); if(callback_on_stop) callback_pcm(s); return 0;
+static void callback_fault(OH_AudioCapturer *s, int kind) {
+ if(kind==1) {
+  assert(s->cb.OH_AudioCapturer_OnInterruptEvent);
+  s->cb.OH_AudioCapturer_OnInterruptEvent(s,s->user,0,1);
+ } else if(kind==2) {
+  assert(s->cb.OH_AudioCapturer_OnError);
+  s->cb.OH_AudioCapturer_OnError(s,s->user,-17);
+ }
 }
-static int OH_AudioCapturer_Release(OH_AudioCapturer *s) { free(s);streams--;return 0; }
+static int OH_AudioCapturer_Stop(OH_AudioCapturer *s) {
+ assert(s); if(revoke_on_stop) qatomic_set(&permission,false);
+ if(callback_on_stop) callback_pcm(s);
+ callback_fault(s,fault_on_stop); return 0;
+}
+static int OH_AudioCapturer_Release(OH_AudioCapturer *s) {
+ callback_fault(s,fault_on_release);free(s);streams--;return 0;
+}
 #include "backend.c"
 typedef struct { HWVoiceIn *hw; } SWVoiceIn;
 #define SW_NAME(sw) "fixture"
@@ -138,6 +154,20 @@ static void assert_capture(AetherVoiceIn *in) {
  assert(qemu_hmos_get_microphone_status()==AETHER_MIC_CAPTURING);
  callback_pcm(in->capturer); assert(guest_read(in,dst,sizeof(dst))==sizeof(dst));
  for(size_t i=0;i<sizeof(dst);i++) assert(dst[i]==7);
+}
+static void assert_fault_survives_close(AetherVoiceIn *in, AetherVoiceOut *out, int fault) {
+ unsigned char dst[16]; int starts=capture_starts;
+ // Closing an already closed gate must preserve faults for explicit retry.
+ for(int i=0;i<2;i++) {
+  assert(qemu_hmos_set_microphone_enabled(false));
+  assert(qemu_hmos_get_microphone_status()==fault);
+  assert(!in->capturer && !in->enabled && streams==1);
+  assert(guest_read(in,dst,sizeof(dst))==0);assert_erased(in);
+ }
+ aether_enable_in(&in->hw,false);aether_enable_in(&in->hw,true);
+ assert(qemu_hmos_get_microphone_status()==fault);
+ assert(guest_read(in,dst,sizeof(dst))==0 && capture_starts==starts);
+ assert_erased(in);assert_playback(out);
 }
 static void *callback_worker(void *opaque) {
  AetherVoiceIn *in=opaque; unsigned char pcm[16]; memset(pcm,7,sizeof(pcm));
@@ -188,11 +218,43 @@ int main(void) {
  // Errors and interruptions never auto resume merely because OS access persists.
  in.capturer->cb.OH_AudioCapturer_OnInterruptEvent(in.capturer,&in,0,1);
  assert_erased(&in);assert(qemu_hmos_get_microphone_status()==AETHER_MIC_BLOCKED);
+ assert_fault_survives_close(&in,&out,AETHER_MIC_BLOCKED);
  aether_enable_in(&in.hw,false);aether_enable_in(&in.hw,true);assert(!in.capturer);
  assert(qemu_hmos_set_microphone_enabled(true));assert_capture(&in);
  in.capturer->cb.OH_AudioCapturer_OnError(in.capturer,&in,-17);
  assert_erased(&in);assert(qemu_hmos_get_microphone_status()==AETHER_MIC_ERROR);
  assert(!in.capturer);assert_playback(&out);
+ assert_fault_survives_close(&in,&out,AETHER_MIC_ERROR);
+ // Stop/Release may deliver an interruption/error after the gate has closed.
+ for(int kind=1;kind<=2;kind++) {
+  for(int during_release=0;during_release<=1;during_release++) {
+   assert(qemu_hmos_set_microphone_enabled(true));assert_capture(&in);
+   callback_pcm(in.capturer);
+   fault_on_stop=during_release ? 0 : kind;
+   fault_on_release=during_release ? kind : 0;
+   assert_fault_survives_close(&in,&out,kind==1 ? AETHER_MIC_BLOCKED : AETHER_MIC_ERROR);
+   fault_on_stop=fault_on_release=0;
+   // Only a new affirmative control action may clear the latched fault.
+   assert(qemu_hmos_set_microphone_enabled(true));assert_capture(&in);
+  }
+ }
+ // A final PCM callback observes revoke even after false closed the gate.
+ callback_pcm(in.capturer);revoke_on_stop=true;
+ assert(qemu_hmos_set_microphone_enabled(false));revoke_on_stop=false;
+ permission=true; // Restore before status: the teardown callback must latch it.
+ assert_fault_survives_close(&in,&out,AETHER_MIC_BLOCKED);
+ assert(qemu_hmos_set_microphone_enabled(true));assert_capture(&in);
+ // False itself checks permission even with no capturer or callback remaining.
+ assert(qemu_hmos_set_microphone_enabled(false));
+ permission=false;assert(qemu_hmos_set_microphone_enabled(false));
+ permission=true;assert_fault_survives_close(&in,&out,AETHER_MIC_BLOCKED);
+ assert(qemu_hmos_set_microphone_enabled(true));assert_capture(&in);
+ // A permission change while fully paused is still visible through status.
+ assert(qemu_hmos_set_microphone_enabled(false));
+ assert(qemu_hmos_get_microphone_status()==AETHER_MIC_DISABLED);
+ permission=false;assert(qemu_hmos_get_microphone_status()==AETHER_MIC_BLOCKED);
+ permission=true;assert_fault_survives_close(&in,&out,AETHER_MIC_BLOCKED);
+ assert(qemu_hmos_set_microphone_enabled(true));assert_capture(&in);
  // Revoke between Generate and Start must prevent Start entirely.
  assert(qemu_hmos_set_microphone_enabled(false));revoke_on_generate=true;
  int starts=capture_starts;assert(!qemu_hmos_set_microphone_enabled(true));

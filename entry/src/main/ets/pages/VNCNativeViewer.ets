@@ -1,8 +1,8 @@
-import router from '@ohos.router'
 import common from '@ohos.app.ability.common'
 import hilog from '@ohos.hilog'
 import image from '@ohos.multimedia.image'
 import qemu from 'qemu_hmos'
+import { MicrophoneManager } from '../managers/MicrophoneManager'
 
 interface VncPoint {
   x: number
@@ -13,24 +13,26 @@ interface QemuVncInputApi {
   vncSendPointer?: (id: number, x: number, y: number, buttonMask: number) => boolean
   vncSendKey?: (id: number, keysym: number, down: boolean) => boolean
 }
-interface VNCNativeRouteParams {
-  vmName?: string
-  vncHost?: string
-  vncPort?: number
-}
-
 interface ExtendedKeyEvent {
   keyText?: string
   keyCode?: number
 }
 
-@Entry
+@Entry({ useSharedStorage: true })
 @Component
 struct VNCNativeViewer {
-  // 从 AppStorage 读取参数（由 VNCWindowAbility 设置）
-  @StorageLink('vnc_vmName') vmName: string = ''
-  @StorageLink('vnc_host') vncHost: string = '127.0.0.1'
-  @StorageLink('vnc_port') vncPort: number = 5901
+  // WindowStage supplies a separate LocalStorage for each Ability instance.
+  @LocalStorageProp('vnc_vmName') vmName: string = ''
+  @LocalStorageProp('vnc_host') vncHost: string = '127.0.0.1'
+  @LocalStorageProp('vnc_port') vncPort: number = 5901
+  @LocalStorageProp('viewer_microphoneSession') viewerMicrophoneSession: number = 0
+  @StorageLink('microphoneVm') microphoneVm: string = ''
+  @StorageLink('microphoneSession') microphoneSession: number = 0
+  @StorageLink('microphoneEnabled') microphoneEnabled: boolean = false
+  @StorageLink('microphoneBusy') microphoneBusy: boolean = false
+  @StorageLink('microphoneStatus') microphoneStatus: string = 'disabled'
+  @StorageLink('microphoneMessage') microphoneMessage: string = '麦克风已关闭'
+  @State microphoneSessionValid: boolean = false
   
   @State status: string = '准备中'
   @State connected: boolean = false
@@ -46,18 +48,16 @@ struct VNCNativeViewer {
   private renderInFlight: boolean = false
   private buttonMask: number = 0  // VNC button mask (1=left,2=middle,4=right,8=wheel up,16=wheel down)
   private lastInputLogTs: number = 0
+  private microphoneTimer: number = -1
 
   private inputApi(): QemuVncInputApi {
     return qemu as QemuVncInputApi
   }
 
   aboutToAppear() {
-    // 也尝试从 router 参数读取（兼容直接页面跳转）
-    const params = router.getParams() as VNCNativeRouteParams | undefined
-    if (params) {
-      if (typeof params.vmName === 'string' && params.vmName) this.vmName = params.vmName
-      if (typeof params.vncHost === 'string' && params.vncHost) this.vncHost = params.vncHost
-      if (typeof params.vncPort === 'number' && params.vncPort) this.vncPort = params.vncPort
+    this.refreshMicrophoneSession()
+    if (this.microphoneTimer === -1) {
+      this.microphoneTimer = setInterval((): void => { this.refreshMicrophoneSession() }, 500)
     }
 
     hilog.info(0x0000, 'VNC_NATIVE', `初始化原生VNC: VM=${this.vmName}, ${this.vncHost}:${this.vncPort}`)
@@ -67,8 +67,55 @@ struct VNCNativeViewer {
   }
 
   aboutToDisappear() {
+    if (this.microphoneTimer !== -1) {
+      clearInterval(this.microphoneTimer)
+      this.microphoneTimer = -1
+    }
     this.stopRendering()
     this.disconnectNative()
+  }
+
+  private refreshMicrophoneSession(): void {
+    try {
+      this.microphoneSessionValid = this.viewerMicrophoneSession > 0 &&
+        qemu.getMicrophoneSession(this.vmName) === this.viewerMicrophoneSession
+    } catch (_) {
+      this.microphoneSessionValid = false
+    }
+  }
+
+  private matchesMicrophone(): boolean {
+    return this.viewerMicrophoneSession > 0 && this.microphoneVm === this.vmName &&
+      this.microphoneSession === this.viewerMicrophoneSession
+  }
+
+  private microphoneFeedback(): string {
+    if (!this.microphoneSessionValid || !this.matchesMicrophone()) {
+      return '本窗口录音未启用'
+    }
+    if (this.microphoneStatus === 'suspended') {
+      return '窗口切换中，录音已暂停'
+    }
+    return this.microphoneMessage
+  }
+
+  private canCancelMicrophone(): boolean {
+    return this.microphoneEnabled || this.microphoneBusy || this.microphoneStatus === 'suspended'
+  }
+
+  private microphoneCancelLabel(): string {
+    if (!this.matchesMicrophone()) {
+      return this.microphoneBusy ? '取消其他窗口请求' : '关闭其他窗口录音'
+    }
+    return this.microphoneBusy || this.microphoneStatus === 'suspended' ? '取消录音' : '关闭麦克风'
+  }
+
+  private enableMicrophone(useSettings: boolean = false): void {
+    // Never adopt a replacement session just because its VM name is unchanged.
+    this.refreshMicrophoneSession()
+    if (!this.microphoneSessionValid) return
+    const context = getContext(this) as common.UIAbilityContext
+    void MicrophoneManager.getInstance().enable(this.vmName, useSettings, context)
   }
 
   async autoConnect() {
@@ -153,7 +200,8 @@ struct VNCNativeViewer {
   private goBack() {
     this.stopRendering()
     this.disconnectNative()
-    router.back()
+    const context = getContext(this) as common.UIAbilityContext
+    void context.terminateSelf()
   }
 
   build() {
@@ -182,6 +230,24 @@ struct VNCNativeViewer {
       .height(48)
       .padding({ left: 12, right: 12 })
       .backgroundColor('#1A1A1A')
+
+      Row({ space: 8 }) {
+        Text(this.microphoneFeedback()).fontSize(12).fontColor('#CCCCCC').layoutWeight(1)
+        if (this.canCancelMicrophone()) {
+          Button(this.microphoneCancelLabel()).fontSize(12).height(32)
+            .onClick((): void => { MicrophoneManager.getInstance().disable() })
+        }
+        if (!this.matchesMicrophone() || !this.canCancelMicrophone()) {
+          Button('启用麦克风').fontSize(12).height(32)
+            .enabled(this.microphoneSessionValid && !this.microphoneBusy)
+            .onClick((): void => { this.enableMicrophone() })
+        }
+        if (this.matchesMicrophone() && this.microphoneStatus === 'denied' && !this.microphoneBusy) {
+          Button('重新授权').fontSize(12).height(32)
+            .enabled(this.microphoneSessionValid)
+            .onClick((): void => { this.enableMicrophone(true) })
+        }
+      }.width('100%').padding({ left: 12, right: 12, top: 6, bottom: 6 })
 
       // VNC 显示区域
       Stack() {
