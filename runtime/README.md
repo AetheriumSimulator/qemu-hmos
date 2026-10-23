@@ -33,8 +33,55 @@ cmake --build /tmp/aether-runtime --parallel 2
 ctest --test-dir /tmp/aether-runtime --output-on-failure
 ```
 
-For an OHOS toolchain build, omit host tests and optionally enable
-`AETHER_RUNTIME_NAPI`. Wire `libaether_runtime_napi.so`, the shared runtime and
+The independent `SDK20 N-API compile and link` CI job builds this optional module
+with a real HarmonyOS API20 native SDK. Obtain the SDK from the official
+[Huawei Download Center](https://developer.huawei.com/consumer/en/download/)
+after reviewing and accepting its applicable terms outside this script. The
+gate does not acquire a license or accept terms on your behalf. Locally, use
+the extracted `native` directory and a new output directory:
+
+```sh
+python3 runtime/tools/check_sdk20.py \
+  --native-sdk /path/to/sdk/default/openharmony/native \
+  --output-dir /tmp/aether-sdk20-check
+```
+
+The gate explicitly enables `AETHER_RUNTIME_NAPI`, disables host tests, builds
+both shared libraries and checks SDK metadata, the actual compiler, SDK
+`ace_napi.z` linkage, AArch64 ELF output and required exports. Logs and
+`result.json` are written to the output directory. Missing SDK inputs, an
+unbuilt module or failed checks produce a nonzero exit; only a successful
+compile/link and artifact inspection produce `status: passed`.
+
+For CI, an administrator must manually configure repository variables
+`AETHER_SDK20_URL` and `AETHER_SDK20_SHA256` for an authorized, reviewed official
+SDK ZIP and its independently verified SHA-256. The HTTPS archive must contain
+exactly one API20 `native` package with `oh-uni-package.json` and
+`build/cmake/ohos.toolchain.cmake`. No API18 fallback is allowed. CI verifies
+the hash before extraction and fails if variables or the native SDK are
+missing; it does not create credentials, change permissions or upload SDKs or
+binaries. The job runs on relevant pushes, PRs and manual dispatch, separately
+from the existing fullcore/API18 build and publication workflows.
+
+Use Python 3.9+, CMake 3.16+ and Ninja on a host supported by the SDK. The native
+metadata (`apiVersion=20`) establishes the API level; `OHOS_PLATFORM_LEVEL=20`
+alone does not. Native metadata does not authenticate the vendor distribution:
+the provisioned HarmonyOS SDK or reviewed archive/hash remains a required
+trusted input. Standalone OpenHarmony packages are not an automatic substitute.
+
+Checker regression tests can run without an SDK:
+
+```sh
+python3 -m unittest discover -s runtime/tests -p 'test_sdk20_gate.py' -v
+```
+
+These fixtures validate checker logic only; they do not establish SDK
+compilation. A successful SDK20 gate establishes compile/link and ELF checks
+for that exact source and SDK. Phone Core integration, device execution and
+repeated startup remain separate, unverified acceptance steps. The existing
+`reentrant=0`, consumed and rejected-state protections are unchanged.
+
+Wire `libaether_runtime_napi.so`, the shared runtime and
 its build-matched Phone Core/dependencies into the host HAP. `arkts/index.d.ts`
 defines the promise result; promise completion means QEMU returned, not that a
 guest booted. Never invoke the blocking C function on the ArkUI thread.
