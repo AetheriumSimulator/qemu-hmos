@@ -1921,8 +1921,6 @@ static std::map<std::string, std::string> g_uefi_vars_paths;
 static std::map<std::string, bool> g_secure_boot_enabled;
 
 // 静态字符串缓存（用于返回 const char*）
-static std::string g_last_tpm_socket;
-static std::string g_last_tpm_state_dir;
 static std::string g_last_tpm_error;
 static std::string g_last_uefi_code;
 static std::string g_last_uefi_vars;
@@ -1933,55 +1931,20 @@ static std::string g_uefi_status_cache;
 static std::string g_secureboot_status_cache;
 
 /**
- * 设置 TPM 2.0 虚拟设备
- * HarmonyOS 环境下使用 swtpm 模拟器
+ * No TPM backend is provisioned by the current fullcore/HAP build.
+ * Creating a directory cannot make a swtpm endpoint or built-in TPM available.
  */
 int qemu_setup_tpm(const char* vm_name, tpm_setup_result_t* result) {
-    if (!vm_name || !result) {
+    if (!result) {
         return -1;
     }
-    
-    std::string name(vm_name);
-    
-    // 创建 TPM 状态目录
-    std::string state_dir = "/data/storage/el1/bundle/vm_data/" + name + "/tpm";
-    std::string socket_path = state_dir + "/swtpm-sock";
-    
-    // 创建目录
-    std::string mkdir_cmd = "mkdir -p " + state_dir;
-    int ret = system(mkdir_cmd.c_str());
-    
-    if (ret != 0) {
-        g_last_tpm_error = "无法创建 TPM 状态目录";
-        result->success = 0;
-        result->socket_path = nullptr;
-        result->state_dir = nullptr;
-        result->error_message = g_last_tpm_error.c_str();
-        return -1;
-    }
-    
-    // 注意：在 HarmonyOS 中，我们不能直接运行 swtpm
-    // 而是生成 QEMU 命令行参数，让 QEMU 在启动时加载 TPM 设备
-    // 实际的 TPM 模拟由 QEMU 内置的 tpm-emulator 提供
-    
-    // 存储路径信息
-    g_tpm_socket_paths[name] = socket_path;
-    g_tpm_state_dirs[name] = state_dir;
-    
-    // 设置返回值
-    g_last_tpm_socket = socket_path;
-    g_last_tpm_state_dir = state_dir;
-    
-    result->success = 1;
-    result->socket_path = g_last_tpm_socket.c_str();
-    result->state_dir = g_last_tpm_state_dir.c_str();
-    result->error_message = nullptr;
-    
-    std::cerr << "[TPM] TPM setup completed for VM: " << name << std::endl;
-    std::cerr << "[TPM] State dir: " << state_dir << std::endl;
-    std::cerr << "[TPM] Socket path: " << socket_path << std::endl;
-    
-    return 0;
+    g_last_tpm_error = "TPM backend unavailable in this build";
+    result->success = 0;
+    result->socket_path = nullptr;
+    result->state_dir = nullptr;
+    result->error_message = g_last_tpm_error.c_str();
+    (void)vm_name;
+    return -1;
 }
 
 /**
@@ -2007,19 +1970,10 @@ int qemu_cleanup_tpm(const char* vm_name) {
  * 检查 TPM 是否可用
  */
 int qemu_is_tpm_available(const char* vm_name) {
-    if (!vm_name) {
-        return 0;
-    }
-    
-    std::string name(vm_name);
-    
-    // 检查是否已设置 TPM
-    if (g_tpm_socket_paths.find(name) != g_tpm_socket_paths.end()) {
-        return 1;
-    }
-    
-    // QEMU 内置 TPM 模拟器始终可用
-    return 1;
+    (void)vm_name;
+    // Generic QEMU TPM support requires an actual backend and chardev.
+    // The current application provisions neither, so never report it ready.
+    return 0;
 }
 
 /**

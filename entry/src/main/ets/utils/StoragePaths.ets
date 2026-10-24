@@ -85,6 +85,7 @@ interface StorageErrorDetails {
 }
 
 export class StoragePaths {
+  private static importSequence: number = 0
   // 内部沙箱基础路径（不暴露给文件管理）
   static readonly INTERNAL_BASE = '/data/storage/el2/base/haps/entry/files'
   
@@ -174,34 +175,134 @@ export class StoragePaths {
       StoragePaths.SHARED_ONEDRIVE
     ]
     
-    const allDirs = [...internalDirs, ...sharedDirs]
-    
-    for (const dir of allDirs) {
+    for (const dir of internalDirs) {
+      await StoragePaths.ensureDirectory(dir)
+    }
+    // Sharing is optional; its separate base may be unavailable on a device.
+    for (const dir of sharedDirs) {
       try {
-        await fs.mkdir(dir)
-        hilog.info(0x0000, 'STORAGE', '创建目录: %{public}s', dir)
+        await StoragePaths.ensureDirectory(dir)
       } catch (e) {
-        // 目录可能已存在，忽略错误
+        hilog.warn(0x0000, 'STORAGE', '共享目录不可用: %{public}s', (e as Error).message)
       }
     }
+  }
+
+  private static async ensureDirectory(path: string): Promise<void> {
+    try {
+      await fs.mkdir(path, true)
+    } catch (e) {
+      // Only an existing directory is success. Permission/full-disk/file errors
+      // must reach the caller before it publishes a VM or an imported path.
+      if (!StoragePaths.isExistsError(e as Error)) throw new Error((e as Error).message)
+    }
+    const stat = await fs.stat(path)
+    if (!stat.isDirectory()) throw new Error(`不是目录: ${path}`)
+  }
+
+  private static isExistsError(error: Error): boolean {
+    const code = StoragePaths.errorDetails(error).code
+    return code === '13900015' || code === 'EEXIST'
   }
   
   /**
    * 确保指定 VM 的目录存在
    */
   static async ensureVmDirectories(vmName: string): Promise<void> {
-    const dirs = [
-      StoragePaths.getVmDir(vmName),
-      StoragePaths.getVmSharedDir(vmName)
-    ]
-    
-    for (const dir of dirs) {
+    await StoragePaths.ensureDirectories()
+    await StoragePaths.ensureDirectory(StoragePaths.getVmDir(vmName))
+    try {
+      await StoragePaths.ensureDirectory(StoragePaths.getVmSharedDir(vmName))
+    } catch (e) {
+      hilog.warn(0x0000, 'STORAGE', 'VM 共享目录不可用: %{public}s', (e as Error).message)
+    }
+  }
+
+  /** Reserve a new VM directory without ever reusing another VM's disk. */
+  static async reserveVmName(requestedName: string, existingNames: string[]): Promise<string> {
+    const base = requestedName.trim()
+    if (!base || base === '.' || base === '..' || /[/\\\x00-\x1f]/.test(base)) {
+      throw new Error('虚拟机名称不能包含路径分隔符或控制字符')
+    }
+    await StoragePaths.ensureDirectories()
+    for (let index = 0; index < 1000; index++) {
+      const name = index === 0 ? base : `${base} (${index + 1})`
+      if (existingNames.includes(name)) continue
       try {
-        await fs.mkdir(dir)
+        // mkdir without recursion exclusively reserves the name, including
+        // across overlapping callbacks and orphaned directories after a crash.
+        await fs.mkdir(StoragePaths.getVmDir(name))
+        return name
       } catch (e) {
-        // 目录可能已存在
+        if (!StoragePaths.isExistsError(e as Error)) throw new Error((e as Error).message)
       }
     }
+    throw new Error('无法分配虚拟机目录，请使用其他名称')
+  }
+
+  /** Picker URIs must be opened intact; stripping file:// loses their grant. */
+  private static async copyImportedFile(source: string, target: string): Promise<number> {
+    const input = await fs.open(source, fs.OpenMode.READ_ONLY)
+    let copied = false
+    try {
+      const sourceStat = await fs.stat(input.fd)
+      if (!sourceStat.isFile() || sourceStat.size <= 0) throw new Error('所选镜像为空或不是普通文件')
+      await fs.copyFile(input.fd, target)
+      const targetStat = await fs.stat(target)
+      if (!targetStat.isFile() || targetStat.size !== sourceStat.size) {
+        throw new Error('镜像复制不完整，请重试')
+      }
+      copied = true
+      return targetStat.size
+    } finally {
+      try { await fs.close(input) } catch (e) {
+        hilog.warn(0x0000, 'STORAGE', '关闭导入源失败: %{public}s', (e as Error).message)
+      }
+      if (!copied) {
+        // target belongs to this import's exclusively reserved directory.
+        try { await fs.unlink(target) } catch (_) { /* absent/failed partial copy */ }
+      }
+    }
+  }
+
+  static async importIso(source: string): Promise<string> {
+    await StoragePaths.ensureDirectory(StoragePaths.ISOS_DIR)
+    for (let attempt = 0; attempt < 1000; attempt++) {
+      const token = `${Date.now()}-${StoragePaths.importSequence++}`
+      const directory = `${StoragePaths.ISOS_DIR}/import-${token}`
+      try {
+        await fs.mkdir(directory)
+      } catch (e) {
+        if (StoragePaths.isExistsError(e as Error)) continue
+        throw new Error((e as Error).message)
+      }
+      const target = `${directory}/image.iso`
+      await StoragePaths.copyImportedFile(source, target)
+      return target
+    }
+    throw new Error('无法分配 ISO 目录，请重试')
+  }
+
+  /** Only called for a directory allocated by reserveVmName in this creation. */
+  static async importVmDisk(source: string, vmName: string): Promise<number> {
+    await StoragePaths.ensureVmDirectories(vmName)
+    const target = StoragePaths.getVmDiskPath(vmName)
+    try {
+      await fs.stat(target)
+      throw new Error('目标磁盘已存在，拒绝覆盖')
+    } catch (e) {
+      if (!StoragePaths.isMissingError(e as Error)) throw new Error((e as Error).message)
+    }
+    return StoragePaths.copyImportedFile(source, target)
+  }
+
+  /** Validate old sandbox paths in place; only external legacy paths migrate. */
+  static async prepareIso(source: string): Promise<string> {
+    if (!source) return ''
+    if (!source.startsWith(`${StoragePaths.ISOS_DIR}/`)) return StoragePaths.importIso(source)
+    const stat = await fs.stat(source)
+    if (!stat.isFile() || stat.size <= 0) throw new Error('ISO 文件不存在或为空，请重新选择')
+    return source
   }
 
 

@@ -78,14 +78,23 @@ class AudioTests(unittest.TestCase):
             self.assertNotEqual(load_image(original), load_image(altered))
 
     def test_hap_requires_identical_validated_core(self):
-        from validate_hap import REQUIRED_ENTRIES
+        import hashlib
+        from validate_hap import (FIRMWARE_ENTRY, FIRMWARE_DIGEST_ENTRY,
+                                  PFLASH_SIZE, REQUIRED_ENTRIES)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             hap = path/'test.hap'
             core = path/'core.so'
-            with zipfile.ZipFile(hap, 'w') as archive:
+            firmware = bytes(PFLASH_SIZE)
+            with zipfile.ZipFile(hap, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
                 for name in REQUIRED_ENTRIES:
-                    archive.writestr(name, b'synthetic core fixture')
+                    if name == FIRMWARE_ENTRY:
+                        content = firmware
+                    elif name == FIRMWARE_DIGEST_ENTRY:
+                        content = (hashlib.sha256(firmware).hexdigest() + '\n').encode('ascii')
+                    else:
+                        content = b'synthetic core fixture'
+                    archive.writestr(name, content)
             core.write_bytes(b'synthetic core fixture')
             command = ['python3', str(ROOT/'tools/validate_hap.py'), str(hap), '--core', str(core)]
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)

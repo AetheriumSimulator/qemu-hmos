@@ -4,6 +4,7 @@
  */
 
 import deviceInfo from '@ohos.deviceInfo';
+import { Windows11ConfigManager } from './Windows11Config';
 
 /**
  * KVM 支持信息
@@ -235,14 +236,10 @@ export class Windows11CompatibilityTester {
   }
   
   /**
-   * 检测 TPM 支持
-   * QEMU 可以通过 swtpm 模拟 TPM 2.0
+   * 检测当前构建实际提供的 TPM 后端
    */
   private checkTpmSupport(): boolean {
-    // QEMU 支持软件 TPM (swtpm)
-    // 我们可以在 QEMU 命令行中添加 TPM 设备
-    // 所以从应用角度来说，TPM 是可用的
-    return true;
+    return Windows11ConfigManager.isTPMAvailable();
   }
   
   /**

@@ -8,6 +8,8 @@
 
 import filePicker from '@ohos.file.picker'
 import hilog from '@ohos.hilog'
+import promptAction from '@ohos.promptAction'
+import { StoragePaths } from '../utils/StoragePaths'
 
 // 向导步骤定义
 type WizardMode = 'normal' | 'advanced'
@@ -111,6 +113,10 @@ export struct VMCreateWizard {
   @State isoPath: string = ''
   @State importedDiskPath: string = ''
   @State vmName: string = ''
+  @State filePickerBusy: boolean = false
+  @State fileSelectionError: string = ''
+  private selectionEpoch: number = 0
+  private wizardActive: boolean = true
   
   // 默认机器选项（当外部没有提供 machineOptions 时使用）
   private defaultMachines: MachineOption[] = [
@@ -186,6 +192,13 @@ export struct VMCreateWizard {
         }.width('100%')
       }.layoutWeight(1).scrollBar(BarState.Auto)
       
+      if (this.filePickerBusy) {
+        Text('正在准备镜像，请稍候…').fontSize(12).fontColor($r('app.color.text_secondary')).margin({ top: 12 })
+      }
+      if (this.fileSelectionError) {
+        Text(this.fileSelectionError).fontSize(12).fontColor('#E84026').margin({ top: 12 })
+      }
+
       // 底部按钮
       if (this.currentStep !== 'select_mode') {
         this.BottomButtons()
@@ -202,7 +215,7 @@ export struct VMCreateWizard {
       Blank()
       if (this.currentStep !== 'done') {
         Text('取消').fontSize(14).fontColor($r('app.color.accent'))
-          .onClick(() => this.onCancel())
+          .onClick(() => this.cancelWizard())
       }
     }.width('100%').margin({ bottom: 16 })
   }
@@ -633,6 +646,7 @@ export struct VMCreateWizard {
             .type(ButtonType.Capsule).height(32)
             .backgroundColor($r('app.color.card_background'))
             .fontColor($r('app.color.text_primary'))
+            .enabled(!this.filePickerBusy)
             .onClick(() => this.selectDisk())
         }.width('100%').padding(12).backgroundColor($r('app.color.card_background')).borderRadius(12)
       }.width('100%').margin({ top: 24 }).alignItems(HorizontalAlign.Start)
@@ -690,6 +704,7 @@ export struct VMCreateWizard {
           Button(this.isoPath ? '更换' : '选择')
             .type(ButtonType.Capsule).height(32)
             .backgroundColor($r('app.color.accent'))
+            .enabled(!this.filePickerBusy)
             .onClick(() => this.selectISO())
         }.width('100%').padding(12).backgroundColor($r('app.color.card_background')).borderRadius(12)
       }.width('100%').margin({ bottom: 20 }).alignItems(HorizontalAlign.Start)
@@ -800,10 +815,29 @@ export struct VMCreateWizard {
           .layoutWeight(1)
           .onClick(() => this.complete())
       }
-    }.width('100%').margin({ top: 16 })
+    }.width('100%').margin({ top: 16 }).enabled(!this.filePickerBusy)
   }
   
   // ========== 辅助方法 ==========
+
+  aboutToAppear(): void {
+    this.wizardActive = true
+    this.selectionEpoch++
+    this.filePickerBusy = false
+  }
+
+  aboutToDisappear(): void {
+    this.wizardActive = false
+    this.selectionEpoch++
+    this.filePickerBusy = false
+  }
+
+  private cancelWizard(): void {
+    this.wizardActive = false
+    this.selectionEpoch++
+    this.filePickerBusy = false
+    this.onCancel()
+  }
   
   private getStepTitle(): string {
     const titles: Record<string, string> = {
@@ -836,6 +870,7 @@ export struct VMCreateWizard {
   }
   
   private goNext(): void {
+    if (this.filePickerBusy || !this.wizardActive) return
     const steps = this.getSteps()
     const currentIndex = this.getStepIndex()
     if (currentIndex < steps.length - 1) {
@@ -844,6 +879,7 @@ export struct VMCreateWizard {
   }
   
   private goBack(): void {
+    if (this.filePickerBusy || !this.wizardActive) return
     const steps = this.getSteps()
     const currentIndex = this.getStepIndex()
     if (currentIndex > 0) {
@@ -854,6 +890,7 @@ export struct VMCreateWizard {
   }
   
   private complete(): void {
+    if (this.filePickerBusy || !this.wizardActive) return
     const result: WizardResult = {
       name: this.vmName || `${this.selectedOS} VM`,
       archType: this.selectedArch,
@@ -872,38 +909,53 @@ export struct VMCreateWizard {
   }
   
   private async selectISO(): Promise<void> {
+    if (this.filePickerBusy || !this.wizardActive) return
+    const epoch = ++this.selectionEpoch
+    this.filePickerBusy = true
+    this.fileSelectionError = ''
     try {
       const docPicker = new filePicker.DocumentViewPicker()
       const result = await docPicker.select({ maxSelectNumber: 1 })
+      if (!this.wizardActive || epoch !== this.selectionEpoch) return
       if (result && result.length > 0) {
-        this.isoPath = this.normalizeDocumentPath(result[0])
+        // Keep the document URI intact and copy while its picker grant is valid.
+        // A failed replacement leaves the previously imported ISO selected.
+        const importedPath = await StoragePaths.importIso(result[0])
+        if (!this.wizardActive || epoch !== this.selectionEpoch) return
+        this.isoPath = importedPath
       }
     } catch (e) {
       hilog.error(0x0000, 'VMCreateWizard', '选择ISO失败: %{public}s', (e as Error).message)
+      if (this.wizardActive && epoch === this.selectionEpoch) {
+        this.fileSelectionError = 'ISO 导入失败，请重试：' + (e as Error).message
+        promptAction.showToast({ message: this.fileSelectionError, duration: 3000 })
+      }
+    } finally {
+      if (this.wizardActive && epoch === this.selectionEpoch) this.filePickerBusy = false
     }
   }
   
   private async selectDisk(): Promise<void> {
+    if (this.filePickerBusy || !this.wizardActive) return
+    const epoch = ++this.selectionEpoch
+    this.filePickerBusy = true
+    this.fileSelectionError = ''
     try {
       const docPicker = new filePicker.DocumentViewPicker()
       const result = await docPicker.select({ maxSelectNumber: 1 })
+      if (!this.wizardActive || epoch !== this.selectionEpoch) return
       if (result && result.length > 0) {
-        this.importedDiskPath = this.normalizeDocumentPath(result[0])
+        this.importedDiskPath = result[0]
       }
     } catch (e) {
       hilog.error(0x0000, 'VMCreateWizard', '选择磁盘失败: %{public}s', (e as Error).message)
+      if (this.wizardActive && epoch === this.selectionEpoch) {
+        this.fileSelectionError = '磁盘选择失败，请重试：' + (e as Error).message
+        promptAction.showToast({ message: this.fileSelectionError, duration: 3000 })
+      }
+    } finally {
+      if (this.wizardActive && epoch === this.selectionEpoch) this.filePickerBusy = false
     }
-  }
-  
-  private normalizeDocumentPath(uri: string): string {
-    if (!uri) return uri
-    if (uri.startsWith('file://docs')) {
-      return uri.replace('file://docs', '')
-    }
-    if (uri.startsWith('file://')) {
-      return uri.replace('file://', '')
-    }
-    return uri
   }
   
   private getFileName(path: string): string {
