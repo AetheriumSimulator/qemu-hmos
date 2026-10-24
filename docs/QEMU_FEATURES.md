@@ -10,7 +10,7 @@
 | 显示 | QEMU VNC/pixman 启用；wrapper 的可选 LibVNCClient 缺失，内置客户端不可用，见 [VNC 状态](VNC_NATIVE.md)。 |
 | vhost / VDUSE / guest agent | 此 CI 配方禁用 vhost-user、vhost-net、vhost-kernel、libvduse、vduse-blk-export、guest-agent 等；不能沿用旧文档的“已启用”列表。 |
 | 音频 | 实际配置日志 `Audio drivers: oss`。OHAudio 补丁文件存在，但当前 CI 没有执行应用该补丁的本地脚本，不能声称本包验证了 HarmonyOS 音频。 |
-| TPM | 日志 `TPM support: YES` 表示通用构建能力；不证明最小 TPM2 兜底补丁已应用，也不证明来宾检测或 Windows 11 兼容。 |
+| TPM | 当前启动路径不自动创建 TPM，兼容性接口报告不可用。日志 `TPM support: YES` 仅表示通用构建能力；最小 TPM2 兜底补丁未启用，Windows 11 TPM 要求未验证。 |
 | 固件 | EDK2 ArmVirt/OVMF 单独构建并打包；并非使用 QEMU 旧预编译 ROM 集合。 |
 | 共享目录 | 主启动代码的 virtio-9p 路径禁用；未确认 virtiofs 已接通。 |
 

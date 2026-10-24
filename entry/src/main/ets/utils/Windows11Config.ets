@@ -153,8 +153,8 @@ export class Windows11ConfigManager {
     try {
       return qemu.isTpmAvailable(vmName);
     } catch (e) {
-      console.warn('[Windows11Config] TPM 检查失败，假设可用');
-      return true;
+      console.warn('[Windows11Config] TPM 检查失败，视为不可用');
+      return false;
     }
   }
 

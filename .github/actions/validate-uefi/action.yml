@@ -139,10 +139,10 @@ runs:
       echo "=== Preparing firmware artifacts ==="
       mkdir -p firmware-artifacts
 
-      # 复制ARM64固件
+      # ArmVirtQemu builds a smaller CODE volume; virt's pflash bank is 64 MiB.
       test -n "$ARM64_FIRMWARE_PATH"
       test -s "$ARM64_FIRMWARE_PATH"
-      cp "$ARM64_FIRMWARE_PATH" \
+      python3 tools/prepare_firmware.py "$ARM64_FIRMWARE_PATH" \
          firmware-artifacts/edk2-aarch64-code.fd
 
       # 复制x86_64固件

@@ -9,13 +9,31 @@ import struct
 import zipfile
 from pathlib import Path
 
+from prepare_firmware import PFLASH_SIZE
+
+
+FIRMWARE_ENTRY = 'resources/rawfile/edk2-aarch64-code.fd'
+FIRMWARE_DIGEST_ENTRY = FIRMWARE_ENTRY + '.sha256'
 
 REQUIRED_ENTRIES = (
     "module.json",
     "ets/modules.abc",
     "libs/arm64-v8a/libqemu_hmos.so",
     "libs/arm64-v8a/libqemu_full.so",
+    FIRMWARE_ENTRY,
+    FIRMWARE_DIGEST_ENTRY,
 )
+
+
+def validate_arm64_firmware(archive: zipfile.ZipFile) -> None:
+    if archive.getinfo(FIRMWARE_ENTRY).file_size != PFLASH_SIZE:
+        raise ValueError('ARM64 pflash CODE must be exactly 67108864 bytes')
+    if archive.getinfo(FIRMWARE_DIGEST_ENTRY).file_size != 65:
+        raise ValueError('ARM64 firmware SHA-256 sidecar must contain 64 hex digits and a newline')
+    with archive.open(FIRMWARE_ENTRY) as stream:
+        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+    if archive.read(FIRMWARE_DIGEST_ENTRY) != (digest + '\n').encode('ascii'):
+        raise ValueError('ARM64 firmware SHA-256 sidecar does not match packaged CODE')
 
 
 def load_image(data: bytes) -> bytes:
@@ -77,6 +95,10 @@ def main() -> int:
         ]
         if empty:
             raise SystemExit("HAP contains empty required entries: " + ", ".join(empty))
+        try:
+            validate_arm64_firmware(archive)
+        except ValueError as error:
+            raise SystemExit(f"HAP firmware validation failed: {error}")
         if args.core:
             packaged = archive.read("libs/arm64-v8a/libqemu_full.so")
             original = args.core.read_bytes()

@@ -216,6 +216,8 @@ struct Index {
   @State wizardDisk: number = 64
   @State wizardNoDisk: boolean = false
   @State wizardISOPath: string = ''
+  @State isoSelectionBusy: boolean = false
+  private isoSelectionEpoch: number = 0
   // 可选：导入现有 QEMU 磁盘镜像
   @State wizardImportedDiskPath: string = ''
   
@@ -843,6 +845,8 @@ struct Index {
   }
 
   private closeSheet(): void {
+    this.isoSelectionEpoch++
+    this.isoSelectionBusy = false
     hilog.info(0x0000, 'INDEX', '>>> 关闭 Sheet <<<')
     this.sheetVisible = false
     this.currentSheet = 'none'
@@ -993,90 +997,67 @@ struct Index {
 
   // ========== ISO 选择 ==========
   private async selectISO(): Promise<void> {
+    if (this.isoSelectionBusy) return
+    this.isoSelectionBusy = true
+    const epoch = ++this.isoSelectionEpoch
     try {
       const docPicker = new filePicker.DocumentViewPicker()
       const result = await docPicker.select({ maxSelectNumber: 1 })
-      if (result && result.length > 0) {
-        this.wizardISOPath = result[0]
+      if (result && result.length > 0 && epoch === this.isoSelectionEpoch) {
+        const imported = await StoragePaths.importIso(result[0])
+        if (epoch === this.isoSelectionEpoch) this.wizardISOPath = imported
       }
     } catch (e) {
-      hilog.error(0x0000, 'INDEX', '选择ISO失败: %{public}s', (e as Error).message)
+      if (epoch === this.isoSelectionEpoch) {
+        this.errorMessage = 'ISO 复制失败: ' + (e as Error).message
+        promptAction.showToast({ message: this.errorMessage, duration: 2500 })
+      }
+    } finally {
+      if (epoch === this.isoSelectionEpoch) this.isoSelectionBusy = false
     }
   }
 
-  // 选择并导入现有 QEMU 磁盘镜像（qcow2/raw）
+  // Keep the picker URI intact so fs.open can use its temporary read grant.
   private async selectDiskImage(): Promise<void> {
     try {
       const docPicker = new filePicker.DocumentViewPicker()
       const result = await docPicker.select({ maxSelectNumber: 1 })
-      if (result && result.length > 0) {
-        const rawPath = result[0] as string
-        const normalized = this.normalizeDocumentPath(rawPath)
-        this.wizardImportedDiskPath = normalized
-        hilog.info(0x0000, 'INDEX', '已选择导入磁盘镜像: raw=%{public}s normalized=%{public}s', rawPath, normalized)
-      }
+      if (result && result.length > 0) this.wizardImportedDiskPath = result[0]
     } catch (e) {
-      hilog.error(0x0000, 'INDEX', '选择磁盘镜像失败: %{public}s', (e as Error).message)
+      this.errorMessage = '选择磁盘镜像失败: ' + (e as Error).message
     }
-  }
-
-  // 将 DocumentPicker 返回的 file://docs/... URI 转换为实际文件系统路径
-  private normalizeDocumentPath(uri: string): string {
-    if (!uri) {
-      return uri
-    }
-    // HarmonyOS DocumentViewPicker 返回的路径形如:
-    // file://docs/storage/Users/currentUser/Download/xxx.qcow2
-    // 实际文件路径从 /storage 开始
-    if (uri.startsWith('file://docs')) {
-      return uri.replace('file://docs', '')
-    }
-    if (uri.startsWith('file://')) {
-      return uri.replace('file://', '')
-    }
-    return uri
   }
 
   // 选择 ISO 并复制到沙箱 isos 目录；更新 VM 配置
   private async pickIsoForVm(vm: VMMeta): Promise<void> {
+    if (this.isoSelectionBusy) return
+    this.isoSelectionBusy = true
+    const epoch = ++this.isoSelectionEpoch
     try {
       const picker = new filePicker.DocumentViewPicker()
       const res = await picker.select({ maxSelectNumber: 1 })
-      if (!res || res.length === 0) {
-        return
-      }
-      const rawPath = res[0] as string
-      const normalized = this.normalizeDocumentPath(rawPath)
-      await StoragePaths.ensureDirectories()
-      const safeName = vm.name.replace(/[^\w.-]/g, '_') || 'vm'
-      const targetIso = `${StoragePaths.ISOS_DIR}/${safeName}.iso`
-      if (normalized !== targetIso) {
-        try { await fs.access(targetIso) } catch (_) { /* ignore */ }
-        // 覆盖旧的同名 ISO
-        await fs.copyFile(normalized, targetIso)
-      }
+      if (!res || res.length === 0 || epoch !== this.isoSelectionEpoch) return
+      const targetIso = await StoragePaths.importIso(res[0])
+      if (epoch !== this.isoSelectionEpoch) return
       vm.config.isoPath = targetIso
       await this.saveAllVMs()
       promptAction.showToast({ message: 'ISO 已复制到沙箱并挂载', duration: 2000 })
-      // UX：选完 ISO 自动关闭弹窗，避免“必须手动关 Sheet 才能继续用”
-      try {
-        this.closeSheet()
-      } catch (_) {
-        // ignore
-      }
+      this.closeSheet()
     } catch (e) {
-      hilog.error(0x0000, 'INDEX', '选择/复制 ISO 失败: %{public}s', (e as Error).message)
-      promptAction.showToast({ message: 'ISO 选择失败: ' + (e as Error).message, duration: 2500 })
+      if (epoch === this.isoSelectionEpoch) {
+        hilog.error(0x0000, 'INDEX', '选择/复制 ISO 失败: %{public}s', (e as Error).message)
+        promptAction.showToast({ message: 'ISO 选择失败: ' + (e as Error).message, duration: 2500 })
+      }
+    } finally {
+      if (epoch === this.isoSelectionEpoch) this.isoSelectionBusy = false
     }
   }
 
-  // 弹出 ISO：清空配置并删除沙箱内副本（若存在）
+  // Detach only: legacy name-based paths can be shared by several VMs.
   private async ejectIso(vm: VMMeta): Promise<void> {
+    this.isoSelectionEpoch++
+    this.isoSelectionBusy = false
     try {
-      const current = vm.config.isoPath
-      if (current && current.startsWith(StoragePaths.ISOS_DIR)) {
-        try { await fs.unlink(current) } catch (_) { /* ignore missing */ }
-      }
       vm.config.isoPath = ''
       await this.saveAllVMs()
       promptAction.showToast({ message: '已弹出 ISO', duration: 1500 })
@@ -1088,106 +1069,59 @@ struct Index {
 
   // ========== VM 操作 ==========
   private async createVMFromWizard(): Promise<void> {
-    try {
-      this.isLoading = true
-      const newVM = new VMMeta()
-      newVM.id = Date.now().toString()
-      const defaultName = `${this.wizardOS} VM`
-      const rawName = this.wizardName ? this.wizardName.trim() : ''
-      newVM.name = rawName || defaultName
-      newVM.osType = this.wizardOS
-      newVM.config.name = newVM.name
-      newVM.config.osType = this.wizardOS
-      newVM.config.archType = this.wizardArch
-      newVM.config.diskSizeGB = this.wizardNoDisk ? 0 : this.wizardDisk
-      newVM.config.memoryMB = this.wizardMemory
-      newVM.config.cpuCount = 4
-      newVM.config.isoPath = this.wizardISOPath
-
-      // 如果用户选择了现有 QEMU 磁盘镜像，则在创建 VM 目录后复制过去
-      if (this.wizardImportedDiskPath) {
-        try {
-          await StoragePaths.ensureVmDirectories(newVM.name)
-          const destPath = StoragePaths.getVmDiskPath(newVM.name)
-          // 覆盖已有磁盘（如果存在）
-          await fs.copyFile(this.wizardImportedDiskPath, destPath)
-          const stat = fs.statSync(destPath)
-          const sizeGB = Math.max(1, Math.floor(stat.size / (1024 * 1024 * 1024)))
-          newVM.config.diskSizeGB = sizeGB
-          hilog.info(0x0000, 'INDEX', '已导入磁盘镜像到: %{public}s, 大小约 %{public}d GB', destPath, sizeGB)
-        } catch (e) {
-          hilog.error(0x0000, 'INDEX', '导入磁盘镜像失败: %{public}s', (e as Error).message)
-          this.errorMessage = '导入磁盘镜像失败: ' + (e as Error).message
-          this.isLoading = false
-          return
-        }
-      }
-
-      this.vms.push(newVM)
-      this.selectedVmId = newVM.id
-      await this.saveAllVMs()
-      this.closeSheet()
-      // 询问是否启动
-      this.startTargetVM = newVM
-      setTimeout((): void => { this.openSheet('startMode') }, 300)
-    } catch (e) {
-      this.errorMessage = (e as Error).message
-    } finally {
-      this.isLoading = false
+    const result: WizardResult = {
+      name: this.wizardName.trim() || `${this.wizardOS} VM`,
+      archType: this.wizardArch,
+      osType: this.wizardOS,
+      diskSizeGB: this.wizardDisk,
+      memoryMB: this.wizardMemory,
+      isoPath: this.wizardISOPath,
+      importedDiskPath: this.wizardImportedDiskPath,
+      noDisk: this.wizardNoDisk,
+      machine: this.wizardMachine,
+      displayDevice: 'auto',
+      networkDevice: 'auto',
+      audioDevice: 'none'
     }
+    await this.createVMFromWizardResult(result)
   }
 
-  /**
-   * 从新向导结果创建虚拟机
-   */
+  /** Publish the VM only after every requested import has completed. */
   private async createVMFromWizardResult(result: WizardResult): Promise<void> {
+    if (this.isLoading || this.isoSelectionBusy) return
     try {
       this.isLoading = true
+      this.errorMessage = ''
       const newVM = new VMMeta()
-      newVM.id = Date.now().toString()
-      newVM.name = result.name
+      const isoPath = await StoragePaths.prepareIso(result.isoPath)
+      newVM.name = await StoragePaths.reserveVmName(result.name,
+        this.vms.map((vm: VMMeta): string => vm.name))
+      newVM.id = `${Date.now()}-${newVM.name}`
       newVM.osType = result.osType
-      newVM.config.name = result.name
+      newVM.config.name = newVM.name
       newVM.config.osType = result.osType
       newVM.config.archType = result.archType
       newVM.config.diskSizeGB = result.noDisk ? 0 : result.diskSizeGB
       newVM.config.memoryMB = result.memoryMB
       newVM.config.cpuCount = 4
-      newVM.config.isoPath = result.isoPath
-      // 高级硬件配置（如果是普通模式，这些字段会使用默认值）
+      newVM.config.isoPath = isoPath
       newVM.config.machine = result.machine
       newVM.config.displayDevice = result.displayDevice
       newVM.config.networkDevice = result.networkDevice
       newVM.config.audioDevice = result.audioDevice
-
-      // 如果用户选择了现有磁盘镜像，复制到 VM 目录
       if (result.importedDiskPath) {
-        try {
-          await StoragePaths.ensureVmDirectories(newVM.name)
-          const destPath = StoragePaths.getVmDiskPath(newVM.name)
-          await fs.copyFile(result.importedDiskPath, destPath)
-          const stat = fs.statSync(destPath)
-          const sizeGB = Math.max(1, Math.floor(stat.size / (1024 * 1024 * 1024)))
-          newVM.config.diskSizeGB = sizeGB
-          hilog.info(0x0000, 'INDEX', '已导入磁盘镜像到: %{public}s, 大小约 %{public}d GB', destPath, sizeGB)
-        } catch (e) {
-          hilog.error(0x0000, 'INDEX', '导入磁盘镜像失败: %{public}s', (e as Error).message)
-          this.errorMessage = '导入磁盘镜像失败: ' + (e as Error).message
-          this.isLoading = false
-          return
-        }
+        const size = await StoragePaths.importVmDisk(result.importedDiskPath, newVM.name)
+        newVM.config.diskSizeGB = Math.max(1, Math.floor(size / (1024 * 1024 * 1024)))
       }
-
       this.vms.push(newVM)
       this.selectedVmId = newVM.id
       await this.saveAllVMs()
       this.closeSheet()
-      
-      // 询问是否启动
       this.startTargetVM = newVM
       setTimeout((): void => { this.openSheet('startMode') }, 300)
     } catch (e) {
-      this.errorMessage = (e as Error).message
+      this.errorMessage = '创建虚拟机失败: ' + (e as Error).message
+      promptAction.showToast({ message: this.errorMessage, duration: 3000 })
     } finally {
       this.isLoading = false
     }
@@ -1236,24 +1170,16 @@ struct Index {
         this.keymapsAvailable = false
       }
       
-      // 如果选择了 ISO，将其拷贝到应用沙箱的 isos 目录，避免外部路径不可读
+      // Keep existing sandbox media in place. Migrate external legacy paths only
+      // after a complete copy; a failed copy aborts without changing the config.
       let isoPath = vm.config.isoPath
-      if (isoPath) {
-        try {
-          await StoragePaths.ensureDirectories()
-          const safeName = vm.name.replace(/[^\w.-]/g, '_')
-          const targetIsoDir = StoragePaths.ISOS_DIR
-          const targetIso = `${targetIsoDir}/${safeName}.iso`
-          // 如果源路径不同且目标不存在，则复制
-          if (isoPath !== targetIso) {
-            try { await fs.access(targetIso) } catch (_) {
-              await fs.copyFile(isoPath, targetIso)
-            }
-            isoPath = targetIso
-          }
-        } catch (e) {
-          console.warn('拷贝 ISO 到沙箱失败，仍然使用原路径:', (e as Error).message)
-        }
+      try {
+        isoPath = await StoragePaths.prepareIso(isoPath)
+      } catch (e) {
+        this.errorMessage = 'ISO 文件不可用，请重新选择: ' + (e as Error).message
+        promptAction.showToast({ message: this.errorMessage, duration: 3000 })
+        vm.status = 'failed'
+        return
       }
 
       // install 模式必须挂载 ISO，否则等同于“空盘启动”，UEFI 会无事可做，看起来像卡死
@@ -1279,9 +1205,7 @@ struct Index {
           hilog.error(0x0000, 'INDEX', 'install ISO 不可用，终止启动: %{public}s', (e as Error).message)
           this.errorMessage = 'ISO 文件不可用，请重新选择'
           promptAction.showToast({ message: 'ISO 文件不存在/不可读，请重新选择 ISO', duration: 3000 })
-          // 清空，避免下次继续误判“已挂载”
-          vm.config.isoPath = ''
-          await this.saveAllVMs()
+          // Preserve the selection for diagnosis/retry; never delete user media.
           vm.status = 'failed'
           return
         }
@@ -1324,13 +1248,10 @@ struct Index {
       // 将最终使用的 ISO 路径写回 VM 配置，便于后续查看/重启
       vm.config.isoPath = isoPath
 
-      // 安装模式(aarch64)显示设备兜底：
-      // - Windows ARM 安装/UEFI 阶段对 virtio-gpu-device(MMIO) 可能没有驱动，VNC 会长期停留在 "Display Output Is Not Active"
-      // - ramfb 在固件阶段最稳定，优先保证“能出画面”
+      // Only supply an install fallback when no display was explicitly chosen.
       let effectiveDisplayDevice: string | undefined = vm.config.displayDevice
       if (bootMode === 'install' && (vm.config.archType || 'aarch64') === 'aarch64') {
-        if (!effectiveDisplayDevice || effectiveDisplayDevice === 'auto' || effectiveDisplayDevice === 'none' ||
-          effectiveDisplayDevice.startsWith('virtio-gpu')) {
+        if (!effectiveDisplayDevice || effectiveDisplayDevice === 'auto') {
           effectiveDisplayDevice = 'ramfb'
           hilog.warn(0x0000, 'INDEX', 'install(aarch64) 显示设备兜底为 ramfb（原=%{public}s）',
             vm.config.displayDevice || '(empty)')
@@ -2846,8 +2767,7 @@ struct Index {
           preferType: SheetType.CENTER,
           onDisappear: (): void => {
             hilog.info(0x0000, 'INDEX', '>>> Sheet onDisappear 触发，currentSheet=%{public}s <<<', this.currentSheet)
-            this.sheetVisible = false
-            this.currentSheet = 'none'
+            this.closeSheet()
           }
         }
       )

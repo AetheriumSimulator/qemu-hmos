@@ -34,6 +34,7 @@ REQUIRED_SOURCES = {
     'project/entry/src/main/cpp/CMakeLists.txt',
     'project/tools/build_curl_ohos.sh', 'project/tools/verify_curl_source.py',
     'project/tools/prepare_hap_sources.py',
+    'project/tools/prepare_firmware.py',
     'project/tools/libffi_source.py',
     'project/third_party/deps/glib/libffi-source-evidence.json',
     'project/third_party/deps/glib/src/subprojects/libffi/LICENSE',

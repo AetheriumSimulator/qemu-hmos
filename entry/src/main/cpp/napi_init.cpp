@@ -1,4 +1,5 @@
 #include "ohaudio_args.h"
+#include "pflash_firmware.h"
 #include "microphone_session.h"
 #include "vm_lifecycle.h"
 #include <exception>
@@ -1850,7 +1851,7 @@ static bool CreateVirtualDisk(const std::string& diskPath, int sizeGB) {
 }
 
 // 构建QEMU命令行参数
-static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
+static std::vector<std::string> BuildQemuArgs(const VMConfig& config, std::string* firmwareError = nullptr) {
     std::vector<std::string> args;
     if (!IsSupportedQemuArch(config.archType)) {
         HilogPrint("QEMU: refusing unsupported architecture: " + config.archType);
@@ -2025,30 +2026,11 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
             args.push_back("virtio-rng-device,rng=" + rngId);
             HilogPrint("QEMU: [HW] RNG enabled: rng-random(id=" + rngId + ") + virtio-rng-device (MMIO)");
 
-            // TPM2 (Windows 11 / UEFI TCG2)
-            // - HarmonyOS 构建：QEMU 侧提供“内置最小 TPM2”兜底（见 QEMU tpm_emulator.c 的 OHOS patch）
-            //   这样即使没有 swtpm 外部进程，也不会因为缺少 chardev 导致 QEMU 直接 exit(1) 把 App 带崩。
-            // - 设备模型选择（重要：避免 QEMU/ACPI 崩溃）：
-            //   - aarch64 + virt + acpi=on：必须使用 tpm-tis-device（SysBusDevice）
-            //     * QEMU 的 ARM virt ACPI 代码会把 tpm_find() 强转为 SysBusDevice 并走 platform-bus 分配 MMIO
-            //     * tpm-crb 在 QEMU 里是 TYPE_DEVICE，且会固定映射到 0xFED40000，不是 sysbus 设备
-            //     * 在我们当前构建（未启用 CONFIG_QOM_CAST_DEBUG）下，这个强转不会报错而会导致 NULL 解引用崩溃：
-            //       memory_region_is_mapped(NULL) <- platform_bus_get_mmio_addr()
-            //   - 其他机器/平台：才考虑 tpm-crb（更贴近 PC/Win11 常见 CRB 接口）
-            // - backend 使用 type=emulator；在 HarmonyOS 构建里我们提供了“内置最小 TPM2”实现（无需 swtpm 进程）
-            // 启用 TPM 后端（HarmonyOS：缺省不传 chardev，会走内置 minimal TPM2）
-            args.push_back("-tpmdev");
-            args.push_back("emulator,id=tpm0");
-            args.push_back("-device");
-
-            // aarch64 virt + ACPI：使用 tpm-tis-device（sysbus）更稳，避免 CRB 在 ARM virt 下的映射/类型问题
-            if (machine == "virt") {
-                args.push_back("tpm-tis-device,tpmdev=tpm0");
-                HilogPrint("QEMU: [HW] TPM2 enabled: tpm-tis-device (virt/acpi safe, builtin backend on OHOS)");
-            } else {
-                // 其他机器：保守同样使用 TIS
-                args.push_back("tpm-tis-device,tpmdev=tpm0");
-                HilogPrint("QEMU: [HW] TPM2 enabled: tpm-tis-device (tpmdev=emulator,id=tpm0)");
+            // The shipped fullcore has no configured TPM backend. Generic QEMU
+            // TPM support does not provide a built-in emulator: omitting chardev
+            // makes qemu_init fail. Do not infer TPM availability from guest OS.
+            if (isWindowsGuest) {
+                HilogPrint("QEMU: [HW] TPM unavailable in this build; no TPM device attached");
             }
         }
 
@@ -2103,174 +2085,86 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
     args.push_back("-accel");
     args.push_back(config.accel);
     
-    // UEFI/BIOS 固件配置
+    // Firmware is verified before entering the in-process QEMU core. Invalid
+    // custom images are reported unchanged; do not silently substitute a bundle.
     std::string firmwarePath = config.efiFirmware;
-    HilogPrint("QEMU: [FIRMWARE] ArkTS 传入的固件路径: " + (firmwarePath.empty() ? "(空)" : firmwarePath));
-    
-    // 如果未指定固件路径，尝试自动查找
-    if (firmwarePath.empty()) {
-        HilogPrint("QEMU: [FIRMWARE] 固件路径为空，开始自动搜索...");
-        std::string firmwareFileName;
-        firmwareFileName = "edk2-aarch64-code.fd";
-    
-        std::vector<std::string> searchPaths = {
-            // rawfile/ 目录（通过 FirmwareManager 复制到 files）
-            "/data/storage/el1/bundle/entry/resources/rawfile/" + firmwareFileName,
-            "/data/storage/el2/base/haps/entry/resources/rawfile/" + firmwareFileName,
-            // files/ 目录（FirmwareManager 复制的目标位置）
-            "/data/storage/el2/base/haps/entry/files/" + firmwareFileName,
-            "/data/storage/el2/base/haps/entry/files/firmware/" + firmwareFileName,
-            firmwareFileName  // 作为fallback
-        };
-    
-        for (const auto& path : searchPaths) {
-        if (FileExists(path)) {
-                firmwarePath = path;
-                HilogPrint(std::string("QEMU: Found firmware at: ") + path);
-            break;
-        }
-    }
-    }
-    
-    // 配置固件
-    // 注意：HarmonyOS 沙盒文件系统在 C++ 层的 FileExists() 可能返回错误结果
-    // 如果 ArkTS 层（FirmwareManager）已确认固件存在，我们应该信任它，但仍需验证可读性
-    auto try_firmware_path = [&](std::string path) -> bool {
-        if (path.empty()) return false;
-        // 先尝试 stat
-        if (!FileExists(path)) {
-            HilogPrint("QEMU: [FIRMWARE] C++ stat() failed for: " + path);
-        }
-        // 再尝试 open/read
-        int fwFd = open(path.c_str(), O_RDONLY);
-        if (fwFd < 0) {
-            HilogPrint("QEMU: [FIRMWARE] open() failed: " + path + " errno=" + std::to_string(errno));
-            return false;
-        }
-        char buffer[1];
-        ssize_t r = read(fwFd, buffer, 0);
-        close(fwFd);
-        if (r < 0) {
-            HilogPrint("QEMU: [FIRMWARE] open ok but read failed: " + path + " errno=" + std::to_string(errno));
-            return false;
-        }
-        HilogPrint("QEMU: [FIRMWARE] Verified readable: " + path);
-        firmwarePath = path;
-        return true;
+    std::string error;
+    const auto failFirmware = [&](const std::string &message) {
+        HilogPrint("QEMU: [FIRMWARE] " + message);
+        if (firmwareError) *firmwareError = message;
+        return std::vector<std::string> {};
     };
-
-    bool firmwareExists = false;
-
-    // 先尝试 ArkTS 传入的路径
-    if (!firmwarePath.empty()) {
-        firmwareExists = try_firmware_path(firmwarePath);
-    }
-
-    // 如果 ArkTS 路径不可读，尝试自动搜索内置/默认路径
-    if (!firmwareExists) {
-        std::string firmwareFileName;
-        if (config.archType == "x86_64" || config.archType == "i386") {
-            firmwareFileName = "OVMF_CODE.fd";
-        } else {
-            firmwareFileName = "edk2-aarch64-code.fd";
-        }
-        std::vector<std::string> searchPaths = {
-            "/data/storage/el1/bundle/entry/resources/rawfile/" + firmwareFileName,
-            "/data/storage/el2/base/haps/entry/resources/rawfile/" + firmwareFileName,
-            "/data/storage/el2/base/haps/entry/files/" + firmwareFileName,
-            "/data/storage/el2/base/haps/entry/files/firmware/" + firmwareFileName,
-            firmwareFileName  // fallback
-        };
-        for (const auto& p : searchPaths) {
-            if (try_firmware_path(p)) {
-                firmwareExists = true;
-                break;
-            }
-        }
-    }
-
-    HilogPrint("QEMU: [FIRMWARE] 验证结果: " + std::string(firmwareExists ? "成功" : "失败"));
-    HilogPrint("QEMU: [FIRMWARE] 最终固件路径: " + (firmwarePath.empty() ? "(空)" : firmwarePath));
-
-    if (firmwareExists) {
+    const auto readableFirmware = [&](const std::string &path) {
         if (config.archType == "aarch64") {
-            // ARM64 使用 pflash 方式加载 UEFI
-            // 注意：仅挂 CODE 盘在部分场景会导致 UEFI 无法保存变量/引导异常，因此尽量同时挂 VARS 盘（unit=1，可写）
-            args.push_back("-drive");
-            args.push_back("file=" + firmwarePath + ",if=pflash,format=raw,unit=0,readonly=on");
-            HilogPrint(std::string("QEMU: [FIRMWARE] 添加 pflash(CODE) 参数: ") + firmwarePath);
-
-            // 尝试自动定位 VARS
-            auto simple_dirname = [](const std::string& p) -> std::string {
-                size_t pos = p.find_last_of('/');
-                if (pos == std::string::npos) return std::string();
-                return p.substr(0, pos);
-            };
-            std::string fwDir = simple_dirname(firmwarePath);
-            std::vector<std::string> varsCandidates;
-            // 工程 rawfile 里当前是 edk2-arm-vars.fd（不是 edk2-aarch64-vars.fd），两者都兼容尝试
-            if (!fwDir.empty()) {
-                varsCandidates.push_back(fwDir + "/edk2-arm-vars.fd");
-                varsCandidates.push_back(fwDir + "/edk2-aarch64-vars.fd");
-            }
-            varsCandidates.push_back("edk2-arm-vars.fd");
-            varsCandidates.push_back("edk2-aarch64-vars.fd");
-
-            std::string varsTemplatePath;
-            for (const auto& cand : varsCandidates) {
-                if (cand.empty()) continue;
-                int fd = open(cand.c_str(), O_RDONLY);
-                if (fd < 0) continue;
-                // 轻量验证：读 0 字节（不移动文件指针），确认句柄可用
-                char tmp[1];
-                ssize_t r = read(fd, tmp, 0);
-                close(fd);
-                if (r < 0) continue;
-                varsTemplatePath = cand;
-                break;
-            }
-
-            if (!varsTemplatePath.empty()) {
-                // 关键修复：UEFI VARS 不能全局复用，否则 BootOrder/启动项会被“记住”，
-                // 导致反复先从硬盘启动、按键没接住就回固件（你看到的 TianoCore 卡住）。
-                // 这里把 VARS 做成“每个 VM 独立一份”：
-                // - 默认：若不存在则从模板复制一份
-                // - 安装模式：强制重置（每次挂载 ISO 安装都用干净的 BootOrder）
-                std::string vmVarsPath = config.vmDir + "/edk2-vars.fd";
-                bool needReset = config.installMode || !FileExists(vmVarsPath);
-                if (needReset) {
-                    bool copied = CopyFileTruncate(varsTemplatePath, vmVarsPath);
-                    HilogPrint(std::string("QEMU: [FIRMWARE] VARS reset=") + (needReset ? "true" : "false") +
-                               " template=" + varsTemplatePath + " -> " + vmVarsPath + " copied=" + (copied ? "true" : "false"));
-                    if (!copied) {
-                        // 兜底：复制失败时仍尝试使用模板（可能不可写，但至少不至于启动失败）
-                        HilogPrint("QEMU: [FIRMWARE] ⚠️ VARS copy failed, fallback to template vars (may be read-only): " + varsTemplatePath);
-                        vmVarsPath = varsTemplatePath;
-                    }
-                } else {
-                    HilogPrint("QEMU: [FIRMWARE] Using existing per-VM VARS: " + vmVarsPath);
-                }
-
-                // 预检测：VARS 必须可写，否则 QEMU pflash 打开失败会直接 fatal→exit(1)
-                (void)PreflightOpen("VARS(pflash,rw)", vmVarsPath, O_RDWR);
-
-                args.push_back("-drive");
-                args.push_back("file=" + vmVarsPath + ",if=pflash,format=raw,unit=1");
-                HilogPrint(std::string("QEMU: [FIRMWARE] 添加 pflash(VARS) 参数: ") + vmVarsPath);
-            } else {
-                HilogPrint("QEMU: [FIRMWARE] ⚠️ 未找到 VARS 固件(edk2-arm-vars.fd)，继续仅使用 CODE 盘");
-            }
-        } else {
-            // x86 使用 -bios 参数
-            args.push_back("-bios");
-            args.push_back(firmwarePath);
-            HilogPrint(std::string("QEMU: [FIRMWARE] 添加 -bios 参数: ") + firmwarePath);
+            return aetherium::ValidatePflashFile(path, false, error);
+        }
+        return FileExists(path);
+    };
+    if (!firmwarePath.empty()) {
+        if (!readableFirmware(firmwarePath)) {
+            return failFirmware(error.empty() ? "Firmware is unavailable: " + firmwarePath : error);
         }
     } else {
-        HilogPrint("QEMU: [FIRMWARE] ⚠️ 固件不可用！VM 可能无法启动");
-        HilogPrint("QEMU: [FIRMWARE] archType=" + config.archType);
+        const std::string filename = config.archType == "aarch64" ?
+            "edk2-aarch64-code.fd" : "OVMF_CODE.fd";
+        const std::vector<std::string> candidates = {
+            "/data/storage/el1/bundle/entry/resources/rawfile/" + filename,
+            "/data/storage/el2/base/haps/entry/resources/rawfile/" + filename,
+            "/data/storage/el2/base/haps/entry/files/" + filename,
+            "/data/storage/el2/base/haps/entry/files/firmware/" + filename,
+            filename
+        };
+        for (const auto &path : candidates) {
+            if (readableFirmware(path)) {
+                firmwarePath = path;
+                break;
+            }
+        }
+        if (firmwarePath.empty()) {
+            return failFirmware("No compatible readable UEFI firmware; prepare the bundled image first");
+        }
     }
-    
+
+    if (config.archType == "aarch64") {
+        args.push_back("-drive");
+        args.push_back("file=" + firmwarePath + ",if=pflash,format=raw,unit=0,readonly=on");
+        const std::string vmVarsPath = config.vmDir + "/edk2-vars.fd";
+        struct stat varsStatus {};
+        bool haveVars = lstat(vmVarsPath.c_str(), &varsStatus) == 0;
+        if (!haveVars && errno != ENOENT) {
+            return failFirmware("Cannot inspect VM NVRAM: " + std::string(std::strerror(errno)));
+        }
+        if (haveVars) {
+            if (!aetherium::ValidatePflashFile(vmVarsPath, true, error)) {
+                return failFirmware(error);
+            }
+        } else {
+            const size_t slash = firmwarePath.find_last_of('/');
+            const std::string directory = slash == std::string::npos ? "" : firmwarePath.substr(0, slash + 1);
+            const std::vector<std::string> templates = {
+                directory + "edk2-arm-vars.fd", directory + "edk2-aarch64-vars.fd"
+            };
+            for (const auto &path : templates) {
+                if (lstat(path.c_str(), &varsStatus) != 0) {
+                    if (errno == ENOENT) continue;
+                    return failFirmware("Cannot inspect VARS template: " + path);
+                }
+                if (!aetherium::EnsureVmPflashVars(path, vmVarsPath, error)) {
+                    return failFirmware(error);
+                }
+                haveVars = true;
+                break;
+            }
+        }
+        if (haveVars) {
+            args.push_back("-drive");
+            args.push_back("file=" + vmVarsPath + ",if=pflash,format=raw,unit=1");
+        }
+    } else {
+        args.push_back("-bios");
+        args.push_back(firmwarePath);
+    }
+
     // 磁盘配置
     // 注意：OHOS 版 QEMU 禁用了 linux-aio，简化磁盘参数避免崩溃
     if (FileExists(config.diskPath)) {
@@ -2680,35 +2574,22 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
             displayConfig = "none";  // 标记为无显示模式
         }
        
-        // ============================================================
-        // 显卡设备选择（关键修复点）
-        // ARM64 virt 机器如果没有提供可被 UEFI/来宾识别的图形设备(GOP/framebuffer)，
-        // VNC 看到的往往是黑底白字的文本控制台（例如 “Parallel Console”）。
-        // 因此：当启用 VNC 且用户未指定时，为 aarch64 默认添加 virtio-gpu-device(MMIO)，
-        // 这是 virt 机器上最常见/最兼容的图形设备路径之一。
-        // ============================================================
+        // ARM virt exposes PCIe. Use its modern virtio GPU transport by default;
+        // legacy virtio-mmio is not suitable for virtio-gpu.
         std::string effectiveDisplayDev = config.displayDevice;
+        const bool isArmVirt = config.archType == "aarch64" &&
+                               (config.machine.empty() || config.machine == "virt");
+        const bool displayUnspecified = effectiveDisplayDev.empty() || effectiveDisplayDev == "auto" ||
+                                        (config.archType == "aarch64" && effectiveDisplayDev == "none");
 
-        // 安装阶段(aarch64)兜底：强制使用 ramfb，避免 EDK2/TianoCore 阶段
-        // virtio-gpu 无 GOP 导致 “Display Output Is Not Active”。
-        // 注意：这里只影响本次启动参数，不会修改用户持久化的显示设备偏好。
-        if (config.installMode && config.archType == "aarch64") {
-            if (effectiveDisplayDev != "ramfb") {
-                HilogPrint(std::string("QEMU: [HW] install(aarch64) force display device = ramfb (requested=") +
-                           (config.displayDevice.empty() ? "(empty)" : config.displayDevice) + ")");
-            }
+        // Preserve explicit choices, including PCI GPU during installation.
+        // Keep the conservative ramfb fallback only for an unspecified device.
+        if (config.installMode && config.archType == "aarch64" && displayUnspecified) {
             effectiveDisplayDev = "ramfb";
-        }
-        if (displayConfig != "none") {
-            // 注意：UI 侧历史上默认会传 'none'，但这会导致 VNC 只能看到串口控制台（Parallel Console）。
-            // 对于 aarch64 + VNC，我们把 'none' 也当作“未指定”，自动选择可用的图形设备。
-            if (effectiveDisplayDev.empty() || effectiveDisplayDev == "auto" ||
-                (config.archType == "aarch64" && effectiveDisplayDev == "none")) {
-                if (config.archType == "aarch64") {
-                    effectiveDisplayDev = "virtio-gpu";
-                    HilogPrint("QEMU: [HW] aarch64 VNC default display device = virtio-gpu-device (via virtio-gpu)");
-                }
-            }
+            HilogPrint("QEMU: [HW] install default display device = ramfb");
+        } else if (displayConfig != "none" && displayUnspecified && config.archType == "aarch64") {
+            effectiveDisplayDev = isArmVirt ? "virtio-gpu-pci" : "virtio-gpu-device";
+            HilogPrint("QEMU: [HW] default display device = " + effectiveDisplayDev);
         }
 
         // 根据高级设置选择显卡设备（仅在启用图形时）
@@ -2718,14 +2599,11 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
             std::string displayDev = effectiveDisplayDev;
             std::string qemuDisplayDev;
 
-            if (displayDev == "virtio-gpu" || displayDev == "virtio-gpu-pci") {
-                if (config.archType == "aarch64") {
-                    qemuDisplayDev = "virtio-gpu-device";
-                    HilogPrint("QEMU: [HW] Using virtio-gpu-device (MMIO) as display device (aarch64)");
-                } else {
-                    qemuDisplayDev = "virtio-gpu-pci";
-                    HilogPrint("QEMU: [HW] Using virtio-gpu-pci as display device");
-                }
+            if (displayDev == "virtio-gpu-pci" || (displayDev == "virtio-gpu" && isArmVirt)) {
+                qemuDisplayDev = "virtio-gpu-pci";
+                HilogPrint("QEMU: [HW] Using virtio-gpu-pci as display device");
+            } else if (displayDev == "virtio-gpu") {
+                qemuDisplayDev = config.archType == "aarch64" ? "virtio-gpu-device" : "virtio-gpu-pci";
             } else if (displayDev == "virtio-gpu-gl" || displayDev == "virtio-gpu-gl-pci") {
                 if (config.archType == "aarch64") {
                     qemuDisplayDev = "ramfb";
@@ -2776,6 +2654,11 @@ static std::vector<std::string> BuildQemuArgs(const VMConfig& config) {
             }
 
             if (!qemuDisplayDev.empty()) {
+                if (isArmVirt && qemuDisplayDev == "virtio-gpu-device") {
+                    // An explicit MMIO GPU needs virtio 1.0 feature negotiation.
+                    args.push_back("-global");
+                    args.push_back("virtio-mmio.force-legacy=false");
+                }
                 args.push_back("-device");
                 args.push_back(qemuDisplayDev);
                 HilogPrint(std::string("QEMU: [HW] Final display device: ") + qemuDisplayDev + " (requested=" +
@@ -3719,7 +3602,14 @@ static napi_value StartVm(napi_env env, napi_callback_info info) {
     WriteLog(config.logPath, "==========================================");
     
     // 构建QEMU参数
-    std::vector<std::string> args = BuildQemuArgs(config);
+    std::string firmwareError;
+    std::vector<std::string> args = BuildQemuArgs(config, &firmwareError);
+    if (args.empty()) {
+        UpdateVMStatus(config.name, "failed");
+        SetLastError(VmStartError::CONFIG_FAILED, "firmware_preflight", firmwareError,
+                     config.name, config.logPath);
+        return retBool;
+    }
     std::string cmdStr = "Starting VM with command: ";
     for (const auto& arg : args) {
         cmdStr += arg + " ";

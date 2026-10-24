@@ -52,7 +52,7 @@ Aetherium 是实验性的开源本地虚拟机应用：ArkTS 界面通过 C++/N-
 | 来宾应用启动 / StartProgram | [Apps 页面](entry/src/main/ets/pages/Apps.ets)明确提示远程应用不可用并转向 VNC；基于 RDP/RemoteApp 的旧启动方案不再列入路线图，不能宣称支持一键 EXE 或来宾应用桌面固定。 |
 | 文件共享 | 有配置字段和相关页面，但主启动路径中的 virtio-9p 被注释禁用；未确认接通 virtiofs。不能宣称已映射共享目录、盘符、剪贴板或双向同步。 |
 | 音频 / 麦克风 | CI 与本地 fullcore 构建必须应用 [OHAudio 补丁](patches/qemu/0002-ohos-ohaudio-audiodev.patch)，显式选择后端并验证 ELF 注册及链接；失败阻止 HAP 流程。输出为 s16/48kHz 双声道；输入使用来宾协商的 s16 小端格式、采样率和声道，不支持的输入格式会失败。麦克风默认关闭，需用户为运行中的 VM 明确启用；ArkTS 授权及 API12 Native 权限检查约束输入，播放独立。详见[权限与验收边界](docs/MICROPHONE_CONSENT.md)。设备播放、录音权限、路由和延迟尚未验收。不是 VNC 音频传输。 |
-| TPM / Windows 11 配置 | 有配置代码及 [最小 TPM2 补丁](patches/qemu/0001-ohos-builtin-minimal-tpm2.patch)；实际日志 `TPM support: YES` 仅说明通用构建能力，补丁存在不证明当前 CI 应用了它。TPM 行为、Windows 检测及安装兼容性未验证。 |
+| TPM / Windows 11 配置 | 当前 fullcore 未交付可用 TPM 后端，启动不再自动添加缺少 `chardev` 的 TPM 参数，兼容性接口报告不可用。[最小 TPM2 补丁](patches/qemu/0001-ohos-builtin-minimal-tpm2.patch)仍未启用；通用 `TPM support: YES` 不能证明 Windows 11 TPM 要求已满足。 |
 | 镜像下载 | 有下载页面、任务/进度与 Range 请求相关代码；下载服务、断点恢复和实况窗等设备行为未验收。不是镜像授权或下载成功承诺。 |
 | AET / Guest Tools | 未找到本仓库完整 AET 交付或与此 HAP 配套的验收记录；[Guest Tools 工作流](.github/workflows/build-guest-tools.yml)仍含 TODO，且其独立旧门禁保持关闭。不能借用商业产品能力填充本仓库状态。 |
 | 硬件虚拟化 / JIT | 有 KVM/JIT 探测代码，但**当前 CI 明确 `--disable-kvm`**；没有 HMV 接入成功或权限获批证据。TCG 构建通过不证明某台设备获得 JIT 权限，也不证明 TCI 自动回退已接通。 |

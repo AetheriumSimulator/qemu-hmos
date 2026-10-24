@@ -32,15 +32,25 @@ jobs:
         run: python -m unittest discover -s tools -p 'test_curl_source.py' -v
       - name: Test OHAudio patch and native argument contract
         run: python -m unittest discover -s tools -p 'test_ohaudio.py' -v
+      - name: Test launch TPM and GPU argument contracts
+        run: python -m unittest discover -s tools -p 'test_vm_launch_args.py' -v
       - name: Test embedded VM stop ownership and deadlines
         run: python -m unittest discover -s tools -p 'test_vm_stop_lifecycle.py' -v
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Test truthful TPM capability in compatibility UI
+        run: python -m unittest discover -s tools -p 'test_vm_tpm_ui.py' -v
       - name: Test microphone consent races without platform access
         run: python -m unittest discover -s tools -p 'test_microphone_consent.py' -v
+      - name: Test firmware upgrade and NVRAM preservation
+        run: python -m unittest discover -s tools -p 'test_firmware_runtime.py' -v
+      - name: Test ISO and disk import failures and races
+        run: python -m unittest discover -s tools -p 'test_vm_imports.py' -v
       - name: Test asynchronous stop and UI status polling
         run: python -m unittest discover -s tools -p 'test_vm_stop_ui.py' -v
+      - name: Test ARM64 firmware packaging and HAP validation
+        run: python -m unittest discover -s tools -p 'test_firmware_package.py' -v
       - name: Test reconstructed firmware inputs
         run: python -m unittest discover -s tools -p 'test_hap_source_inputs.py' -v
       - name: Test index and credential boundaries
